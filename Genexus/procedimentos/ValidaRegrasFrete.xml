@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2020-11-05T21:01:51.0000000Z" checksum="b1ecf574a33f9860a6f1db5d35ed7925" fullyQualifiedName="ValidaRegrasFrete" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="754a6321-e8b6-4226-bad7-a8649ebe20e8" name="ValidaRegrasFrete" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Valida Regras Frete" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+if &PedPerFrt > 0
+	&PercentualFrete = &PedPerFrt
+Else
+	If &PedFrtFix > 0 and &PedVlrLIq > 0
+		&PercentualFrete = round((&PedFrtFix / &PedVlrLIq) * 100, 2)
+	EndIf
+EndIF
+	
+Do Case
+	CAse &PedTipFrt = TipoFrete.SemFrete
+		&RFrtTipFlt = TipoFreteTodos.SemFrete
+	CAse &PedTipFrt = TipoFrete.Destinatario
+		&RFrtTipFlt = TipoFreteTodos.Destinatario
+	CAse &PedTipFrt = TipoFrete.Emitente
+		&RFrtTipFlt = TipoFreteTodos.Emitente
+	CAse &PedTipFrt = TipoFrete.Terceiros
+		&RFrtTipFlt = TipoFreteTodos.Terceiros
+EndCase
+
+
+For Each order EmpCod, PesCod
+	Where EmpCod = &EmpCod
+	Where PesCod = &PedCliCod
+	
+	&PedCliUfeCod = PesCidUfeCod
+	Exit
+EndFor
+
+&IsErroFrete = false
+&mensagem = ''
+&outMensagem.SetEmpty()
+
+&IsValidaFreteUF = false
+&IsValidaFreteTabela = false
+For Each Order EmpCod, RFrtCod
+	Where EmpCod = &EmpCod
+	Where RFrtIniDta <= &PedDtaEms and (RFrtFinDta >= &PedDtaEms or RFrtFinDta.IsEmpty() or RFrtFinDta.IsNull())
+	Where RFrtTipFlt = &RFrtTipFlt or RFrtTipFlt = TipoFreteTodos.TodosTipos
+	Where RFrtSai = true when &RouS = 'S'
+	Where RFrtRed = true when &RouS = 'R'
+	
+	&IsValidaFreteUF = false
+//	if RFrtIsAllUF = true //TODAS AS UFE
+//		&IsValidaFreteUF = true	
+//	Else
+	For Each order EmpCod, RFrtCod, RFrtUfeCod
+		Where RFrtUfeCod = &PedCliUfeCod //UF ESPECIFICA
+		&IsValidaFreteUF = true
+		Exit
+	EndFor
+//	EndIF
+
+	&IsValidaFreteTabela = false
+	if RFrtIsAllTab = true //TODAS AS TABELAS
+		&IsValidaFreteTabela = true	
+	Else
+		For Each order EmpCod, RFrtCod, RFrtTabCod
+			Where RFrtTabCod = &TabCod  or RFrtTabCod = &TabPrmCod//TABELA ESPECIFICA
+			&IsValidaFreteTabela = true
+			Exit
+		EndFor
+	EndIF
+
+	if &IsValidaFreteUF = true and &IsValidaFreteTabela = true //VERIFICA REGRA
+		Do CAse
+			CAse RFrtVlr > 0 and RFrtPer > 0 and RFrtEou = E_OU.E
+				Do CAse
+					Case RFrtSinVlr = MaiorMenor.Maior and RFrtSinPer = MaiorMenor.Maior
+						if &PedVlrLiq > RFrtVlr and &PercentualFrete > RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MENOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' E percentual de FRETE MENOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLIne()
+							
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Maior and RFrtSinPer = MaiorMenor.Menor
+						if &PedVlrLiq > RFrtVlr and &PercentualFrete < RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MENOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' E percentual de FRETE MAIOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Menor and RFrtSinPer = MaiorMenor.Maior
+						if &PedVlrLiq < RFrtVlr and &PercentualFrete > RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MAIOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' E percentual de FRETE MENOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Menor and RFrtSinPer = MaiorMenor.Menor
+						if &PedVlrLiq < RFrtVlr and &PercentualFrete < RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MAIOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' E percentual de FRETE MAIOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+				EndCase
+				
+			CAse RFrtVlr > 0 and RFrtPer > 0 and RFrtEou = E_OU.OU
+				Do CAse
+					Case RFrtSinVlr = MaiorMenor.Maior and RFrtSinPer = MaiorMenor.Maior
+						if &PedVlrLiq > RFrtVlr or &PercentualFrete > RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MAIOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' OU percentual de FRETE MENOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Maior and RFrtSinPer = MaiorMenor.Menor
+						if &PedVlrLiq > RFrtVlr or &PercentualFrete < RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MENOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' OU percentual de FRETE MAIOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Menor and RFrtSinPer = MaiorMenor.Maior
+						if &PedVlrLiq < RFrtVlr or &PercentualFrete > RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MAIOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' OU percentual de FRETE MENOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Menor and RFrtSinPer = MaiorMenor.Menor
+						if &PedVlrLiq < RFrtVlr or &PercentualFrete < RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MAIOR: R$ ' + trim(toformattedString(RFrtVlr))  + ' OU percentual de FRETE MAIOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+				EndCase
+				
+			CAse RFrtVlr > 0 and (RFrtPer = 0 or RFrtPer.IsNull())
+				Do CAse
+					Case RFrtSinVlr = MaiorMenor.Maior
+						if &PedVlrLiq > RFrtVlr
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MENOR: R$ ' + trim(toformattedString(RFrtVlr))  + NewLine()
+						EndIF
+						
+					Case RFrtSinVlr = MaiorMenor.Menor
+						if &PedVlrLiq < RFrtVlr
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Valor do PEDIDO MAIOR: R$ ' + trim(toformattedString(RFrtVlr))  + NewLine()
+						EndIF
+				EndCase
+				
+			CAse RFrtVlr = 0 and RFrtPer > 0
+				Do CAse
+					Case RFrtSinPer = MaiorMenor.Maior
+						if &PercentualFrete > RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Percentual de FRETE MENOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+						
+					Case RFrtSinPer = MaiorMenor.Menor
+						if &PercentualFrete < RFrtPer
+							&IsErroFrete = true
+							&mensagem += 'Para Pedidos com FRETE: ' + RFrtTip.EnumerationDescription() + ' REGRA:'+trim(str(RFrtCod))+' Percentual de FRETE MAIOR: ' + trim(toformattedString(RFrtPer)) + '%' + NewLine()
+						EndIF
+				EndCase
+			
+			Case RFrtTipVal = true and RFrtTip <> &PedTipFrt
+				&mensagem += 'Para Pedidos desse estado. REGRA:'+trim(str(RFrtCod))+' Tipo de FRETE NÃO PODE SER DIFERENTE DE: ' + trim(RFrtTip.EnumerationDescription()) + NewLine()
+				&IsErroFrete = true
+		EndCase
+		
+	EndiF
+
+//	if &IsErroFrete = true
+//		Exit
+//	EndIF
+EndFor
+
+&outMensagem = &Mensagem
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&PedTipFrt, 
+	in:&PedDtaEms, in:&PedVlrLIq, 
+	in:&TabCod, in:&TabPrmCod, 
+	in:&PedCliCod, in:&PedPerFrt, 
+	in:&PedFrtFix, in:&RouS, out:&outMensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErroFrete">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErroFrete</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTipFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTipFrt</Value></Property><Property><Name>Description</Name><Value>Tipo Frete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTipFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrLIq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrLIq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedFrtFix">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedFrtFix</Value></Property><Property><Name>Description</Name><Value>Valor Fixo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedFrtFix</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerFrt</Value></Property><Property><Name>Description</Name><Value>percentual Frete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PercentualFrete">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PercentualFrete</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsValidaFreteUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsValidaFreteUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsValidaFreteTabela">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsValidaFreteTabela</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:UfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabPrmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabPrmCod</Value></Property><Property><Name>Description</Name><Value>Tabela Promoção</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabPrmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RFrtTipFlt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RFrtTipFlt</Value></Property><Property><Name>Description</Name><Value>TipoFrete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RFrtTipFlt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RouS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RouS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ValidaRegrasFrete</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

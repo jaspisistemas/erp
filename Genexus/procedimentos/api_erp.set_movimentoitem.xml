@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2029c88d-bc03-4d0a-89d8-cf9907782d43" user="WINJEAN\jeanfae" versionDate="2025-03-03T21:12:34.0000000Z" lastUpdate="2025-02-27T17:53:30.0000000Z" checksum="60c861acdbdeeafdb47ad9c2dd7c1cd1" fullyQualifiedName="api_erp.set_movimentoitem" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="10518de9-1000-49cf-8176-30827799b76a" name="set_movimentoitem" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_movimentoitem" parent="api_erp.Financeiro" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	&MovCod = &parMovCod
+	
+	timestampToDate.Call(&sdtMovimento.movDtaConTmp, &MovDtaCon)
+	timestampToDate.Call(&sdtMovimento.movDtaPgtTmp, &movDtaPgt)
+	
+	if &MovCod <> 0
+		&mode = TrnMode.Update
+		For Each Order EmpCod, MovCod
+			Where EmpCod = &wwpContext.EmpCod
+			Where MovCod = &MovCod
+			
+			if &MovSts = Status_Caixa.Cancelado
+				&sdtRetornoWbsEtc.sts = 'E998'
+				&sdtRetornoWbsEtc.obs = 'Lancamento cancelado!'
+				return
+			Endif
+			
+			For each Order EmpCod,MovCod, MovItmCod
+				&SdtMovimentoItensMovimentoitem = new()
+				&SdtMovimentoItensMovimentoitem.MovItmCod = MovItmCod
+				&SdtMovimentoItensMovimentoitem.MovItmCpl = MovItmCpl
+				&SdtMovimentoItensMovimentoitem.MovItmVlr = MovItmVlr
+				&SdtMovimentoItensMovimentoitem.PlanCod   = PlanCod
+				&SdtMovimentoItensMovimentoitem.PlanCodNom = PlanCodNom		
+				&SdtMovimentoItensMovimentoitem.MovCreCod = MovCreCod
+				&SdtMovimentoItensMovimentoitem.MovCreFilCod = MovCreFilCod
+				&SdtMovimentoItensMovimentoitem.MovCrePagCod = MovCrePagCod
+				&SdtMovimentoItensMovimentoitem.MovFunCod = MovFunCod
+				&SdtMovimentoItensMovimentoitem.MovFunAno = MovFunAno
+				&SdtMovimentoItensMovimentoitem.MovFunMes = MovFunMes
+				&SdtMovimentoItensMovimentoitem.MovItmSts = MovItmSts
+				&SdtMovimentoItensMovimento.Add(&SdtMovimentoItensMovimentoitem)
+			EndFor
+			
+			Exit
+		EndFor
+	else
+		&mode = TrnMode.Insert
+	Endif
+	
+	PrcValidaCaixaAberto.Call(&wwpContext.EmpCod, &sdtMovimento.movCtaBanCod, &MovDtaCon, &IsCaixaFechado, &Mensagem)
+	if &MovDtaCon <> &movDtaPgt and &IsCaixaFechado = false
+		PrcValidaCaixaAberto.Call(&wwpContext.EmpCod, &sdtMovimento.movCtaBanCod, &movDtaPgt, &IsCaixaFechado, &Mensagem)
+	Endif
+	&MovVlr.FromString(&sdtMovimento.movVlr)
+	Do Case
+		Case &IsCaixaFechado = true
+			&sdtRetornoWbsEtc.sts = 'E997'
+			&sdtRetornoWbsEtc.obs = &Mensagem
+			return
+		Case &sdtMovimento.MovCtaBanCod.IsEmpty()
+			&sdtRetornoWbsEtc.sts = 'E996'
+			&sdtRetornoWbsEtc.obs = 'Conta bancária não informada!'
+			return
+		case &movDtaPgt.IsEmpty()
+			&sdtRetornoWbsEtc.sts = 'E995'
+			&sdtRetornoWbsEtc.obs = 'Data de Pagamento não informado!'
+			return
+		case &movVlr = 0
+			&sdtRetornoWbsEtc.sts = 'E994'
+			&sdtRetornoWbsEtc.obs = 'Lançamento zerado!'
+			return
+		Otherwise	
+			
+			//pega os lancamentos do smart e add ao lancamento carregado.
+			For &sdtMovimentoItem in &SdtMovimento.item
+				
+				For each Order EmpCod,PlanAnaSin,PlanCatTip,PlanUtiTra,PlanHie
+					Where EmpCod = &wwpContext.EmpCod
+					Where PlanAnaSin = 'A'
+					Where PlanUtiTra = false
+					Where PlanCatTip = &SdtMovimento.movCreDeb
+					Where PlanCod = &sdtMovimentoItem.planCod
+					exit
+				When None
+					&sdtRetornoWbsEtc.sts = 'E993'
+					&sdtRetornoWbsEtc.obs = 'Plano de contas item: ' + trim(str(&sdtMovimentoItem.movItmCod)) + ' inválido!'
+					return
+				EndFor
+				
+				&IsAChou = false
+				For &SdtMovimentoItensMovimentoitem in &SdtMovimentoItensMovimento
+					if &SdtMovimentoItensMovimentoitem.MovItmCod = &sdtMovimentoItem.movItmCod
+						&IsAChou = true
+						&SdtMovimentoItensMovimentoitem.MovItmVlr = &SdtMovimentoItem.movItmVlr
+						//&SdtMovimentoItensMovimentoitem.MovFunCod
+						//&SdtMovimentoItensMovimentoitem.MovFunRaz
+						&SdtMovimentoItensMovimentoitem.PlanCod = &SdtMovimentoItem.planCod
+						//&SdtMovimentoItensMovimentoitem.PlanCodNom
+						&SdtMovimentoItensMovimentoitem.MovItmCpl = &SdtMovimentoItem.movItmCpl
+						//&SdtMovimentoItensMovimentoitem.MovCreFilCod
+						//&SdtMovimentoItensMovimentoitem.MovCreCod
+						//&SdtMovimentoItensMovimentoitem.MovCrePagCod
+						//&SdtMovimentoItensMovimentoitem.MovTrnOriCod
+						//&SdtMovimentoItensMovimentoitem.MovTrnOriCodItm
+						//&SdtMovimentoItensMovimentoitem.MovFunAno
+						//&SdtMovimentoItensMovimentoitem.MovFunMes
+						//&SdtMovimentoItensMovimentoitem.MovFunSts
+						//&SdtMovimentoItensMovimentoitem.MovCod
+						//&SdtMovimentoItensMovimentoitem.MovFunMesAno
+						&SdtMovimentoItensMovimentoitem.MovItmSts = &SdtMovimentoItem.movItmSts
+						//&SdtMovimentoItensMovimentoitem.MovDtaPgt
+						//&SdtMovimentoItensMovimentoitem.MovItmIsCon
+						//&SdtMovimentoItensMovimentoitem.MovItmDtaCon
+						//&SdtMovimentoItensMovimentoitem.MovItmDoc
+						//&SdtMovimentoItensMovimentoitem.MovCodItmCodAUX
+						
+						if &SdtMovimentoItem.movItmSts = 'C' //CANCELADO
+							
+							Do Case									
+								Case &sdtMovimento.movTip = TipoMovimento.FolhaPgto or &sdtMovimento.MovTip = TipoMovimento.DecimoTerceiro
+									//PREENCHER SDT QUE VAI SER DELETADO
+									&SdtFolhaDeletarItem = new()
+									&SdtFolhaDeletarItem.FolAno = &SdtMovimentoItensMovimentoitem.MovFunAno
+									&SdtFolhaDeletarItem.FolMes = &SdtMovimentoItensMovimentoitem.MovFunMes
+									&SdtFolhaDeletarItem.FunCod = &SdtMovimentoItensMovimentoitem.MovFunCod
+									&SdtFolhaDeletarItem.MovCod = &MovCod
+									&SdtFolhaDeletarItem.MovItmCod = &SdtMovimentoItensMovimentoitem.MovItmCod
+									&SdtFolhaDeletar.Add(&SdtFolhaDeletarItem)
+							EndCase
+						Endif
+						exit
+					EndIf					
+				EndFor
+			
+				if &IsAChou = false //ADD
+					&SdtMovimentoItensMovimentoitem = new()
+					&SdtMovimentoItensMovimentoitem.MovItmCod = &SdtMovimentoItem.movItmCod
+					&SdtMovimentoItensMovimentoitem.MovItmVlr = &SdtMovimentoItem.movItmVlr
+					//&SdtMovimentoItensMovimentoitem.MovFunCod
+					//&SdtMovimentoItensMovimentoitem.MovFunRaz
+					&SdtMovimentoItensMovimentoitem.PlanCod = &SdtMovimentoItem.planCod
+					//&SdtMovimentoItensMovimentoitem.PlanCodNom
+					&SdtMovimentoItensMovimentoitem.MovItmCpl = &SdtMovimentoItem.movItmCpl
+					//&SdtMovimentoItensMovimentoitem.MovCreFilCod
+					//&SdtMovimentoItensMovimentoitem.MovCreCod
+					//&SdtMovimentoItensMovimentoitem.MovCrePagCod
+					//&SdtMovimentoItensMovimentoitem.MovTrnOriCod
+					//&SdtMovimentoItensMovimentoitem.MovTrnOriCodItm
+					//&SdtMovimentoItensMovimentoitem.MovFunAno
+					//&SdtMovimentoItensMovimentoitem.MovFunMes
+					//&SdtMovimentoItensMovimentoitem.MovFunSts
+					//&SdtMovimentoItensMovimentoitem.MovCod
+					//&SdtMovimentoItensMovimentoitem.MovFunMesAno
+					&SdtMovimentoItensMovimentoitem.MovItmSts = &SdtMovimentoItem.movItmSts
+					//&SdtMovimentoItensMovimentoitem.MovDtaPgt
+					//&SdtMovimentoItensMovimentoitem.MovItmIsCon
+					//&SdtMovimentoItensMovimentoitem.MovItmDtaCon
+					//&SdtMovimentoItensMovimentoitem.MovItmDoc
+					//&SdtMovimentoItensMovimentoitem.MovCodItmCodAUX
+					&SdtMovimentoItensMovimento.add(&SdtMovimentoItensMovimentoitem)
+				Endif
+			EndFor		
+			
+			GravaMovimento.Call(&wwpContext.EmpCod, &mode, &MovCod, &movDtaPgt, &MovDtaCon, &sdtMovimento.MovCtaBanCod, &sdtMovimento.MovCreDeb, &sdtMovimento.MovDoc, &SdtMovimentoItensMovimento, &sdtMovimento.MovTip, &sdtMovimento.MovCplMan, &Erro)
+			If &erro = 2
+				&sdtRetornoWbsEtc.sts = 'E992'
+				&sdtRetornoWbsEtc.obs = 'ATENÇÃO, A  chave do lançamento já existe, não possível gravar o lançamento! verifique os parâmetros, ou contate a equipe jaspi!'
+				return
+			Else
+				
+				if &SdtFolhaDeletar.Count > 1 //DELETA OS DO SDT QUE VAI SER DELETADO
+					for &SdtFolhaDeletarItem in &SdtFolhaDeletar
+						DeletarPagamentoFolha.Call(&wwpContext.EmpCod,&SdtFolhaDeletarItem.FolAno,&SdtFolhaDeletarItem.FolMes,&SdtFolhaDeletarItem.FunCod, &MovCod, &SdtFolhaDeletarItem.MovItmCod) 	
+					Endfor				
+				Endif
+			
+				&sdtRetornoWbsEtc.sts = 'J200'
+				&sdtRetornoWbsEtc.obs = 'Lançamento gravado'
+				return
+			EndIf
+	EndCase
+	
+EndIf
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&parMovCod, in:&sdtMovimento, out:&sdtRetornoWbsEtc);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtMovimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMovimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMovimento, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornoWbsEtc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornoWbsEtc</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornoWbsEtc, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsCaixaFechado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsCaixaFechado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMovimento.itemItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItensMovimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItensMovimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItensMovimentoitem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItensMovimentoitem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem.SdtMovimentoItemItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAChou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAChou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtFolhaDeletar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtFolhaDeletar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFolhaDeletar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtFolhaDeletarItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtFolhaDeletarItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFolhaDeletar.sdtFolhaDeletarItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="movDtaPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>movDtaPgt</Value></Property><Property><Name>Description</Name><Value>Movimento Data Pgto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaPgt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovVlr</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_movimentoitem</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="ca4857ae-a775-4eb0-83e2-3ee835cfca6f" user="SRVORDIG\Administrador" versionDate="2022-08-03T11:36:39.0000000Z" lastUpdate="2022-08-03T11:35:57.0000000Z" checksum="ed5bd3eaa315f8484ad171240cbb86b1" fullyQualifiedName="ValidaCpfCnpj" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="6d01f10a-78b2-44c5-a7ab-ca498e1b3ffc" name="ValidaCpfCnpj" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Valida CPF/CNPJ" parent="EnvProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&vFlag = 0 
+&vNumero = trim(&vNumero)
+RetornaSoNumeros.Call(&vNumero, &vNumero)
+if &PerSemCpfCgc <> 'S' and &vNumero.IsEmpty()
+    &vFlag = 0 
+    return 
+endif
+
+
+
+&CGCCPF.SetEmpty()
+if &vNumero.IsEmpty() // Numero AlfaNumerico
+    &vFlag = 1
+    return
+endif
+
+&vCont = 1
+&VQtdNum = 0
+&vFlag = 0
+
+do while &vCont <= 18
+    &vNum = substr(&vNumero, &vCont, 1)
+    
+    If ((&vNum = '0') Or (&vNum = '1') Or (&vNum = '2') Or (&vNum = '3') Or (&vNum = '4') Or (&vNum = '5') Or (&vNum = '6') Or (&vNum = '7') Or (&vNum = '8') Or (&vNum = '9'))
+        
+        &CGCCPF  = concat( &CGCCPF, &vNum  )
+    endif
+    &vCont = &vCont + 1
+EndDo
+
+&vNumero1 = val(&CGCCPF )
+&VQtdNum  = Len(Trim(&CGCCPF))
+
+If &vNumero1.IsEmpty()
+    &vFlag = 1
+    return
+endif
+
+// O numero do CPF ou CNPJ deve conter 14 digitos
+&VQtdfalta = 14 - &VQtdNum
+
+if &VQtdfalta = 1
+    &CGCCPF = concat('',&CGCCPF ,'0')
+else
+    if &VQtdfalta = 2
+        &CGCCPF = concat('',&CGCCPF ,'00')
+    else
+        if &VQtdfalta = 3
+            &CGCCPF = concat('',&CGCCPF ,'000')
+        else
+            if &VQtdfalta = 4
+                &CGCCPF = concat('',&CGCCPF ,'0000')
+            else
+                if &VQtdfalta = 5
+                    &CGCCPF = concat('',&CGCCPF ,'00000')
+                else
+                    if &VQtdfalta = 6
+                        &CGCCPF = concat('',&CGCCPF ,'000000')
+                    endif
+                endif
+            endif
+        endif
+    endif
+endif
+
+If (&VQtdNum > 11)
+    // Calcular o CNPJ do Cliente
+    Do 'Calc_CNPJ'
+    
+    If (&vFlag = 1)
+        // Calcular o CPF do Cliente
+        Do 'Calc_CPF'
+    EndIf
+Else
+    // Calcular o CPF do Cliente
+    Do 'Calc_CPF'
+    
+    If (&vFlag = 1)
+        // Calcular o CNPJ do Cliente
+        Do 'Calc_CNPJ'
+    EndIf
+EndIf
+RETURN
+
+// Rotina de Verificação do Digito do CNPJ
+Sub 'Calc_CNPJ'
+    // testa CGC
+    &vFlag = 0
+    &Tot   = 0
+    &Pos   = 1
+    &Pes   = 5
+    &Dig1  = 0
+    &Dig2  = 0
+    Do While &Pos <= 12
+       &Num = val(substr(&CGCCPF , &Pos , 1)) * &Pes
+       &Tot = &Tot + &Num
+       &Pes = &Pes - 1
+       &Pos = &Pos + 1
+       If &Pes < 2
+           &Pes = 9
+       Endif
+    Enddo
+    &Res = &Tot - int(&Tot/11) * 11
+    If &Res = 0 .OR. &Res = 1
+        &Dig1 = 0
+    Else
+        &Dig1 = 11 - &Res
+    Endif
+    &Tot = 0
+    &Pes = 6
+    &Pos = 1
+
+    Do While &Pos <= 13
+        &Num = val(substr(&CGCCPF , &Pos ,1)) * &Pes
+        &Tot = &Tot + &Num
+        &Pes = &Pes - 1
+        &Pos = &Pos + 1
+        If &Pes < 2
+           &Pes = 9
+        Endif
+    Enddo
+    &Res = &Tot - int(&Tot / 11) * 11
+    If &Res = 0 .OR. &Res = 1
+        &Dig2 = 0
+    Else
+        &Dig2 = 11 - &Res
+    Endif
+    if val(substr(&CGCCPF,13,1)) <> &Dig1 .OR. val(substr(&CGCCPF,14,1)) <> &Dig2
+       &vFlag = 1
+    else
+       //======= colocar picture no  CNPJ
+        &vCGC01 = concat(substr(&CGCCPF ,1,2) , substr(&CGCCPF ,3,3), '.')
+        &vCGC03 = concat(substr(&CGCCPF ,6,3) , substr(&CGCCPF ,9,4), '/')
+        &vCGC04 = concat(&vCGC01 , &vCGC03 , '.')
+        &vNumero = concat(&vCGC04 , substr(&CGCCPF ,13,2), '-')
+    Endif
+EndSub
+
+// Rotina de Verificação do Digito do CPF
+Sub 'Calc_CPF'
+    &vFlag = 0
+    &Tot   = 0
+    &Pos   = 4
+    &Pes   = 10
+    &Dig1  = 0
+    &Dig2  = 0
+    Do While &Pos <= 12
+       &Num = val(substr(&CGCCPF , &Pos , 1)) * &Pes
+       &Tot = &Tot + &Num
+       &Pes = &Pes - 1
+       &Pos = &Pos + 1
+       If &Pes < 2
+           &Pes = 9
+       Endif
+    Enddo
+    &Res = &Tot - int(&Tot/11) * 11
+    If &Res = 0 .OR. &Res = 1
+        &Dig1 = 0
+    Else
+        &Dig1 = 11 - &Res
+    Endif
+    &Tot = 0
+    &Pes = 11
+    &Pos = 4
+    Do While &Pos <= 13
+        &Num = val(substr(&CGCCPF , &Pos ,1)) * &Pes
+        &Tot = &Tot + &Num
+        &Pes = &Pes - 1
+        &Pos = &Pos + 1
+        If &Pes < 2
+           &Pes = 9
+        Endif
+    Enddo
+    &Res = &Tot - int(&Tot / 11) * 11
+    If &Res = 0 .OR. &Res = 1
+        &Dig2 = 0
+    Else
+        &Dig2 = 11 - &Res
+    Endif
+    if val(substr(&CGCCPF,13,1)) <> &Dig1 .OR. val(substr(&CGCCPF,14,1)) <> &Dig2
+       &vFlag = 1
+    else
+       //======= colocar picture no  CPF
+       &VCPF01 = concat(substr(&CGCCPF ,4,3) , substr(&CGCCPF ,7,3), '.')
+       &VCPF02 = concat(substr(&CGCCPF ,10,3) , substr(&CGCCPF ,13,2), '-')
+       &vNumero = concat(&VCPF01 ,&VCPF02 , '.')
+    Endif
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(&vNumero ,&vFlag, &PerSemCpfCgc) ;
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CGCCPF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CGCCPF</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dig1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dig1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dig2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dig2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PerSemCpfCgc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PerSemCpfCgc</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:var3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Pes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Pes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Pos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Pos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Res">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Res</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vCGC01">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vCGC01</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vCGC03">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vCGC03</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vCGC04">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vCGC04</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno20</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vCont">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vCont</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VCPF01">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VCPF01</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VCPF02">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VCPF02</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vFlag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vFlag</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vNum</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vNumero</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno20</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VQtdfalta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VQtdfalta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VQtdNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VQtdNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vNumero1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vNumero1</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Num">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Num</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ValidaCpfCnpj</Value></Property><Property><Name>Description</Name><Value>Valida CPF/CNPJ</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

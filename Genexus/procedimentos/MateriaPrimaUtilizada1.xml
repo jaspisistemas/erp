@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7724f965-d875-403b-a841-bc63d54e9361" user="WIN-JEAN\jean.fae" versionDate="2023-05-24T12:46:01.0000000Z" lastUpdate="2023-05-16T11:54:22.0000000Z" checksum="657b32455011b7beb8ca762c3695611e" fullyQualifiedName="MateriaPrimaUtilizada1" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="e95c3f2c-3f95-4377-b42c-bf4e3c6255e0" name="MateriaPrimaUtilizada1" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="New Materia Prima Utilizada" parent="OrdPrdprc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+For Each Order EmpCod, ProCod
+	Where EmpCod = &EmpCod
+	where ProCod = &ProCod
+	Where ProTipDef in (Definicao.FABRICADO, Definicao.SUBPRODUTO, Definicao.SEMIACABADO)
+	
+	&ProQtdPro = ProQtdPro
+	&AuxProRecUltCod = ProRecUltCod
+	
+	For Each Order EmpCod,ProCod,RecItmCod
+		If &ProQtdPro <> 0 and RecProQtd > 0
+			
+			retornaProdutoEstoque.Call(EmpCod, RecProCod, &ProEstProCod)
+			&RecProCod = &ProEstProCod
+			&RecProNom = RecProNom
+			
+			&RecProQtdUnt = (RecProQtdUnt) * &EstFab
+			&QuantidadeNecessaria = &RecProQtdUnt
+			
+			&SubProduto = 'N'
+			If (RecProTipDef = Definicao.SUBPRODUTO) or (RecProTipDef = Definicao.SEMIACABADO) or (RecProTipDef = Definicao.FABRICADO) //JDF - ELIANDRO - (RecProTipDef = Definicao.FABRICADO) - Nao Considerar no autoalimentar como um subproduto
+				&SubProduto = 'S'
+			EndIf
+			
+			&RecProVlrCusUnt = RecProVlrCusUnt
+			
+			RetornaQuantidadeEstoque.Call(EmpCod, &FilCod, &ProEstProCod, 1, &EstCom, &EstVen, &EstPrd, &EstQtd, &EstSdo, &EstSug, &EstQtdFis)
+			RetornaQuantidadePedido.Call(EmpCod, &FilCod, &PedCod, &EntPedCod, &ProEstProCod, 1, &Pedqtd)
+			&EstQtd += &Pedqtd
+			If &EstQtd > 0
+				do 'DiminuiSdoSdt'
+			EndIF
+			
+			&quantidadeInicial = &RecProQtdUnt
+			&QuantiaUtilizada = &RecProQtdUnt
+			
+			If &EstQtd >= &RecProQtdUnt
+				&QuantidadeNecessaria = 0
+				&RecProQtdUnt = 0
+				do 'addSdt'
+			Else					
+				&QuantiaUtilizada = 0
+				if &EstQtd > 0
+					&QuantiaUtilizada = &EstQtd
+					&RecProQtdUnt = &RecProQtdUnt - &EstQtd
+				EndiF
+				
+				If &SubProduto <> 'S' 
+					&QuantiaUtilizada = &quantidadeInicial
+				Endif
+				
+				&QuantidadeNecessaria = &RecProQtdUnt
+				
+				do 'addSdt'
+			EndIF
+			
+			&quantidadeInicial = 0
+			&QuantiaUtilizada = 0
+			
+			If &QuantidadeNecessaria > 0
+				MateriaPrimaUtilizada2.Call(&PedCod, &EntPedCod, EmpCod, &FilCod, &ProEstProCod, &QuantidadeNecessaria, &ProRecUltCod, &sdtMateriaPrima)
+				
+				If &ProRecUltCod = 0
+					&SubProduto = 'N'
+					do 'addSdt'
+				EndIF
+			EndIF
+		EndIF
+	EndFor
+EndFor
+
+Sub 'DiminuiSdoSdt'
+	For &sdtMateriaPrimaItem in &sdtMateriaPrima
+		if &sdtMateriaPrimaItem.ProCod = &RecProCod
+			&EstQtd -= &sdtMateriaPrimaItem.QuantiaUtilizada
+			Exit
+		EndIf
+	EndFor
+EndSub
+
+Sub 'AddSdt'
+	&IsAchou = false
+	For &sdtMateriaPrimaItem in &sdtMateriaPrima
+		if &sdtMateriaPrimaItem.ProCod = &RecProCod
+			&sdtMateriaPrimaItem.QuantiaUtilizada += &QuantiaUtilizada //(&QuantiaUtilizada * &QtdRecProQtd) * &EstFab
+			&sdtMateriaPrimaItem.QuantidadeInicial += &quantidadeInicial //SABER QUANTO IRIA PRECISAR NO INICIO
+			&IsAchou = true
+			Exit
+		EndIf
+	EndFor
+	
+	If &IsAchou = false
+		&sdtMateriaPrimaItem  = NEW()
+		&sdtMateriaPrimaItem.ProCod = &RecProCod
+		&sdtMateriaPrimaItem.ProGraCod = 1
+		&sdtMateriaPrimaItem.ProNom = &RecProNom
+		&sdtMateriaPrimaItem.SubProduto = &SubProduto
+		&sdtMateriaPrimaItem.RecProVlrCus = &RecProVlrCusUnt
+		&sdtMateriaPrimaItem.EstQtd = &EstQtd
+		&sdtMateriaPrimaItem.EstSdo = &EstQtd
+		&sdtMateriaPrimaItem.ProEstProCod = &ProEstProCod
+		&sdtMateriaPrimaItem.QuantiaUtilizada = &QuantiaUtilizada //(&QuantiaUtilizada * &QtdRecProQtd) * &EstFab
+		&sdtMateriaPrimaItem.QuantidadeInicial = &quantidadeInicial //SABER QUANTO IRIA PRECISAR NO INICIO
+		&sdtMateriaPrima.Add(&sdtMateriaPrimaItem)
+	Endif
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&PedCod, in:&EntPedCod, in:&EmpCod, in:&FilCod, in:&ProCod, in:&EstFab, out:&auxProRecUltCod, inout:&sdtMateriaPrima);
+//, out:&auxRprUltPro, 
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstPrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstPrd</Value></Property><Property><Name>Description</Name><Value>Estoque Producao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstPrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstQtd</Value></Property><Property><Name>Description</Name><Value>Estoque Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstFab">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstFab</Value></Property><Property><Name>Description</Name><Value>Estoque Fabricar</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstFab</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMateriaPrima">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMateriaPrima</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMateriaPrima</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProQtdPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProQtdPro</Value></Property><Property><Name>Description</Name><Value>Qtd.Produto Produzido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProQtdPro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMateriaPrimaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMateriaPrimaItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMateriaPrima.sdtMateriaPrimaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProRecUltCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProRecUltCod</Value></Property><Property><Name>Description</Name><Value>Ultimo Codigo Receita</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRecUltCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxProRecUltCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxProRecUltCod</Value></Property><Property><Name>Description</Name><Value>Ultimo Codigo Receita</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRecUltCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecProCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RecProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecProNom</Value></Property><Property><Name>Description</Name><Value>Descrição</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RecProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecProQtdUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecProQtdUnt</Value></Property><Property><Name>Description</Name><Value>Rec Pro Qtd Unt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RecProQtdUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QuantidadeNecessaria">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QuantidadeNecessaria</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RecProQtdUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SubProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SubProduto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstSdo</Value></Property><Property><Name>Description</Name><Value>Estoque Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecProVlrCusUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecProVlrCusUnt</Value></Property><Property><Name>Description</Name><Value>Custo Unit.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RecProVlrCusUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstCom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstCom</Value></Property><Property><Name>Description</Name><Value>Estoque Comprado Em Aberto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstCom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstVen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstVen</Value></Property><Property><Name>Description</Name><Value>Estoque Vendido em Aberto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstVen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstSug">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstSug</Value></Property><Property><Name>Description</Name><Value>Estoque Sugestao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstSug_FORMULA</Value></Property></Properties>
+        </Variable>
+        <Variable Name="quantidadeInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>quantidadeInicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QuantiaUtilizada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QuantiaUtilizada</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RecProQtdUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Pedqtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Pedqtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EntPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EntPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEstProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEstProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProEstProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstQtdFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstQtdFis</Value></Property><Property><Name>Description</Name><Value>Estoque Fiscal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtdFis</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>MateriaPrimaUtilizada1</Value></Property><Property><Name>Description</Name><Value>New Materia Prima Utilizada</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

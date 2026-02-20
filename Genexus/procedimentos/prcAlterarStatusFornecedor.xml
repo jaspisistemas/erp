@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="672f4ed4-5393-4ab0-9814-1f9d2a3f972a" user="WINJEAN\jeanfae" versionDate="2026-01-21T14:58:39.0000000Z" lastUpdate="2026-01-21T14:38:00.0000000Z" checksum="19b6a30d9b4f10e2da7a355cade9fc4a" fullyQualifiedName="prcAlterarStatusFornecedor" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c6290222-c2e5-4f7f-a95e-89039b3f0249" name="prcAlterarStatusFornecedor" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Alterar Status Fornecedor" parent="prcCotacao" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&Count = 0
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+For Each ORder EmpCod
+	Where EmpCod = &EmpCod
+	&EmpCodSec = EmpCodSec 
+	Exit
+endFor
+
+if &OqueFazer = 'L' //Liberar
+	prcAjustaSequenciaItensCotacao.Call(&EmpCod, &CotComCod)
+EndIf
+
+
+
+For Each Order EmpCod, CotComCod
+	Where EmpCod = &EmpCod
+	Where CotComCod = &CotComCod
+	
+	&CotComKey = CotComKey
+	&CotComVer = CotComVer
+	
+	&FilCod = CotComFilCod
+	do 'getFilial'
+	
+	HostWebServiceJaspiADM.Call(EmpCod, &EmpWebHost, &EmpWebBaseUrl, &EmpWebPor)
+	
+	&sdtDadosCotacao.CotComCod = CotComCod
+	&sdtDadosCotacao.CotComVer = &CotComVer
+	&sdtDadosCotacao.CotComCliCodSync = &EmpCodSec
+	&sdtDadosCotacao.CotComFilCnpj = &FilCpj
+	&sdtDadosCotacao.CotComFilRaz = &FilRaz
+	&sdtDadosCotacao.CotComDtaLim = CotComDtaLim
+	&sdtDadosCotacao.CotComDtaEms = CotComDtaEms
+	&sdtDadosCotacao.CotComObs = CotComObs
+	&sdtDadosCotacao.CotComKey = CotComKey
+	&sdtDadosCotacao.CotComPrzDia = CotComPrzDia
+	&sdtDadosCotacao.CotComSts = CotComSts
+			
+	For each ORder EmpCod, CotComCod, CotComForCod
+		where CotComForCod = &CotComForCod
+		
+		&CotComForSenAce = CotComForSenAce
+		
+		if &OqueFazer = 'L' or &OqueFazer = 'N'
+			&Guid = GUID.NewGuid()
+			&CotComForSenAce = &Guid.ToString() //Grava GUID para acesso.
+		Endif
+		
+		&sdtDadosCotacaoFornecedor = new()
+		&sdtDadosCotacaoFornecedor.CotComForCod = CotComForCod
+		&sdtDadosCotacaoFornecedor.CotComForNom = CotComForRaz
+		&sdtDadosCotacaoFornecedor.CotComForAcess = &CotComForSenAce
+		&sdtDadosCotacaoFornecedor.CotComForDtaLim = CotComForDtaLim
+		
+		&sdtDadosCotacaoFornecedor.CotComForSts = &OqueFazer
+		
+		&sdtDadosCotacao.Fornecedores.Add(&sdtDadosCotacaoFornecedor)
+	EndFor
+
+	do 'enviaPost'
+	
+	Exit
+EndFor
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+sub 'enviaPost'
+	if &IsAbortaTudo = false
+		&cotacaocompleta = &sdtDadosCotacao.ToJson()
+		&cotacaocompleta = &cotacaocompleta.Replace('"', '\"')
+		&LongVarChar		= '{ "chaveacesso": "' + Trim(&EmpCodSec) + '", "cotacaocompleta": "' + Trim(&cotacaocompleta) + '" }'
+		&HttpClient.AddHeader('Accept', 'application/json')
+		&HttpClient.AddHeader('Connection', 'keep-alive')
+		&HttpClient.AddHeader('Content-Type', 'application/json')
+		&HttpClient.AddString(&LongVarChar)
+		
+		&HttpClient.Execute('POST', 'https://'+&EmpWebHost+'/cotacaocompra/SetFornecedor')
+		
+		If &HttpClient.StatusCode = 200
+			&ProgressLogXml =  &HttpClient.ToString()
+			&ProgressLogXml = &ProgressLogXml.Replace('{"retornosolicitacao":"', '')
+			&ProgressLogXml = &ProgressLogXml.Replace('}\"}"}', '}"}')
+			&ProgressLogXml = &ProgressLogXml.Replace('\"', '"')
+			&ProgressLogXml = &ProgressLogXml.Replace('\\', "\")
+			
+			&SdtWbsRetorno.FromJson(&ProgressLogXml)
+			
+			if &SdtWbsRetorno.sts <> 'J200'
+				&IsAbortaTudo = true
+			Else
+				For each ORder EmpCod, CotComCod, CotComForCod
+					Where EmpCod = &EmpCod
+					Where CotComCod = &CotComCod
+					where CotComForCod = &CotComForCod
+					
+					CotComForSenAce = &CotComForSenAce
+					
+					Do CAse
+						CAse &OqueFazer = 'L'
+							CotComForSts = StatusCotacaoFornecedor.LIBERADO
+						CAse &OqueFazer = 'S'
+							CotComForSts = StatusCotacaoFornecedor.BLOQUEADO
+					EndCase
+				
+				EndFor
+			
+				commit
+				
+				if &OqueFazer = 'N'
+					For Each ORder EmpCod, CotComCod, CotComItmCod, CotComProForCod
+						Where EmpCod = &EmPCod
+						Where CotComCod = &CotComCod
+						Where CotComProForCod = &CotComForCod
+						
+						CotComProForSts = StatusProdutoCotado.PENDENTE
+						CotComProForVlr.SetEmpty()
+						CotComProForVlrFin.SetEmpty()
+						CotComProForVlrIcms.SetEmpty()
+						CotComProForVlrIcmsSt.SetEmpty()
+						CotComProForVlrIpi.SetEmpty()
+						
+					EndFor
+				
+					Commit
+					
+					For Each ORder EmpCod, CotComCod, CotComItmCod
+						Where EmpCod = &EmPCod
+						Where CotComCod = &CotComCod
+						Where CotComProMenForCod = &CotComForCod or CotComProSelForCod = &CotComForCod
+						
+						if CotComProMenForCod = &CotComForCod
+							CotComProMenForCod = 0			
+						Endif
+						
+						if CotComProSelForCod = &CotComForCod
+							CotComProSelForCod = 0
+						EndIf
+					EndFor
+					
+					commit
+					
+					//atualizaTotaisfornecec
+					prcVerificaStatusFornecedores.Call(&EmpCod, &CotComCod, '')
+				Endif
+			
+			Endif
+		
+		else
+			&SdtWbsRetorno.sts = 'F999'
+			&SdtWbsRetorno.obs = 'Não foi Possível fazer a sincronização com servidor cotações. Erro: ' + trim(&HttpClient.StatusCode.ToString()) + ' - ' + &HttpClient.ErrDescription
+			&ProgressLogXml = &SdtWbsRetorno.ToJson()
+			&IsAbortaTudo = true
+		Endif
+				
+		&sdtDadosCotacao.Produtos.Clear()
+		&sdtDadosCotacao.Fornecedores.Clear()
+	Endif
+EndSub
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressLogXml = &ProgressLogXml
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit	
+EndSub
+
+
+Sub 'getFilial'
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		&FilRaz = FilRaz
+		&FilCpj = FilCpj
+		Exit
+	endFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&ProgressId, in:&EmPCod, in:&CotComCod, in:&CotComForCod, in:&OqueFazer);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmPCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmPCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CotComForCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CotComForCod</Value></Property><Property><Name>Description</Name><Value>Cot Com For Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CotComForCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueFazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueFazer</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:OqueFazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CotComCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CotComCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CotComCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCodSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCodSec</Value></Property><Property><Name>Description</Name><Value>Código Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCodSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Guid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Guid</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CotComKey">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CotComKey</Value></Property><Property><Name>Description</Name><Value>Key GUID para acesso externo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CotComKey</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CotComVer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CotComVer</Value></Property><Property><Name>Description</Name><Value>Versao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CotComVer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDadosCotacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDadosCotacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDadosCotacao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CotComForSenAce">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CotComForSenAce</Value></Property><Property><Name>Description</Name><Value>Senha Acesso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CotComForSenAce</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDadosCotacaoFornecedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDadosCotacaoFornecedor</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDadosCotacao.FornecedoresItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAbortaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAbortaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtWbsRetorno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtWbsRetorno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtWbsRetorno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cotacaocompleta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cotacaocompleta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcAlterarStatusFornecedor</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

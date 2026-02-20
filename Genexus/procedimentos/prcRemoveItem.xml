@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="8dc47700-b356-42ad-84ca-6fb9b4bcb38a" user="WINJEAN\jeanfae" versionDate="2026-01-14T20:06:31.0000000Z" lastUpdate="2026-01-14T18:53:09.0000000Z" checksum="52ecf49d07c1c2c78f69d06630587ca2" fullyQualifiedName="prcRemoveItem" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="0c052e11-3cff-4314-9cac-5c8f83cbbd0c" name="prcRemoveItem" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Remove Item" parent="prcNFSe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+For Each Order EmpCod, NfsCod
+	Where EmpCod = &EmpCod
+	Where NfsCod = &NfsCod
+	
+	&NfsTipNF = NfsTipNF
+	&NfsPedFiLCod = NfsPedFilCod
+	&NFsPedCod = NfsPedCod
+		
+	Exit
+EndFor
+
+For Each Order EmpCod, NfsCod, NfsItmCod
+	Where EmpCod = &EmpCod
+	Where NfsCod = &NfsCod
+	Where NfsItmCod = &nfsItmCod
+	
+	delete
+EndFor
+
+commit
+
+if &NfsTipNF = 'S'
+	&sdtDadosItens.Clear()
+	
+	For Each Order EmpCod, FilCod, PedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &NfsPedFiLCod
+		Where PedCod = &NFsPedCod
+		
+		if not PedVeiPla.IsEmpty() and not PedVeiPla.IsNull() and PedVeiPla.Length() > 6
+			&NfsDisSer = 'PLACA: ' + trim(PedVeiPla)
+		Endif
+		
+		Exit
+	EndFor
+	
+	//tem que atualizar a descricao do servico
+	//add num sdt
+	For Each Order EmpCod, NfsCod, NfsItmCod
+		Where EmpCod = &EmpCod
+		Where NfsCod = &NfsCod
+		Where NfsItmCod > 1
+		
+		&sdtDadosItensItem = new()
+		&sdtDadosItensItem.NfsItmCod = NfsItmCod
+		&sdtDadosItensItem.NfsItmProCod = NfsItmProCod
+		&sdtDadosItensItem.NfsItmProGraCod = NfsItmProGraCod
+		&sdtDadosItensItem.NfsItmProNom = NfsItmProNom
+		&sdtDadosItensItem.NfsItmQtd = NfsItmQtd
+		&sdtDadosItensItem.NfsItmValUnt = NfsItmValUnt
+		&sdtDadosItensItem.NfsItmValTot = NfsItmValTot
+		&sdtDadosItensItem.NfsItmDesc = NfsItmDesc
+		&sdtDadosItens.Add(&sdtDadosItensItem)
+	EndFor	
+	
+	For &sdtDadosItensItem in &sdtDadosItens
+		
+		if &wpNFSData.DadosNFSE.ProCod.IsEmpty()
+			&wpNFSData.DadosNFSE.ProCod = &sdtDadosItensItem.NfsItmProCod
+			&wpNFSData.DadosNFSE.ProGraCod = &sdtDadosItensItem.NfsItmProGraCod
+		EndIf		
+		
+		if &NfsTribNac.IsEmpty() 
+			&ProCod = &sdtDadosItensItem.NfsItmProCod
+			do 'getClassificacaoFiscal'
+			&NfsTribNac = &ProTribNac
+			&NfsNbs = &NcmCod
+		Endif
+		
+		if &NfsDisSer.IsEmpty()
+			&NfsDisSer = &sdtDadosItensItem.NfsItmProNom.Trim()
+		Else
+			&NfsDisSer += ', ' +  &sdtDadosItensItem.NfsItmProNom.Trim()
+		EndIf
+	
+		&wpNFSData.Itens.NfsItmCod = &sdtDadosItensItem.NfsItmCod
+		&wpNFSData.Itens.NfsItmProCod = &sdtDadosItensItem.NfsItmProCod
+		&wpNFSData.Itens.NfsItmProGraCod = &sdtDadosItensItem.NfsItmProGraCod
+		&wpNFSData.Itens.NfsItmValTot = &sdtDadosItensItem.NfsItmValTot
+		//		&wpNFSData.Itens.NfsItmEmbUnd = ''
+		&wpNFSData.Itens.NfsItmValUnt = &sdtDadosItensItem.NfsItmValUnt
+		&wpNFSData.Itens.NfsItmQtd = &sdtDadosItensItem.NfsItmQtd
+		&wpNFSData.Itens.NfsItmProNom = &sdtDadosItensItem.NfsItmProNom
+		//		&wpNFSData.Itens.ProRef = &sdtDadosItensItem.NfsItmProNom
+		
+		prcGravaItemNFSe.Call(&EmpCod, &NfsCod, &wpNFSData)
+		
+		&PedVlrItm += &sdtDadosItensItem.NfsItmValTot
+	EndFor
+	
+	&wpNFSData.DadosNFSE.NfsItmValTot = &PedVlrItm
+	&wpNFSData.DadosNFSE.NfsTribNac = &NfsTribNac 
+	&wpNFSData.DadosNFSE.NfsNbs = &NfsNbs 
+	
+	&wpNFSData.DadosNFSE.NfsDisSer = &NfsDisSer	
+	prcGravaDadosNFSe.Call(&EmpCod, &NfsCod, &wpNFSData)
+	
+Else
+	prcTotalizaNFSe.Call(&EmpCod, &NfsCod)
+Endif
+
+sub 'getClassificacaoFiscal'
+	For Each ORder EmpCod, ProCod
+		Where EmpCod = &EmpCod
+		Where ProCod = &ProCod
+		
+		&ProTribNac = ProTribNac
+		&NcmCod = NcmCod
+		Exit
+	EndFor
+
+EndSub
+
+			
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&NfsCod, in:&nfsItmCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nfsItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nfsItmCod</Value></Property><Property><Name>Description</Name><Value>Item </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wpNFSData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wpNFSData</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wpNFSData</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wpNFSDataItens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wpNFSDataItens</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wpNFSData.Itens.GridItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDadosItens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDadosItens</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDadosItens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDadosItensItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDadosItensItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDadosItens.sdtDadosItensItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsTipNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsTipNF</Value></Property><Property><Name>Description</Name><Value>Tipo de emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsTipNF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsPedFiLCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsPedFiLCod</Value></Property><Property><Name>Description</Name><Value>Nfs Ped Fil Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsPedFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NFsPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NFsPedCod</Value></Property><Property><Name>Description</Name><Value>Nfs Ped Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsPedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsDisSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsDisSer</Value></Property><Property><Name>Description</Name><Value>Discriminação do Serviço</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsDisSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrItm</Value></Property><Property><Name>Description</Name><Value>Produto Total Item (BRUTO)</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsTribNac">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsTribNac</Value></Property><Property><Name>Description</Name><Value>Tributacao Nacional</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsTribNac</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsItmProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsItmProNom</Value></Property><Property><Name>Description</Name><Value>Descricao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsItmProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsNbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsNbs</Value></Property><Property><Name>Description</Name><Value>Codigo NBS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsNbs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProTribNac">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProTribNac</Value></Property><Property><Name>Description</Name><Value>Tributacao Nacional</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProTribNac</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NcmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NcmCod</Value></Property><Property><Name>Description</Name><Value>NCM</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NcmCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcRemoveItem</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

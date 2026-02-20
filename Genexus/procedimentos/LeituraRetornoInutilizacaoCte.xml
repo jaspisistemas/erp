@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2018-03-19T13:13:30.0000000Z" checksum="8ade8d148d4e05a649640c9583d0447e" fullyQualifiedName="LeituraRetornoInutilizacaoCte" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="76d7e67a-4a25-4a8f-a44a-ce07f9aa2726" name="LeituraRetornoInutilizacaoCte" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Leitura Retorno Inutilizacao Cte" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&IsInutil = False
+For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where FilNfeCod = &FilNfeCod
+	&FilInuCod = FilInuCod
+	&CNPJ = RetornaSoNumeros.Udp(FilCpj)
+	&FilCidUfeCod = RetornaCodigoSiglaEstado.Udp(0, FilCidUfeCod)
+	&ano = FilInuAno
+	&ModCod = FilInuMod
+	&CteSer = FilInuSer
+	&FilInuNroIni = FilInuNroIni
+	&FilInuNroFin = FilInuNroFin
+	&IsInutil = true
+	Exit
+EndFor
+
+&SolSts = Status_Solicitacao.Pendente
+&SolMsg = ''
+
+&id = &FilCidUfeCod.Trim() + &CNPJ.Trim() + &ModCod.Trim() + padl(trim(str(&CteSer)),3,'0') + padl(trim(str(&FilInuNroIni,9,0)),9,'0')+padl(trim(str(&FilInuNroFin,9,0)),9,'0')
+msg('ID '+ &id, status)
+
+If &IsInutil = true	
+	&Nome_retorno_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + trim(&id)+'-inu.xml'
+	&Nome_retorno_erro = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + trim(&id) + '-inu.err'
+	
+	&File.Source = &Nome_retorno_erro
+	if &File.Exists()
+		&SolSts = Status_Solicitacao.Falha
+		&Tentativa = 99
+		
+		&SolMsg = 'Xml Rejeitado: '
+		&ResultadoAbertura = DFROpen(&Nome_retorno_erro)
+		&ResultadoNext = 0
+		Do while &ResultadoNext = 0
+			&Ret =  DFRGTxt(&CampoUnico, 500)	
+			&SolMsg += &CampoUnico	
+			&ResultadoNext =  DFRNext()
+		EndDo
+		&resultadoNext = DFRClose()
+		
+		GravaInutilizacao.Call(&EmpCod, &FilCod,&FilNfeCod,&FilInuCod, '', 0, 0, '', 0, '', '', 0, Status_NFe.Cancelada)
+	else
+		
+		&File.Source = &Nome_retorno_correto
+		if &File.Exists()
+			&retorno_xml.Open(&Nome_retorno_correto)
+			
+		    &retorno_xml.ReadType(1,'cStat')
+		    &cStat = &retorno_xml.Value
+			
+		    &retorno_xml.ReadType(1,'xMotivo')
+		    &xMotivo = &retorno_xml.Value
+			
+		    &retorno_xml.ReadType(1,'dhRecbto')
+		    &FilInuDhRec = &retorno_xml.Value
+			
+		    &retorno_xml.ReadType(1,'nProt')
+		    &FilInuProt = &retorno_xml.Value
+			
+		    if not &cStat.IsEmpty()
+				IF &cStat = '102' or &cStat = '256'  //NOTA INUTILIZADA
+					GravaInutilizacao.Call(&EmpCod, &FilCod, &FilNfeCod,&FilInuCod, '', 0, 0, '', 0, &FilInuDhRec, &FilInuProt, 0, Status_NFe.Inutilizada)
+					
+					//GRAVA STATUS DA NOTA INUTILIZADA
+					GravaInutilizacaoCte.Call(&EmpCod, &FilCod, &CteSer, &ModCod, &FilInuNroIni, &FilInuNroFin, '','',&FilInuDhRec,&xMotivo,&FilInuProt)
+					
+					&SolSts = Status_Solicitacao.Finalizada
+					&Tentativa = 99
+					&SolMsg = &xMotivo
+					
+				Else
+					GravaInutilizacao.Call(&EmpCod, &FilCod,&FilNfeCod, &FilInuCod, '', 0, 0, '', 0, '', '', 0, Status_NFe.Cancelada)
+					
+					&SolMsg = 'Status: '+ &cStat.Trim() + ' - ' + &xMotivo.Trim()
+					&SolSts = Status_Solicitacao.Falha
+					&Tentativa = 99
+				EndIf
+				
+				
+			EndIf
+			
+			&retorno_xml.close()
+		EndIF
+	EndIf
+	
+Else
+	MSG('ATENÇÃO! Não foi possivel processar o retorno da inutilização, devido a montagem da chave. [LeituraRetornoInutilizacaoCte]', status)
+EndIf
+
+
+if &SolSts <> Status_Solicitacao.Pendente
+	if not &Nome_retorno_erro.IsEmpty()
+		&File.Source = &Nome_retorno_erro
+		if &File.Exists()
+		    &File.Delete()
+		EndIf
+	EndIF
+	if not &Nome_retorno_correto.IsEmpty()
+		&File.Source = &Nome_retorno_correto
+		if &File.Exists()
+		    &File.Delete()
+		EndIf
+	EndIF
+EndIF
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&FilNfeCod, in:&sdtConfiguracoesPasta, inout:&Tentativa, inout:&SolSts, inout:&SolMsg);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilNfeCod</Value></Property><Property><Name>Description</Name><Value>Nota Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsInutil">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsInutil</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInuCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInuCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInuCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSer</Value></Property><Property><Name>Description</Name><Value>Série</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInuNroIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInuNroIni</Value></Property><Property><Name>Description</Name><Value>Sequencia Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInuNroIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInuNroFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInuNroFin</Value></Property><Property><Name>Description</Name><Value>Sequencia Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInuNroFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="id">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>id</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ModCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ModCod</Value></Property><Property><Name>Description</Name><Value>Modelo Documentos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ModCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno_xml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno_xml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cStat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cStat</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xMotivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xMotivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInuDhRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInuDhRec</Value></Property><Property><Name>Description</Name><Value>Data Hora Inutilizacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInuProt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInuProt</Value></Property><Property><Name>Description</Name><Value>Protocolo Inutilizacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInuProt</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>LeituraRetornoInutilizacaoCte</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

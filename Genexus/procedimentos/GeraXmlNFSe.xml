@@ -1,0 +1,853 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="WINJEAN\jeanfae" versionDate="2026-01-09T21:11:19.0000000Z" lastUpdate="2026-01-08T17:23:15.0000000Z" checksum="1f73ede9527b680cfcb0a1713e9aa083" fullyQualifiedName="GeraXmlNFSe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="fe2a55fd-b0f6-411b-aa31-7feff80f8bd4" name="GeraXmlNFSe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Xml NFSe" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//PEGA PASTAS DE CONFIGURACAO
+&sdtConfiguracoesPasta = RetornaConfiguracoesPastas.Udp(&EmpCod, &FilCod)
+
+&LogGUID = GUID.NewGuid()
+
+For Each Order EmpCod, NfsCod
+	Where EmpCod = &EmpCod
+	Where NfsCod = &NfsCod
+	&NfsTipNF = NfsTipNF
+	Exit
+EndFor
+
+
+if &NfsTipNF = 'S'
+	
+	//Dados Filial
+	For Each ORder EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		
+		&FIlInsMun = FilInsMun
+		&FilInsEst = FilInsEst
+		&FilCidUfeIbge = FilCidUfeIbge
+		
+		&FilCpj = retornaSoNumeros.Udp(FilCpj)
+		&FilAmbEmsNFSer = FilAmbEmsNFSer
+		
+		&FilRaz = FilRaz
+		
+		&FilFusHor = FilFusHor
+		&FilLog = FilLog
+		&FilNro = FilNro
+		&FilBai = FilBai
+		&FilCidUfeCod = FilCidUfeCod
+		&FilCep = FilCep
+		&FilFonNum = FilFonNum
+		&FilEml = FilEml.ToLower()
+		
+		&TbImpFilCod = FilBasImp
+		do 'TabelaImpostoGrupo'
+		
+		Exit
+	EndFor
+	
+	//&IncentivoFiscal = '2'
+	
+	For Each Order EmpCod, NfsCod
+		Where EmpCod = &EmpCod
+		Where NfsCod = &NfsCod
+		
+		&NfsNumRps = NfsNumRps
+		
+		if NfsNumRps.IsEmpty() or NfsNumRps.IsNull()
+			&NfsNumRps = UltimoCodigoEmpresa.Udp(domParCod.NFS_NAC_NUM, EmpCod,  NfsFilCod)
+			NfsNumRps = &NfsNumRps
+		Endif
+		
+		&NfsSer = NfsSer
+		if NfsSer.IsEmpty() or NfsSer.IsNull()
+			
+			&Numeric = RetornaSerieNF.UDP(domParCod.NOTAFISCALSERVICO_SERIE, EmpCod, NfsFilCod)
+			&NfsSer = trim(&Numeric.ToString())
+			NfsSer = &NfsSer
+		Endif
+		
+		//##################################################
+		//MONTA A CHAVE DA NFE
+		&cUF = RetornaCodigoSiglaEstado.Udp(0, &FilCidUfeCod)
+		
+		if &FilCpj.Length() = 11
+			&TipoPessoa = '1' //Tipo da Inscrição federal 2-CNPJ 1-CPF
+		Else
+			&TipoPessoa = '2' //Tipo da Inscrição federal 2-CNPJ 1-CPF
+		Endif
+		
+		//CHAVE DA NFE		
+		if NfsDpsChv.IsEmpty() or NfsDpsChv.IsNull()
+			&DpsNfsChv = 'DPS' +
+			PadL(trim(str(&FilCidUfeIbge)), 7, '0') + 
+			&TipoPessoa + //Tipo da Inscrição federal 2-CNPJ 1-CPF
+			PadL(&FilCpj, 14, '0') +
+			PadL(&NfsSer.Trim(), 5, '0') +
+			PadL(&NfsNumRps.ToString().Trim(), 15, '0')
+			NfsDpsChv = &DpsNfsChv.Replace('DPS', '')
+		Else
+			&DpsNfsChv = format('DPS%1', NfsDpsChv.Trim())
+		Endif
+	
+		&NomeArquivo = PadL(&FilCpj, 14, '0') +'_' + PadL(&NfsNumRps.ToString().Trim(), 5, '0')
+		//##################################################
+		
+		//GERA ARQUIVO XML NA PASTA ENVIO
+		&Nome_enviar = &sdtConfiguracoesPasta.PastaNFSenvio + &NomeArquivo.Trim() + '-env-loterps.xml'
+		&File.Source = &Nome_enviar
+		If &File.Exists()
+			&File.Delete()
+		EndIf
+		
+		&ArqXml.Open(&Nome_enviar) // Abrir o arquivo XML
+		&ArqXml.WriteStartDocument('UTF-8')
+
+		&ArqXml.WriteStartElement('DPS')
+		&ArqXml.WriteAttribute('xmlns','http://www.sped.fazenda.gov.br/nfse')
+		&ArqXml.WriteAttribute('versao','1.00') //JDF 1.01 vais ser com IBS/CBS
+		
+		&ArqXml.WriteStartElement('infDPS')
+		&ArqXml.WriteAttribute('Id', &DpsNfsChv)
+		
+		&ArqXml.WriteElement('tpAmb', &FilAmbEmsNFSer.ToString()) //Producao / Homologacao
+		&NfsHorEms = NfsHorEms
+		if &nfsHorEms.IsEmpty()
+			&NfsHorEms = serverTime()
+		Endif
+		NfsHorEms = &NfsHorEms
+		&dhEmi = str(year(NfsDtaEms),4,0)+'-'+padl(trim(str(month(NfsDtaEms),2,0)),2,'0') +'-'+padl(trim(str(day(NfsDtaEms),2,0)),2,'0') + 'T' + &NfsHorEms +'-'+ trim(&FilFusHor)
+		&ArqXml.WriteElement('dhEmi', &dhEmi)
+		
+		&ArqXml.WriteElement('verAplic', EmpVer)
+		&ArqXml.WriteElement('serie', &NfsSer)
+		&ArqXml.WriteElement('nDPS', &NfsNumRps) //RPS ou DPS
+		
+		&dCompet = str(year(NfsDtaEms),4,0)+'-'+padl(trim(str(month(NfsDtaEms),2,0)),2,'0') +'-'+padl(trim(str(day(NfsDtaEms),2,0)),2,'0')
+		&ArqXml.WriteElement('dCompet', &dCompet)
+		
+		&ArqXml.WriteElement('tpEmit', NfsTipEmi.ToString())
+		//&ArqXml.WriteElement('cMotivoEmisTI', NfsMotEmi.ToString())
+		//chNFSeRej
+		
+		&ArqXml.WriteElement('cLocEmi', &FilCidUfeIbge) //"O campo cLocEmi (Código da Localidade de Emissão da DPS) A localidade emissora corresponde ao município do endereço cadastrado para o emitente da DPS, e é obtido a partir dos cadastros CNPJ ou CPF ou CNC NFS-e, dependendo da adesão dos municípios ao Sistema Nacional NFS-e."
+		
+		&ArqXml.WriteStartElement('prest')
+		if &TipoPessoa = '1' //CPF
+			&ArqXml.WriteElement('CPF', &FilCpj)
+		Else
+			&ArqXml.WriteElement('CNPJ', &FilCpj)
+		Endif
+		
+		//&ArqXml.WriteElement('NIF', '')
+		//&ArqXml.WriteElement('cNaoNIF, '')
+		
+		if &TipoPessoa = '1' and not &FilInsEst.IsEmpty() and not &FilInsEst = 'ISENTO' //CPF
+			&ArqXml.WriteElement('CAEPF', &FilInsEst)
+		Else
+			if not &FIlInsMun.IsEmpty() and &FIlInsMun <> 'ISENTO'
+				&ArqXml.WriteElement('IM', &FIlInsMun)
+			Endif
+		Endif	
+		//&ArqXml.WriteElement('xNome', &FilRaz) //E0121 O nome ou razão social do prestador não deve ser informado quando o emitente da DPS for o próprio prestador.
+		
+		&FilFonNum = retornaSoNumeros.Udp(&FilFonNum)
+		if not &FilFonNum.IsEmpty()
+			&ArqXml.WriteElement('fone', &FilFonNum)
+		Endif	
+	
+		if not &FilEml.IsEmpty()
+			&ArqXml.WriteElement('email', &FilEml)
+		Endif
+
+		&ArqXml.WriteStartElement('regTrib')
+		&ArqXml.WriteElement('opSimpNac', &TbFilRegTribMun.ToString()) //"Situação perante Simples Nacional: 1 - Não Optante; 2 - Optante - Microempreendedor Individual (MEI); 3 - Optante - Microempresa ou Empresa de Pequeno Porte (ME/EPP);"
+		
+		if &TbFilRegTribMun = opSimpNac.OptanteMeEpp
+			&ArqXml.WriteElement('regApTribSN', &TbFilRegTribSN.ToString()) //"Regime de Apuração Tributária pelo Simples Nacional.
+			// Opção para que o contribuinte optante pelo Simples Nacional ME/EPP (opSimpNac = 3) possa indicar, ao emitir o documento fiscal, em qual regime de apuração os tributos federais e municipal estão inseridos, caso tenha ultrapassado algum sublimite ou limite definido para o Simples Nacional.
+			// 1 – Regime de apuração dos tributos federais e municipal pelo SN;
+			// 2 – Regime de apuração dos tributos federais pelo SN e o ISSQN pela NFS-e conforme respectiva legislação municipal do tributo;
+			// 3 – Regime de apuração dos tributos federais e municipal pela NFS-e conforme respectivas legilações federal e municipal de cada tributo;"
+		Endif
+	
+		&ArqXml.WriteElement('regEspTrib', &TbFilRegTribMunEsp.ToString()) //"Tipos de Regimes Especiais de Tributação Municipal:
+		// 0 - Nenhum;
+		// 1 - Ato Cooperado (Cooperativa);
+		// 2 - Estimativa;
+		// 3 - Microempresa Municipal;
+		// 4 - Notário ou Registrador;
+		// 5 - Profissional Autônomo;
+		// 6 - Sociedade de Profissionais;"
+		&ArqXml.WriteEndElement() //regTrib>
+	
+		&ArqXml.WriteEndElement() //prest
+		
+		&ArqXml.WriteStartElement('toma')
+		if NfsCliTipPes = TipoPessoa.FISICA
+			&NfsCliCPF = retornaSoNumeros.Udp(NfsCliCPF)
+			&ArqXml.WriteElement('CPF', &NfsCliCPF)
+		Else
+			&NfsCliCnpj = RetornaSoNumeros.Udp(NfsCliCnpj)
+			&ArqXml.WriteElement('CNPJ', &NfsCliCnpj)
+		Endif
+		
+		//NIF
+		//cNaoNIF
+		
+		if NfsCliTipPes = TipoPessoa.FISICA
+			if not NfsCliInsEst.IsEmpty() and NfsCliInsEst <> 'ISENTO'
+				&ArqXml.WriteElement('CAEPF', NfsCliInsEst)
+			Endif
+		Else		
+			if not NfsCliInsMun.IsEmpty() and NfsCliInsMun <> 'ISENTO'
+				&ArqXml.WriteElement('IM', NfsCliInsMun)
+			Endif
+		Endif
+		
+		&ArqXml.WriteElement('xNome', NfsCliRaz)	
+		
+		&ArqXml.WriteStartElement('end')
+		
+		&ArqXml.WriteStartElement('endNac')
+		&ArqXml.WriteElement('cMun', trim(NfsCliCidIbge.ToString()))
+		
+		&NfsCliCep = RetornaSoNumeros.Udp(NfsCliCep)
+		&ArqXml.WriteElement('CEP', &NfsCliCep)
+		
+		&ArqXml.WriteEndElement() //endNac
+		
+		&ArqXml.WriteElement('xLgr', NfsCliLog.Trim())
+		&ArqXml.WriteElement('nro', NfsCliNro.Trim())
+		if not NfsCliCpl.IsEmpty() and not NfsCliCpl.IsNull()
+			&ArqXml.WriteElement('xCpl', NfsCliCpl.Trim())
+		Endif
+		&ArqXml.WriteElement('xBairro', NfsCliBai.Trim())
+		
+		&ArqXml.WriteEndElement() //end
+		
+		if not NfsCliFonNum.IsNull() and not NfsCliFonNum.IsEmpty()
+			&NfsCliFonNum = RetornaSoNumeros.Udp(NfsCliFonNum)
+			&ArqXml.WriteElement('fone', &NfsCliFonNum.Trim())
+		Endif
+		
+		if not NfsCliEml.IsNull() and not NfsCliEml.IsEmpty()
+			&ArqXml.WriteElement('email', NfsCliEml.Trim())
+		Endif
+		
+		&ArqXml.WriteEndElement() //toma
+//		GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'WriteEndElement','toma')
+		
+		if NfsIntIs = true
+//			GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'interm','interm')
+			&ArqXml.WriteStartElement('interm')
+			
+			&NfsIntCliCod = NfsIntCliCod
+			do 'getIntermediador'
+			
+			if &PesTip = TipoPessoa.FISICA
+				&ArqXml.WriteElement('CPF', &PesCpf)
+			Else
+				&NfsCliCnpj = RetornaSoNumeros.Udp(NfsIntCNPJ)
+				&ArqXml.WriteElement('CNPJ', &NfsCliCnpj)
+			Endif
+			
+			//NIF
+			//cNaoNIF
+			
+			if &PesTip = TipoPessoa.FISICA
+				if not &PesInsEst.IsEmpty() and not &PesInsEst = 'ISENTO'
+					&ArqXml.WriteElement('CAEPF', &PesInsEst)
+				EndIf
+			Else		
+				if not &PesInsMun.isEmpty() and &PesInsMun <> 'ISENTO'
+					&ArqXml.WriteElement('IM', &PesInsMun)
+				Endif
+			Endif
+			
+			&ArqXml.WriteElement('xNome', NfsIntRaz)
+			
+			&ArqXml.WriteStartElement('end')
+			
+			&ArqXml.WriteStartElement('endNac')
+			&ArqXml.WriteElement('cMun', &PesCidIBGE.ToString())
+			
+			&ArqXml.WriteElement('CEP', &PesCEP)
+			
+			&ArqXml.WriteEndElement() //endNac
+			
+			&ArqXml.WriteElement('xLgr', &PesLog.Trim())
+			&ArqXml.WriteElement('nro', &PesNro.Trim())
+			if not &PesCpl.IsEmpty()
+				&ArqXml.WriteElement('xCpl', &PesCpl.Trim())
+			Endif
+			&ArqXml.WriteElement('xBairro', &PesBai.Trim())
+			
+			&ArqXml.WriteEndElement() //end
+			
+			if not NfsIntFonNum.IsNull() and not NfsIntFonNum.IsEmpty()
+				&NfsCliFonNum = RetornaSoNumeros.Udp(NfsIntFonNum)
+				&ArqXml.WriteElement('fone', &NfsCliFonNum.Trim().Trim())
+			Endif
+			
+			if not NfsIntEml.IsNull() and not NfsIntEml.IsEmpty()
+				&ArqXml.WriteElement('email', NfsIntEml.Trim())
+			Endif
+			&ArqXml.WriteEndElement() //interm
+		Endif
+		
+		&ArqXml.WriteStartElement('serv')
+		&ArqXml.WriteStartElement('locPrest')
+		
+		if NfsPrsCidCod.IsEmpty() or NfsPrsCidCod.IsNull()
+			&ArqXml.WriteElement('cLocPrestacao', trim(&FilCidUfeIbge.ToString()))
+			//&ArqXml.WriteElement('cPaisPrestacao', trim(str(&cPaisPrestacao)))
+		Else
+			&NfsPrsCidCod = NfsPrsCidCod
+			do 'GetCidade'
+			&ArqXml.WriteElement('cLocPrestacao', trim(&NfsPrsCidCodCidUfeIbge.ToString()))
+			//&ArqXml.WriteElement('cPaisPrestacao', trim(str(&cPaisPrestacao)))
+		Endif
+		
+		&ArqXml.WriteEndElement() //locPrest
+		
+		&ArqXml.WriteStartElement('cServ')
+		&ArqXml.WriteElement('cTribNac', trim(NfsTribNac))
+		if not NfsTribMun.IsEmpty() and not NfsTribMun.IsNull()
+			&ArqXml.WriteElement('cTribMun', trim(NfsTribMun))
+		Endif
+		
+		&ArqXml.WriteElement('xDescServ', trim(Substr(NfsDisSer, 1, 1000)))
+		&ArqXml.WriteElement('cNBS', trim(NfsNbs))
+		//&ArqXml.WriteElement('cIntContrib', trim(str(NfsNbs)))
+		
+		//Para Obras
+		//obra
+		//inscImobFisc
+		//cObra
+		//cCIB
+		//end
+		//CEP
+		//endExt
+		//cEndPost
+		//xCidade
+		//xEstProvReg
+		//xLgr
+		//nro
+		//xCpl
+		//xBairro
+		
+		//Para Eventos
+		//atvEvento
+		//xNome
+		//dtIni
+		//dtFim
+		//idAtvEvt
+		//end
+		//CEP
+		//endExt
+		//cEndPost
+		//xCidade
+		//xEstProvReg
+		//xLgr
+		//nro
+		//xCpl
+		//xBairro
+		
+		&ArqXml.WriteEndElement() //cServ
+		
+		if not NfsInfComp.IsEmpty() and not NfsInfComp.IsNull()
+			&ArqXml.WriteStartElement('infoCompl')
+			&ArqXml.WriteElement('xInfComp', trim(NfsInfComp))
+			&ArqXml.WriteEndElement() //infoCompl
+		Endif
+	
+		&ArqXml.WriteEndElement() //serv
+		
+		&ArqXml.WriteStartElement('valores')
+		&ArqXml.WriteStartElement('vServPrest')
+		//vReceb
+		&NfsTotSer = NfsTotSer
+		&ArqXml.WriteElement('vServ', trim(str(&NfsTotSer,15,2)))
+		&ArqXml.WriteEndElement() //vServPrest
+		
+		if NfsTotDesc > 0
+			&ArqXml.WriteStartElement('vDescCondIncond')
+			if NfsTotDesc > 0
+				&ArqXml.WriteElement('vDescIncond', trim(str(NfsTotDesc,15,2)))
+			Endif
+			
+			//&ArqXml.WriteElement('vDescCond', '0.00') //JDF nao temos o condional ainda.
+			&ArqXml.WriteEndElement() //vDescCondIncond
+		Endif
+		
+		&ArqXml.WriteStartElement('trib')
+		&ArqXml.WriteStartElement('tribMun')
+		
+		&ArqXml.WriteElement('tribISSQN', '1') //"Tributação do ISSQN sobre o serviço prestado: //1 - Operação tributável;	2 - Imunidade;	3 - Exportação de serviço;	4 - Não Incidência;"
+		//cPaisResult Para Exportacao de servico
+		//tpImunidade
+		
+		&ArqXml.WriteElement('tpRetISSQN', NfsRetISSNov.Trim()) //"Tipo de retencao do ISSQN: //1 - Não Retido; //2 - Retido pelo Tomador; //3 - Retido pelo Intermediario;"
+		
+		if NfsPerISS > 0
+			&Taxa = round(NfsPerISS,2)
+			&ArqXml.WriteElement('pAliq', trim(str(&Taxa, 6,2))) //Valor da alíquota (%) do serviço prestado relativo ao município sujeito ativo (município de incidência) do ISSQN.
+		Endif
+		
+		&ArqXml.WriteEndElement() //tribMun
+		
+		if NfsTotPIS > 0 or NfsTotCofins > 0 or NfsTotIR > 0 or NfsTotCPP > 0 or NfsTotCSLL > 0
+			&ArqXml.WriteStartElement('tribFed')
+
+			if NfsTotPIS > 0 or NfsTotCofins > 0		
+				&ArqXml.WriteStartElement('piscofins')
+				
+				&ArqXml.WriteElement('CST', NfsCstPisCofins.Trim()) //"Código de Situação Tributária do PIS/COFINS (CST):
+				//00 - Nenhum; 
+				//01 - Operação Tributável com Alíquota Básica;
+				//02 - Operação Tributável com Alíquota Diferenciada;
+				//03 - Operação Tributável com Alíquota por Unidade de Medida de Produto;
+				//04 - Operação Tributável monofásica - Revenda a Alíquota Zero;
+				//05 - Operação Tributável por Substituição Tributária;
+				//06 - Operação Tributável a Alíquota Zero;
+				//07 - Operação Tributável da Contribuição;
+				//08 - Operação sem Incidência da Contribuição;
+				//09 - Operação com Suspensão da Contribuição;"
+				
+				&NfsTotSer = NfsTotSer - NfsTotDesc
+				&ArqXml.WriteElement('vBCPisCofins', trim(Str(&NfsTotSer,16,2)))
+				&ArqXml.WriteElement('pAliqPis', trim(str(NfsPerPIS, 18,2)))
+				&ArqXml.WriteElement('pAliqCofins', trim(str(NfsPerCofins, 18,2)))
+				&ArqXml.WriteElement('vPis', trim(str(NfsTotPIS, 18,2)))
+				&ArqXml.WriteElement('vCofins', trim(str(NfsTotCofins, 18,2)))
+				&ArqXml.WriteElement('tpRetPisCofins', NfsRetPisCofins.ToString()) //Tipo de retenção ao do PIS/COFINS:
+				//1 - PIS/COFINS Retido;
+				//2 - PIS/COFINS Não Retido;
+				//3 - PIS Retido/COFINS Não Retido;
+				//4 - PIS Não Retido/COFINS Retido;
+				
+				&ArqXml.WriteEndElement() //piscofins
+			Endif
+			
+			if NfsTotCPP > 0
+				&ArqXml.WriteElement('vRetCP', trim(str(NfsTotCPP, 18,2)))
+			Endif
+			if NfsTotIR > 0
+				&ArqXml.WriteElement('vRetIRRF', trim(str(NfsTotIR, 18,2)))
+			Endif
+			if NfsTotCSLL > 0
+				&ArqXml.WriteElement('vRetCSLL', trim(str(NfsTotCSLL, 18,2)))
+			Endif
+			&ArqXml.WriteEndElement() //tribFed
+		Endif
+		
+		&ArqXml.WriteStartElement('totTrib')
+		if NfsTribAprFed > 0 or NfsTribAprEst > 0 or NfsTribAprMun > 0
+			&ArqXml.WriteStartElement('pTotTrib')
+			&ArqXml.WriteElement('pTotTribFed', trim(str(NfsTribAprFed, 18,2))) 
+			&ArqXml.WriteElement('pTotTribEst', trim(str(NfsTribAprEst, 18,2))) 
+			&ArqXml.WriteElement('pTotTribMun', trim(str(NfsTribAprMun, 18,2))) 
+			&ArqXml.WriteEndElement() //pTotTrib
+		Else
+			&ArqXml.WriteStartElement('vTotTrib')
+			&ArqXml.WriteElement('vTotTribFed', '0.00')
+			&ArqXml.WriteElement('vTotTribEst', '0.00')
+			&ArqXml.WriteElement('vTotTribMun', '0.00')
+			&ArqXml.WriteEndElement() //vTotTrib
+		Endif	
+		&ArqXml.WriteEndElement() //totTrib
+		
+		&ArqXml.WriteEndElement() //trib
+		
+		&ArqXml.WriteEndElement() //valores
+		&ArqXml.WriteEndElement() //infDPS
+		&ArqXml.WriteEndElement() //DPS
+				
+		&ArqXml.Close()
+		
+		//NfsArqXml.FromString(&ArqXml)
+		
+		Exit
+	endfor
+	
+	Commit
+	
+	If &Transmitir = 'S'	
+		RetornaExisteSolicitacaoPendente.Call(&EmpCod, &FilCod, &NfsCod, 0, TipoSolicitacao.Autorizar_NFSE, &IsPendente, &SolCod)
+		if &SolCod.IsEmpty()
+			GravaSolicitacao.Call(&EmpCod, &FilCod, &NfsCod, 0, TipoSolicitacao.Autorizar_NFSE, &PesCod, &SolCod)
+		Endif
+	EndIF
+Else
+	GravaSolicitacao.Call(&EmpCod, &FilCod, &NfsCod, 0, TipoSolicitacao.Autorizar_NFSE, &PesCod, &SolCod)
+Endif
+
+Sub 'getIntermediador'
+	For Each ORder EmpCod, PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &NfsIntCliCod
+		
+		&PesTip = PesTip
+		&PesInsEst = PesInsEst
+		&PesInsMun = PesInsMun
+		&PesCidIBGE = PesCidIBGE
+		&PesCEP = PesCep
+		&PesLog = PesLog
+		&PesNro = PesNro
+		&PesCpl = PesCpl
+		&PesBai = PesBai
+		&PesCpf = retornaSoNumeros.Udp(PesCpf)
+		Exit
+	EndFor
+
+EndSub
+
+sub 'TabelaImpostoGrupo'
+	For Each Order EmpCod, TbImpFilCod
+		Where EmpCod = &EmpCod
+		Where TbImpFilCod = &TbImpFilCod
+		&TbFilRegTribMun = TbFilRegTribMun
+		&TbFilRegTribSN = TbFilRegTribSN
+		&TbFilRegTribMunEsp = TbFilRegTribMunEsp
+		Exit
+	EndFor
+EndSub
+
+sub 'GetCidade'
+	For Each Order EmpCod, CidCod
+		Where EmpCod = &EmpCod
+		Where CidCod = &NfsPrsCidCod
+		
+		&NfsPrsCidCodCidUfeIbge = CidIBGE
+		Exit
+	EndFor
+EndSub
+
+Sub 'Exception_handler'
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+Endsub
+
+Sub 'Error_handler'
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&NfsCod, in:&Transmitir, in:&PesCod, inout:&SolCod);
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeIbge</Value></Property><Property><Name>Description</Name><Value>Ibge</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidUfeIbge</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAmbEmsNFSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAmbEmsNFSer</Value></Property><Property><Name>Description</Name><Value>Ambiente Emissao NFSe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAmbEmsNFSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FIlInsMun">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FIlInsMun</Value></Property><Property><Name>Description</Name><Value>Filial Inscricao Municipal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInsMun</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilLog</Value></Property><Property><Name>Description</Name><Value>Filial Logradouro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilNro</Value></Property><Property><Name>Description</Name><Value>Filial Número</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilBai">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilBai</Value></Property><Property><Name>Description</Name><Value>Filial Bairro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilBai</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCep</Value></Property><Property><Name>Description</Name><Value>Filial Cep</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsNumRps">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsNumRps</Value></Property><Property><Name>Description</Name><Value>Numero RPS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsNumRps</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsPrsCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsPrsCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade Prestação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsPrsCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsPrsCidCodCidUfeIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsPrsCidCodCidUfeIbge</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Transmitir">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Transmitir</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArqXml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_enviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_enviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DpsNfsChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DpsNfsChv</Value></Property><Property><Name>Description</Name><Value>Chave NFSe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoPessoa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoPessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dhEmi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dhEmi</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsSer</Value></Property><Property><Name>Description</Name><Value>Serie</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dCompet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dCompet</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TbImpFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TbImpFilCod</Value></Property><Property><Name>Description</Name><Value>Grupo Filial Imposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbImpFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TbFilRegTribMun">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TbFilRegTribMun</Value></Property><Property><Name>Description</Name><Value>NFSe - Situacao perante o Simples</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbFilRegTribMun</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TbFilRegTribSN">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TbFilRegTribSN</Value></Property><Property><Name>Description</Name><Value>NFSe - Regime Apuração</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbFilRegTribSN</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TbFilRegTribMunEsp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TbFilRegTribMunEsp</Value></Property><Property><Name>Description</Name><Value>NFSe - Tipo Regime Especial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbFilRegTribMunEsp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInsEst">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInsEst</Value></Property><Property><Name>Description</Name><Value>Filial Inscricao Estadual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInsEst</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCliCPF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCliCPF</Value></Property><Property><Name>Description</Name><Value>CPF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCliCPF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCliCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCliCnpj</Value></Property><Property><Name>Description</Name><Value>CNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCliCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCliCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCliCep</Value></Property><Property><Name>Description</Name><Value>CEP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCliCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsIntCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsIntCliCod</Value></Property><Property><Name>Description</Name><Value>Codigo Cliente Intermediario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsIntCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesTip</Value></Property><Property><Name>Description</Name><Value>Pessoa Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCpf</Value></Property><Property><Name>Description</Name><Value>Pessoa Cpf</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesInsEst">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesInsEst</Value></Property><Property><Name>Description</Name><Value>Pessoa Inscricao Estadual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesInsEst</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesInsMun">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesInsMun</Value></Property><Property><Name>Description</Name><Value>Inscricao Municipal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesInsMun</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidIBGE</Value></Property><Property><Name>Description</Name><Value>cidade IBGE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCEP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCEP</Value></Property><Property><Name>Description</Name><Value>Pessoa CEP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesNro</Value></Property><Property><Name>Description</Name><Value>Pessoa Número</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesLog</Value></Property><Property><Name>Description</Name><Value>Pessoa Logradouro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesBai">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesBai</Value></Property><Property><Name>Description</Name><Value>Pessoa Bairro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesBai</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCpl</Value></Property><Property><Name>Description</Name><Value>Pessoa Complemento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsTotSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsTotSer</Value></Property><Property><Name>Description</Name><Value>Total Servico</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsTotSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Taxa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Taxa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Taxa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPendente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPendente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Numeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Numeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFusHor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFusHor</Value></Property><Property><Name>Description</Name><Value>Fuso Horario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFusHor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCliFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCliFonNum</Value></Property><Property><Name>Description</Name><Value>Fone</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCliFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>60</Value></Property><Property><Name>AttMaxLen</Name><Value>60</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsTipNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsTipNF</Value></Property><Property><Name>Description</Name><Value>Tipo de emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsTipNF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFonNum</Value></Property><Property><Name>Description</Name><Value>Telefone Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilEml</Value></Property><Property><Name>Description</Name><Value>Email Contato </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsHorEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsHorEms</Value></Property><Property><Name>Description</Name><Value>Hora Emissao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsHorEms</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraXmlNFSe</Value></Property><Property><Name>Description</Name><Value>Gera Xml NFSe</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

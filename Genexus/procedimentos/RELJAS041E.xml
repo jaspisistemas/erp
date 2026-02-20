@@ -1,0 +1,559 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="WIN-JEAN\jean.fae" versionDate="2024-08-28T11:56:43.0000000Z" lastUpdate="2024-08-27T17:48:13.0000000Z" checksum="f760e8f0d35984ba091c8d379abc522e" fullyQualifiedName="RELJAS041E" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="d37b0560-9642-4936-9ca3-a7812b6f43da" name="RELJAS041E" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Exportar Excel Duplicatas Pagas Com Divergências" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+	
+&Random = Random() * 10000
+&Filename = !"ExportDivergencias-" + &Random.ToString().Trim() + !".xlsx"
+
+&ExcelDocument.Open(&Filename)
+Do 'CheckStatus'
+&ExcelDocument.Clear()
+	
+&CellRow = 1
+&FirstColumn = 1
+
+loadWWPContext.Call(&Context)
+If &Context.PesCod = 0
+	Return
+EndIf
+
+&PesRaz = &Context.PesRaz
+For Each Order EmpCod, FilCod
+	Where EmpCod = &Context.EmpCod
+	Where FilCod = &Context.FilCod
+	&FilFan = FilFan
+	Exit
+EndFor
+
+//MB 4
+//MT 2
+
+&Filtro = 'APURAÇÃO: ' + trim(toformattedString(&CreDtaVct)) + ' À ' + trim(toformattedString(&FinalCreDtaVct))
+
+if &CbrCod <> 0
+	For Each Order EmpCod, CbrCod
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CbrCod
+		
+		&Filtro = ' CONTA: ' + trim(CbrCtaBanCrt)
+		if not CbrCtaBanCrtDig.IsEmpty()
+			&Filtro = '-' + trim(CbrCtaBanCrtDig)
+		Endif
+	
+		Exit
+	EndFor
+
+Endif
+
+//Header
+	&titulo = 'DUPLICATAS PAGAS SEM JUROS'
+	//print Cabecalho
+	&CellRow += 1
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 0).Text = &titulo
+///End
+
+//Print Menu
+&CellRow += 1
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 0).Text = 'Seq.'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 1).Text = 'Número'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 2).Text = 'Cliente'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 3).Text = 'L.C'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 4).Text = 'Valor Dup.'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 5).Text = 'Vencimento'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 6).Text = 'Pagamento'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 7).Text = 'Vencido'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 8).Text = 'Multa'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 9).Text = 'Juros'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 10).Text = 'Tot.Juro'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 11).Text = 'Juro Pago'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 12).Text = 'Bloqueto'
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 13).Text = 'Diferença'
+
+
+For each Order EmpCod,FilCod,CreCod
+	Where EmpCod = &EmpCod
+	Where CreFrpPgtoTip = TipoDuplicata.DUPLICATA
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreDtaVct >= &CreDtaVct and CreDtaVct <= &FinalCreDtaVct
+	Where CreCbrCod = &CbrCod When &IsSomenteGeraBoleto = false and &CbrCod <> 0 
+	Where CreCbrImp = TipoImpressao.GerarBoleto or CreCbrImp = TipoImpressao.ImprimirBoleto when &IsSomenteGeraBoleto = true
+	Where CreCliCod = &CreCliCod when &CreCliCod <> 0
+	Where CreVlrSdo <= 0  
+	Where (CreDtaCrt.IsEmpty() or CreDtaCrt.IsNull()) and (CreDtaPrt.IsEmpty() or CreDtaPrt.IsNull()) when &IsAdicionarProtestos = false
+	
+	&CreIsRet = true
+	if &IsSomenteViaRetorno = true
+		&CreIsRet = false	
+		For each Order EmpCod,FilCod,CreCod,CrePagCod
+			Where CreIsRet = true
+			&CreIsRet = true
+			Exit
+		EndFor
+	EndiF
+
+	if &CreIsRet = true
+		&CrePagVlr    = 0 
+		&CrePagVlrDsc = 0 
+		&CreQtdDias   = 0
+		&CrePAGVlrJur = 0 
+		&CrePagDta.SetEmpty()
+		&AuxCreDtaVct = CreDtaVct
+		&CrePagDta    = CreDtaPrmPag
+		
+		&CreCbrJurCod = CreCbrJurCod
+		&Multa = 0
+		if &CbrMltVlr > 0
+			&Multa = CreVlrDup * (&CbrMltVlr /100)
+		EndiF
+		&AuxCreVlrDup = CreVlrDup
+		For each Order EmpCod,FilCod,CreCod,CrePagCod
+			Where CrePagSts <> Status_Caixa.Cancelado or CrePagSts.IsEmpty() or CrePagSts.IsNull()
+			if CrePagVlr > &AuxCreVlrDup
+				&CrePagVlr    += &AuxCreVlrDup
+				&CrePAGVlrJur += (CrePagVlr - &AuxCreVlrDup)
+			Else
+				&CrePagVlr    += CrePagVlr
+			EndIf
+			
+			&CrePagVlrDsc += CrePagVlrDsc
+			&CrePAGVlrJur += CrePagVlrJur
+			&CreQtdDias   += CrePagDta - &AuxCreDtaVct
+			&CreDtaPrmPag = CrePagDta
+		EndFor
+	
+		retornaFeriadoPeriodo.Call(EmpCod, 'S', CreCliCobCidCod, CreDtaVct, &CreDtaPrmPag, &QtdDias)
+		
+		If &CreQtdDias > &Quantidade and &QtdDias > 1
+			
+			CalculaJuros.Call(EmpCod, CreCbrJurCod, &AuxCreDtaVct, &CrePagDta, CreVlrDup, &JurVct, CreCbrMltVlr, &Multa)
+			&TotalJuros = &Multa + &JurVct
+			&Diferenca = &TotalJuros - &CrePAGVlrJur
+			iF &Diferenca > 0.10 or &Diferenca < -0.10
+				
+				&sdtDuplicatasDivergentesItem = new()
+				&sdtDuplicatasDivergentesItem.CreCod = CreCod
+				&sdtDuplicatasDivergentesItem.CreDupNro = CreDupNro
+				&sdtDuplicatasDivergentesItem.CreCliCod = CreCliCod
+				&sdtDuplicatasDivergentesItem.CreCliRaz = CreCliRaz
+				&sdtDuplicatasDivergentesItem.CreDtaVct = CreDtaVct
+				&sdtDuplicatasDivergentesItem.CreDtaPrmPag = &CrePagDta
+				&sdtDuplicatasDivergentesItem.CreVlrDup = CreVlrDup
+				&sdtDuplicatasDivergentesItem.CreBloNro = CreBloNro
+				&sdtDuplicatasDivergentesItem.CreCbrcod = CreCbrCod
+				&sdtDuplicatasDivergentesItem.DiasVencido = &CreQtdDias
+				&sdtDuplicatasDivergentesItem.JurosPagos = &CrePAGVlrJur
+				&sdtDuplicatasDivergentesItem.JurosDevidos = &JurVct
+				&sdtDuplicatasDivergentesItem.MultaDevida = &Multa
+				&sdtDuplicatasDivergentesItem.TotalDevido = &TotalJuros
+				&sdtDuplicatasDivergentesItem.Descontos = &CrePagVlrDsc
+				&sdtDuplicatasDivergentesItem.Diferenca = &Diferenca
+				&sdtDuplicatasDivergentes.Add(&sdtDuplicatasDivergentesItem)
+			EndIf
+		eNDiF
+	EndIF
+EndFor
+
+Do Case
+	Case &Ordenar = 'D' //diferenca
+		&sdtDuplicatasDivergentes.Sort('[Diferenca]')
+	Case &Ordenar = 'V' //vencimento
+		&sdtDuplicatasDivergentes.Sort('CreDtaVct')
+EndCAse
+
+For &sdtDuplicatasDivergentesItem in &sdtDuplicatasDivergentes
+	if &sdtDuplicatasDivergentesItem.Diferenca > 0
+		&CreCod	= &sdtDuplicatasDivergentesItem.CreCod    		
+		&CreDupNro	= &sdtDuplicatasDivergentesItem.CreDupNro		
+		&CreCliCodRaz	= trim(str(&sdtDuplicatasDivergentesItem.CreCliCod)) + ' - ' + &sdtDuplicatasDivergentesItem.CreCliRaz.Trim()
+		//&CreCliRaz	= &sdtDuplicatasDivergentesItem.CreCliRaz 		
+		&AuxCreDtaVct	= &sdtDuplicatasDivergentesItem.CreDtaVct 		
+		&CrePagDta	= &sdtDuplicatasDivergentesItem.CreDtaPrmPag 	
+		&CreVlrDup	= &sdtDuplicatasDivergentesItem.CreVlrDup 		
+		&CreQtdDias	= &sdtDuplicatasDivergentesItem.DiasVencido 	
+		&CrePAGVlrJur	= &sdtDuplicatasDivergentesItem.JurosPagos 		
+		&JurVct	= &sdtDuplicatasDivergentesItem.JurosDevidos 	
+		&Multa	= &sdtDuplicatasDivergentesItem.MultaDevida 	
+		&TotalJuros	= &sdtDuplicatasDivergentesItem.TotalDevido 	
+		&CrePagVlrDsc	= &sdtDuplicatasDivergentesItem.Descontos 		
+		&Diferenca	= &sdtDuplicatasDivergentesItem.Diferenca 	
+		&CreBloNro = &sdtDuplicatasDivergentesItem.CreBloNro
+		&CreCbrCod = &sdtDuplicatasDivergentesItem.CreCbrcod
+		&TotalGeralJuro += &TotalJuros
+		&TotalGeralPago += &CrePAGVlrJur
+		&TotalGeralDiferenca += &Diferenca
+		
+		//print Dados
+		&CellRow += 1
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 0).Number = &CreCod
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 1).Text = &CreDupNro
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 2).Text = &CreCliCodRaz
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 3).Number = &CreCbrCod
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 4).Number = &CreVlrDup
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 5).Date = &AuxCreDtaVct
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 6).Date = &CrePagDta
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 7).Number = &CreQtdDias
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 8).Number = &Multa
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 9).Number = &JurVct
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 10).Number = &TotalJuros
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 11).Number = &CrePAGVlrJur
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 12).Text = &CreBloNro
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + 13).Number = &Diferenca
+	EndiF
+EndFOr
+
+//print TotalGeral
+&CellRow += 1
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 10).Number = &TotalGeralJuro
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 11).Number = &TotalGeralPago
+&ExcelDocument.Cells(&CellRow, &FirstColumn + 13).Number = &TotalGeralDiferenca
+
+if &ListarPagamentosSuperiores = true
+	&CellRow += 2
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 0).Text = 'Pagamentos Superiores'
+	
+	//Print Menu
+	&CellRow += 1
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 0).Text = 'Seq.'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 1).Text = 'Número'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 2).Text = 'Cliente'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 3).Text = 'L.C'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 4).Text = 'Valor Dup.'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 5).Text = 'Vencimento'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 6).Text = 'Pagamento'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 7).Text = 'Vencido'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 8).Text = 'Multa'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 9).Text = 'Juros'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 10).Text = 'Tot.Juro'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 11).Text = 'Juro Pago'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 12).Text = 'Bloqueto'
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 13).Text = 'Diferença'
+	
+	&TotalGeralJuro = 0
+	&TotalGeralPago = 0
+	&TotalGeralDiferenca = 0
+	
+	For &sdtDuplicatasDivergentesItem in &sdtDuplicatasDivergentes
+		if &sdtDuplicatasDivergentesItem.Diferenca < 0
+			&CreCod	= &sdtDuplicatasDivergentesItem.CreCod    		
+			&CreDupNro	= &sdtDuplicatasDivergentesItem.CreDupNro		
+			&CreCliCodRaz	= trim(str(&sdtDuplicatasDivergentesItem.CreCliCod)) + ' - ' + &sdtDuplicatasDivergentesItem.CreCliRaz.Trim()
+			//&CreCliRaz	= &sdtDuplicatasDivergentesItem.CreCliRaz 		
+			&AuxCreDtaVct	= &sdtDuplicatasDivergentesItem.CreDtaVct 		
+			&CrePagDta	= &sdtDuplicatasDivergentesItem.CreDtaPrmPag 	
+			&CreVlrDup	= &sdtDuplicatasDivergentesItem.CreVlrDup 		
+			&CreQtdDias	= &sdtDuplicatasDivergentesItem.DiasVencido 	
+			&CrePAGVlrJur	= &sdtDuplicatasDivergentesItem.JurosPagos 		
+			&JurVct	= &sdtDuplicatasDivergentesItem.JurosDevidos 	
+			&Multa	= &sdtDuplicatasDivergentesItem.MultaDevida 	
+			&TotalJuros	= &sdtDuplicatasDivergentesItem.TotalDevido 	
+			&CrePagVlrDsc	= &sdtDuplicatasDivergentesItem.Descontos 		
+			&Diferenca	= &sdtDuplicatasDivergentesItem.Diferenca 	
+			&CreBloNro = &sdtDuplicatasDivergentesItem.CreBloNro
+			&CreCbrCod = &sdtDuplicatasDivergentesItem.CreCbrcod
+			&TotalGeralJuro += &TotalJuros
+			&TotalGeralPago += &CrePAGVlrJur
+			&TotalGeralDiferenca += &Diferenca
+			
+			//print Dados
+			&CellRow += 1
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 0).Number = &CreCod
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 1).Text = &CreDupNro
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 2).Text = &CreCliCodRaz
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 3).Number = &CreCbrCod
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 4).Number = &CreVlrDup
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 5).Date = &AuxCreDtaVct
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 6).Date = &CrePagDta
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 7).Number = &CreQtdDias
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 8).Number = &Multa
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 9).Number = &JurVct
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 10).Number = &TotalJuros
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 11).Number = &CrePAGVlrJur
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 12).Text = &CreBloNro
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + 13).Number = &Diferenca
+			
+		EndiF	
+	EndFOr
+	
+	&TotalGeralDiferenca = &TotalGeralDiferenca * -1
+	//print TotalGeral
+	
+	&CellRow += 1
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 10).Number = &TotalGeralJuro
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 11).Number = &TotalGeralPago
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + 13).Number = &TotalGeralDiferenca
+	
+EndiF
+
+
+&ExcelDocument.Save()
+Do 'CheckStatus'
+&ExcelDocument.Close()
+
+
+Sub 'CheckStatus'
+
+	If (&ExcelDocument.ErrCode <> 0)
+		&Filename = ""
+		&ErrorMessage = &ExcelDocument.ErrDescription
+		&ExcelDocument.Close()
+		Return
+	EndIf
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Layout>
+          <Properties><Property><Name>RPT_PAPER_SIZE</Name><Value>Custom</Value></Property><Property><Name>RPT_PAPER_WIDTH</Name><Value>828</Value></Property><Property><Name>RPT_PAPER_HEIGHT</Name><Value>1169</Value></Property><Property><Name>RPT_RIGHT_MARGIN</Name><Value>36</Value></Property><Property><Name>RPT_ATT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property><Property><Name>RPT_TXT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+        </Layout>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod,in:&CreDtaVct, in:&FinalCreDtaVct, in:&Quantidade, in:&IsSomenteGeraBoleto, in:&CbrCod, in:&CreCliCod, in:&Ordenar, in:&ListarPagamentosSuperiores, in:&IsAdicionarProtestos, in:&IsSomenteViaRetorno, out:&Filename, out:&ErrorMessage);
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFan</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="titulo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>titulo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagDta</Value></Property><Property><Name>Description</Name><Value>Data Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlr</Value></Property><Property><Name>Description</Name><Value>Valor Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePAGVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePAGVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrJurCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrJurCod</Value></Property><Property><Name>Description</Name><Value>Tabela de Juros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrJurCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreQtdDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreQtdDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTax</Value></Property><Property><Name>Description</Name><Value>Juros Taxa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:JurTax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTaxDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTaxDia</Value></Property><Property><Name>Description</Name><Value>Juros Taxa ao Dia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:JurTaxDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurVct</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Quantidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Quantidade</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinalCreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinalCreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSomenteGeraBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSomenteGeraBoleto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Multa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Multa</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalJuros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalJuros</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrMltVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrMltVlr</Value></Property><Property><Name>Description</Name><Value>Valor Multa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrMltVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Diferenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Diferenca</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalGeralJuro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalGeralJuro</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalGeralPago">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalGeralPago</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalGeralDiferenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalGeralDiferenca</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ListarPagamentosSuperiores">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ListarPagamentosSuperiores</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ordenar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ordenar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDuplicatasDivergentes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDuplicatasDivergentes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDuplicatasDivergentes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDuplicatasDivergentesItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDuplicatasDivergentesItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDuplicatasDivergentes.sdtDuplicatasDivergentesItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDupNro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCodRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCodRaz</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCodRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrDup</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreBloNro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAdicionarProtestos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAdicionarProtestos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSomenteViaRetorno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSomenteViaRetorno</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreIsRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreIsRet</Value></Property><Property><Name>Description</Name><Value>Retorno Bancario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreIsRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsNaoUtil">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsNaoUtil</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SaldoDiasUtil">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SaldoDiasUtil</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaPrmPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaPrmPag</Value></Property><Property><Name>Description</Name><Value>Primeiro Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaPrmPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDias</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Filtro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Filtro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExcelDocument">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExcelDocument</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:ExcelDocument</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Filename">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Filename</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrorMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrorMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Random">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Random</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CellRow">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CellRow</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FirstColumn">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FirstColumn</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RELJAS041E</Value></Property><Property><Name>Description</Name><Value>Exportar Excel Duplicatas Pagas Com Divergências</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

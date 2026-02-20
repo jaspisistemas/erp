@@ -1,0 +1,2925 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="3da02edb-1b7b-48ed-b7ed-63881a7bef92" user="WINJEAN\jeanfae" versionDate="2025-12-31T14:57:55.0000000Z" lastUpdate="2025-12-30T13:36:50.0000000Z" checksum="c15b90b17a6066c1a676a6ba1cfa4503" fullyQualifiedName="GeraXmlNFeModelo55_4" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="48450836-2f35-446e-8be1-206dbb19f3d0" name="GeraXmlNFeModelo55_4" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Xml NFe Modelo55_4" parent="NfePrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[	
+//PEGA PASTAS DE CONFIGURACAO
+&sdtConfiguracoesPasta = RetornaConfiguracoesPastas.Udp(&EmpCod, &FilCod)
+
+&VersaoNF = RetornaVersaoNotas.Udp(VersaoNota.VersaoNFe_4)
+
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon106_NaoDestacarGTIN, &TCon106_NaoDestacarGTIN)
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon084_ImpostoAproximado, &TCon084_ImpostoAproximado)
+//RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon141_UnidadeTributavelNotas, &TCon141_UnidadeTributavelNotas)
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon151_EmiteNfeMesRetroativo, &TCon151_EmiteNfeMesRetroativo)
+
+
+For Each Order EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &NfeCod
+	
+	if NfeNum.IsEmpty() and &Transmitir = 'S'
+		&NfeNum = UltimoCodigoEmpresa.Udp(domParCod.NOTAFISCALNUM, EmpCod,  FilCod)
+		&Serie = RetornaSerieNF.UDP(domParCod.NOTAFISCAL55_SERIE, EmpCod, FilCod)
+		&NfeSer = trim(Str(&Serie))
+		NfeNum = &NfeNum
+		NfeSer = &NfeSer
+	Else
+		&NfeNum = NfeNum
+		&NfeSer = NfeSer
+	Endif
+	
+	If Month(NfeDtaEms) <> Month(ServerDate()) and &TCon151_EmiteNfeMesRetroativo <> 'S' // Emite Nfe Mes Retroativo? Padrao = N
+		NfeDtaEms = ServerDate()
+	EndIf
+	
+	&xPed = ''
+	Do Case
+		Case not NfeXped.IsEmpty() and Not NfeXped.IsNull()
+			&xPed = NfeXped
+		Case not NfePedCod.IsEmpty() and not NfePedCod.IsNull()
+			&PedNum = RetornaCodigoCliente.Udp(EmpCod, NfeFilCod, NfePedCod)
+			&xPed = trim(str(&PedNum))
+	EndCase
+	
+	//##################################################
+	//MONTA A CHAVE DA NFE
+	&cUF = RetornaCodigoSiglaEstado.Udp(0, FilCidUfeCod)
+	&CNPJ = retornaSoNumeros.Udp(FilCpj)
+	
+	if NfeCNF.IsEmpty() or NfeCNF.IsNull()
+		&cNF_Numeric = &NfeNum + &EmpCod
+		&cNF  = PadL(trim(str(&cNF_Numeric)), 8, '0')
+		NfeCNF = &cNF_Numeric
+	Else
+		&cNF  = PadL(trim(str(NfeCNF)), 8, '0')
+	EndIf
+	
+	&dEmi = NfeDtaEms
+	&NfeDtaEms = NfeDtaEms
+	
+	&AAMM = padL(SubStr(LTrim(str(Year(&dEmi), 4, 0)), 3, 2), 2, '0') + padL(LTrim(str(Month(&dEmi), 2, 0)), 2, '0')
+	
+	//Calculando o DV pelo modulo11
+	&aux =  PadL(&cUF, 2, '0') + 
+	PadL(&AAMM, 4, '0') + 
+	PadL(&CNPJ, 14, '0') + 
+	PadL(ModCod, 2, '0') + 
+	PadL(&NfeSer.Trim(), 3, '0') +
+	PadL(&NfeNum.ToString().Trim(), 9, '0') + 
+	PadL(FilTipEms, 1, '0') + 
+	PadL(&cNF, 8, '0')
+	&cDV = RetornaModulo11.Udp(&aux)
+	
+	//CHAVE DA NFE
+	&NfeChv = PadL(&cUF, 2, '0') + 
+	PadL(&AAMM, 4, '0') + 
+	PadL(&CNPJ, 14, '0') + 
+	PadL(ModCod, 2, '0') + 
+	PadL(&NfeSer.Trim(), 3, '0') +
+	PadL(&NfeNum.ToString().Trim(), 9, '0') + 
+	PadL(FilTipEms, 1, '0') + 
+	PadL(&cNF, 8, '0') + 
+	PadL(&cDV, 1, '0')
+	
+	//##################################################
+	//IDENTIFICACAO NFE
+	&NFe.infNFe.versao 	= &versaoNF
+	&NFe.infNFe.Id		= "NFe" + &NfeChv.Trim()
+	
+	&NFe.infNFe.ide.cUF.FromString(&cUF)
+	&NFe.infNFe.ide.cNF		= &cNF
+	&NFe.infNFe.ide.natOp	= retiraCaracteresEspeciais.Udp(NfeLctNatOpe.Trim())
+	//	&NFe.infNFe.ide.indPag  = '2' //0 – pagamento à vista; //1 – pagamento à prazo; //2 - outros.
+	&NFe.infNFe.ide.mod.FromString(ModCod)
+	&NFe.infNFe.ide.serie	= trim(&NfeSer)
+	&NFe.infNFe.ide.nNF		= trim(str(&NfeNum))
+	
+	&dhEmi = str(year(NfeDtaEms),4,0)+'-'+padl(trim(str(month(NfeDtaEms),2,0)),2,'0') +'-'+padl(trim(str(day(NfeDtaEms),2,0)),2,'0') + 'T' + NfeHorEms +'-'+ trim(FilFusHor)
+	&NFe.infNFe.ide.DhEmi	= &dhEmi
+	
+	&dhSaiEnt = str(year(NfeDtaEms),4,0)+'-'+padl(trim(str(month(NfeDtaEms),2,0)),2,'0') +'-'+padl(trim(str(day(NfeDtaEms),2,0)),2,'0') + 'T' + NfeHorEms +'-'+ trim(FilFusHor)
+	&NFe.infNFe.ide.dhSaiEnt = &dhSaiEnt
+	
+	If NfeEntSai = Status_EntradaSaida.Saida
+		&NFe.infNFe.ide.tpNF 	= '1'
+	Else
+		&NFe.infNFe.ide.tpNF 	= '0'
+	EndIF
+	
+	&NFe.infNFe.ide.cMunFG	= LTrim(str(FilCidUfeIbge))			
+	&NFe.infNFe.ide.tpImp   = '1' //SO RETRATO
+	
+	&NFe.infNFe.ide.tpEmis	= FilTipEms
+	
+	//	If FilTipEms = NF_TipoEmissao.ContingenciaSCAN //CASO SEJA SCAN
+	//		&FilNfeDtaSCAN = serverNow() //FilDtaSca //'2012-10-29T08:00:00'
+	//		
+	//		&dhCont = Substr(trim(TtoC(&FilNfeDtaSCAN)), 7, 4) + '-' + PadL(trim(Substr(TtoC(&FilNfeDtaSCAN), 4, 2)), 2, '0') + '-' + PadL(trim(Substr(TtoC(&FilNfeDtaSCAN), 1, 2)), 2, '0') + 'T' + 
+	//        //HORA
+	//        padL(trim(Substr(TtoC(&FilNfeDtaSCAN), 12,2)), 2, '0') 
+	//        //MINUTO
+	//        + ':' + padL(trim(Substr(TtoC(&FilNfeDtaSCAN), 15,2)), 2, '0') 
+	//        //SEGUNDO
+	//        + ':' + padL(trim(Substr(TtoC(&FilNfeDtaSCAN), 18,2)), 2, '0')  + trim(FilFusHor)
+	//		
+	//		&NFe.infNFe.ide.dhCont = &dhCont
+	//		If FilJusScan.IsEmpty()
+	//			&NFe.infNFe.ide.xJust = 'PROBLEMA NA TRANSMISSAO DO ARQUIVO NFE AO SEFAZ ORIGEM'
+	//		Else
+	//			&NFe.infNFe.ide.xJust = FilJusScan.Trim()
+	//		EndIF
+	//	EndIF
+	
+	&NFe.infNFe.ide.cDV		= &cDV
+	&NFe.infNFe.ide.tpAmb.FromString(FilAmbEms)
+	&NFe.infNFe.ide.finNFe.FromString(NfeFin)
+	if NfeCliTipPes = TipoPessoa.JURIDICA and (NfeGruImpFin <> true or NfeCliIns <> 'ISENTO')
+		&NFe.infNFe.ide.indFinal= '0' //0 Normal; 1 consumidor Final
+	Else
+		&NFe.infNFe.ide.indFinal= '1' //0 Normal; 1 consumidor Final
+	EndIF
+	
+	&NfeIndPres = NfeIndPres
+	
+	if NfeFin = NotaFinalidade.EmissaoNormal or NfeFin = NotaFinalidade.EmissaoDevolucao
+		if &NfeIndPres.IsEmpty()
+			Do CAse
+				Case NfeCliCidIbge = FilCidUfeIbge
+					&NfeIndPres	= '1' //1=Operação presencial;
+					
+				Otherwise
+					&NfeIndPres	= '9'
+			EndCase
+		Endif
+	Else
+		&NfeIndPres = '0'
+	Endif
+	
+	&NFe.infNFe.ide.indPres	= &NfeIndPres 
+	NfeIndPres = &NfeIndPres
+	
+	Do CAse
+		Case &NfeIndPres = '2' //marketplace
+			if (not NfeMrkCnpj.IsEmpty() and not NfeMrkCnpj.IsNull()) and not NfeMrkUser.IsEmpty()
+				&NFe.infNFe.ide.indIntermed = '1'
+				&NFe.infNFe.infIntermed.CNPJ = retornaSoNumeros.Udp(NfeMrkCnpj)
+				&NFe.infNFe.infIntermed.idCadIntTran = NfeMrkUser
+			Else
+				&NFe.infNFe.ide.indIntermed = '0'
+			Endif
+		CAse &NfeIndPres = '3' or &NfeIndPres = '4' or &NfeIndPres = '9'
+			&NFe.infNFe.ide.indIntermed = '0'
+	EndCase
+	
+	//0=Não se aplica (por exemplo, Nota Fiscal complementar ou de ajuste);
+	//1=Operação presencial;
+	//2=Operação não presencial, pela Internet;
+	//3=Operação não presencial, Teleatendimento;
+	//4=NFC-e em operação com entrega a domicílio;
+	//5=Operação presencial, fora do estabelecimento;
+	//9=Operação não presencial, outros.
+	
+	&NFe.infNFe.ide.procEmi	= TProcEmi.AppContribuinte //AppContribuinte	
+	&NFe.infNFe.ide.verProc	= EmpVer
+	
+	//if NfeFin <> NotaFinalidade.EmissaoNormal or 
+	prcLoadNfeReferenciadas.Call(EmpCod, FilCod, NfeCod, &SdtNotasReferenciadas)
+//	if &SdtNotasReferenciadas.Count = 0 //SO PEGA DO ATRIBUTO SE NAO TIVER GRAVADO NO LEVEL.
+//		If not NfeChvRef.IsEmpty() and NfeFin <> NotaFinalidade.EmissaoNormal //CASO SEJA UMA DEVOLUCAO
+//			&NfeRef = new()
+//			&NfeChvRef = RetornaSoNumeros.UDP(NfeChvRef)
+//			&NfeRef.refNFe = Substr(&NfeChvRef, 1, 44)
+//			&NFe.infNFe.ide.NFrefs.Add(&NfeRef)
+//		EndIF
+//	Else
+		For &SdtNotasReferenciadasItem in &SdtNotasReferenciadas
+			if &SdtNotasReferenciadasItem.NfeDocRefMod in ('55','65')
+				&NfeRef = new()
+				&NfeChvRef = RetornaSoNumeros.UDP(&SdtNotasReferenciadasItem.NfeDocRefNfe)
+				&NfeRef.refNFe = Substr(&NfeChvRef, 1, 44)
+				&NFe.infNFe.ide.NFrefs.Add(&NfeRef)
+			Endif
+			
+			if &SdtNotasReferenciadasItem.NfeDocRefMod in ('01','04')					
+				&DataVarchar = SubStr(str(year(&SdtNotasReferenciadasItem.NfeDocRefDta),4,0),3,2)+padl(trim(str(month(&SdtNotasReferenciadasItem.NfeDocRefDta),2,0)),2,'0') 
+				&NFeinfNFeideNFrefs.refNFP.AAMM = &DataVarchar.Trim()
+				If &SdtNotasReferenciadasItem.NfeDocRefCnpj.Trim().Length() >= 12
+					&NFeinfNFeideNFrefs.refNFP.CNPJ = &SdtNotasReferenciadasItem.NfeDocRefCnpj
+				Else
+					&NFeinfNFeideNFrefs.refNFP.CPF = &SdtNotasReferenciadasItem.NfeDocRefCnpj
+				EndIF
+				
+				&NFeinfNFeideNFrefs.refNFP.cUF = &SdtNotasReferenciadasItem.NfeDocRefUfe
+				&NFeinfNFeideNFrefs.refNFP.IE  = &SdtNotasReferenciadasItem.NfeDocRefInsEst
+				&NFeinfNFeideNFrefs.refNFP.mod = &SdtNotasReferenciadasItem.NfeDocRefMod
+				&NFeinfNFeideNFrefs.refNFP.nNF = &SdtNotasReferenciadasItem.NfeDocRefNro
+				&NFeinfNFeideNFrefs.refNFP.Serie = &SdtNotasReferenciadasItem.NfeDocRefSer
+				&NFe.infNFe.ide.NFrefs.Add(&NFeinfNFeideNFrefs)
+			Endif
+		EndFor
+//	Endif
+	
+	//##################################################
+	//EMITENTE
+	
+	&FilCpj = retornaSoNumeros.Udp(FilCpj)
+	If &FilCpj.Length() > 11
+		&NFe.infNFe.emit.CNPJ = retornaSoNumeros.Udp(FilCpj)
+	Else
+		&NFe.infNFe.emit.CPF = &FilCpj
+	EndIf
+	&NFe.infNFe.emit.xNome 	= Upper(FilRaz.Trim())
+	
+	if not FilFan.IsEmpty() 
+		&NFe.infNFe.emit.xFant  = Upper(FilFan.Trim())
+	endif
+	
+	//ENDEREÇO DO EMITENTE
+	&NFe.infNFe.emit.enderEmit.xLgr		= Upper(trim(Substr(FilLog, 1, 60)))	
+	&NFe.infNFe.emit.enderEmit.nro		= Upper(FilNro.Trim())
+	if not FilCpl.IsEmpty() and not FilCpl.IsNull()
+		&NFe.infNFe.emit.enderEmit.xCpl		= Upper(FilCpl.Trim())
+	Endif
+	
+	&NFe.infNFe.emit.enderEmit.xBairro	= upper(FilBai.Trim())
+	&NFe.infNFe.emit.enderEmit.cMun		= LTrim(Str(FilCidUfeIbge, 7, 0))
+	&NFe.infNFe.emit.enderEmit.xMun		= Upper(FilCidNom.Trim())
+	&NFe.infNFe.emit.enderEmit.UF.FromString(FilCidUfeCod)
+	&NFe.infNFe.emit.enderEmit.CEP		= RetornaSoNumeros.Udp(FilCep)
+	&NFe.infNFe.emit.enderEmit.cPais	= '1058' //Código do brasil
+	&NFe.infNFe.emit.enderEmit.xPais	= 'BRASIL'
+	
+	FormataFONE.Call(FilFonNum, &SoNumerosVarchar)
+	&SoNumerosVarchar = RetornaSoNumeros.Udp(&SoNumerosVarchar)
+	if not &SoNumerosVarchar.IsEmpty()
+		&NFe.infNFe.emit.enderEmit.fone	= &SoNumerosVarchar
+	endif
+	
+	For Each Order EmpCod, FilCod, FilUfeCodST
+		Where FilUfeCodST = NfeCliCidUF
+		if not FilUfeInsST.IsEmpty()
+			&NFe.infNFe.emit.IEST = RetornaSoNumeros.Udp(FilUfeInsST)
+		endif
+		Exit
+	EndFor
+	
+	&SoNumerosVarchar = RetornaSoNumeros.Udp(FilInsEst)
+	if &SoNumerosVarchar.IsEmpty()
+		&NFe.infNFe.emit.IE = 'ISENTO'
+	else
+		&NFe.infNFe.emit.IE = &SoNumerosVarchar
+	endif
+	
+	RetornaRegimeTributarioFilial.call(EmpCod, FilBasImp, &FilRegTrib, &TbImpUfeCod)
+	&NFe.infNFe.emit.CRT = &FilRegTrib
+	
+	//SO INFORMAR SE TIVER SERVIÇO JUNTO AOS PRODUTOS
+	//&SoNumerosVarchar = RetornaSoNumeros.Udp(FilInsMun)
+	//if not &SoNumerosVarchar.IsEmpty() and not FilCNA.IsEmpty()
+	//	&NFe.infNFe.emit.IM	= &SoNumerosVarchar
+	//	&NFe.infNFe.emit.CNAE = FilCNA.Trim()
+	//endif
+	
+	//##################################################
+	//DESTINATARIO
+	if &sdtConfiguracoesPasta.FilAmbEms = TAmb.Homologacao
+		&NFe.infNFe.dest.CNPJ 	= "99999999000191"
+		&NFe.infNFe.dest.xNome	= "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
+		
+		&SoNumerosVarchar = RetornaSoNumeros.Udp(NfeCliIns)
+		Do Case 
+			CAse NfeCliCidUF = 'EX' //EXPORTACAO
+				&NFe.infNFe.dest.indIEDest = '9' //9=Não Contribuinte, que pode ou não possuir Inscrição	
+				
+			CAse not &SoNumerosVarchar.IsEmpty() and NfeCliTipPes = TipoPessoa.JURIDICA
+				&NFe.infNFe.dest.indIEDest = '1' //1=Contribuinte ICMS (informar a IE do destinatário);
+				&Nfe.infNFe.dest.IE = &SoNumerosVarchar
+				
+			Case NfeCliTipPes = TipoPessoa.JURIDICA and NfeGruImpFin <> true
+				&NFe.infNFe.dest.indIEDest = '2'//2=Contribuinte isento de Inscrição no cadastro de //Contribuintes do ICMS;
+				
+			CAse not &SoNumerosVarchar.IsEmpty() and NfeCliTipPes = TipoPessoa.FISICA
+				&NFe.infNFe.dest.indIEDest = '1' //1=Contribuinte ICMS (informar a IE do destinatário);
+				&Nfe.infNFe.dest.IE = &SoNumerosVarchar
+				
+			Otherwise
+				&NFe.infNFe.dest.indIEDest = '9' //9=Não Contribuinte, que pode ou não possuir Inscrição	
+		EndCase		
+	else //Ambiente PRODUÇÃO	
+		
+		&NFe.infNFe.dest.xNome	= trim(Substr(trim(upper(NfeCliRaz)), 1, 60))
+		
+		if  NfeCliCidUF = 'EX' //EXPORTACAO
+			if NfeCliTipPes = TipoPessoa.FISICA //FISICA
+				&NFe.infNFe.dest.idEstrangeiro    = retornaSoNumeros.Udp(NfeCliCpf)		
+				&NfeCliCpfCnpj = NfeCliCpf
+			else //JURIDICA
+				&NFe.infNFe.dest.idEstrangeiro 	= retornaSoNumeros.Udp(NfeCliCnpj)
+				&NfeCliCpfCnpj = NfeCliCnpj
+			endif
+		Else
+			if NfeCliTipPes = TipoPessoa.FISICA //FISICA
+				&NFe.infNFe.dest.CPF    = retornaSoNumeros.Udp(NfeCliCpf)			
+				&NfeCliCpfCnpj = NfeCliCpf
+			else //JURIDICA
+				&NFe.infNFe.dest.CNPJ 	= retornaSoNumeros.Udp(NfeCliCnpj)
+				&NfeCliCpfCnpj = NfeCliCnpj
+			endif
+		EndIF
+		
+		&SoNumerosVarchar = RetornaSoNumeros.Udp(NfeCliIns)
+		Do Case 
+			CAse NfeCliCidUF = 'EX' //EXPORTACAO
+				&NFe.infNFe.dest.indIEDest = '9' //9=Não Contribuinte, que pode ou não possuir Inscrição	
+				
+			CAse not &SoNumerosVarchar.IsEmpty() and NfeCliTipPes = TipoPessoa.JURIDICA
+				&NFe.infNFe.dest.indIEDest = '1' //1=Contribuinte ICMS (informar a IE do destinatário);
+				&Nfe.infNFe.dest.IE = &SoNumerosVarchar
+				
+			Case NfeCliTipPes = TipoPessoa.JURIDICA and NfeGruImpFin <> true
+				&NFe.infNFe.dest.indIEDest = '2'//2=Contribuinte isento de Inscrição no cadastro de //Contribuintes do ICMS;
+				
+			CAse not &SoNumerosVarchar.IsEmpty() and NfeCliTipPes = TipoPessoa.FISICA
+				&NFe.infNFe.dest.indIEDest = '1' //1=Contribuinte ICMS (informar a IE do destinatário);
+				&Nfe.infNFe.dest.IE = &SoNumerosVarchar
+				
+			Otherwise
+				&NFe.infNFe.dest.indIEDest = '9' //9=Não Contribuinte, que pode ou não possuir Inscrição	
+		EndCase
+		
+		If NfeCliCidUF in ('AM','AP','AC','RO','RR') and not NfeCliSuf.IsEmpty()
+			&NFe.infNFe.dest.ISUF = NfeCliSuf.Trim()
+		EndIF
+	endIf
+	
+	//if not &sdtNfe.NfeDesEmail.IsEmpty()
+	//	&NFe.infNFe.dest.email	= Lower(&sdtNfe.NfeDesEmail.Trim())
+	//endif
+	
+	&NFe.infNFe.dest.enderDest.xLgr		= upper(trim(substr(NfeCliEnd,1,60)))
+	&NFe.infNFe.dest.enderDest.nro		= Upper(NfeCliEndNro.Trim())
+	&NFe.infNFe.dest.enderDest.xBairro	= upper(trim(Substr(NfeCliBai,1,60)))
+	
+	&NFe.infNFe.dest.enderDest.xMun		= upper(trim(substr(NfeCliCidNom,1,60)))
+	&NfeCliCidUF = NfeCliCidUF
+	
+	&NFe.infNFe.dest.enderDest.UF.FromString(NfeCliCidUF)
+	&IsImportacao = false
+	
+	if NfeCliCidUF <> 'EX'
+		&NFe.infNFe.dest.enderDest.cMun		= trim(Str(NfeCliCidIbge))
+		
+		&NFe.infNFe.dest.enderDest.CEP		= RetornaSoNumeros.Udp(NfeCliCep)
+		&NFe.infNFe.dest.enderDest.cPais	= '1058'
+		&NFe.infNFe.dest.enderDest.xPais	= 'BRASIL'
+	Else
+		if NfeEntSai = Status_EntradaSaida.Entrada and NfeFin = NotaFinalidade.EmissaoNormal
+			&IsImportacao = true
+		Endif
+		
+		&NFe.infNFe.dest.enderDest.cMun		= '9999999'
+		
+		&NFe.infNFe.dest.enderDest.CEP		= '99999999'
+		
+		RetornaCodigoPais.Call(EmpCod, NfeCliCidCod, &PaiCod, &PaiNom)
+		&NFe.infNFe.dest.enderDest.cPais	= trim(str(&PaiCod))
+		&NFe.infNFe.dest.enderDest.xPais	= &PaiNom
+	EndIF
+	
+	if not NfeCliCpl.IsEmpty()
+		&NFe.infNFe.dest.enderDest.xCpl = upper(trim(Substr(NfeCliCpl,1,60)))
+	Endif
+	
+	FormataFONE.Call(NfeCliFon, &SoNumerosVarchar)
+	&SoNumerosVarchar = RetornaSoNumeros.Udp(&SoNumerosVarchar)
+	if not &SoNumerosVarchar.IsEmpty()
+		&NFe.infNFe.dest.enderDest.fone	= &SoNumerosVarchar
+	EndiF
+	
+	//ENDERECO ENTREGA
+	if NfeCliEntIs = true and (NfeCliEnd <> NfeCliEntLog or NfeCliEndNro <> NfeCliEntLogNro or NfeCliCep <> NfeCliEntCEP or NfeCliBai <> NfeCliEntBai) and NfeCliCidUF <> 'EX' // POSSUI ENTREGA
+		RetornaDadosCidade.Call(EmpCod, NfeCliEntCidCod, &NfeCliEntCidNom, &NfeCliEntCidUF, &NfeCliEntCidIbge, &NfeCliEntPaiCod, &NfeCliEntPaiNom)
+		
+		if NfeCliTipPes = TipoPessoa.FISICA //FISICA
+			&NFe.infNFe.entrega.CPF    = retornaSoNumeros.Udp(NfeCliCpf)			
+		else //JURIDICA
+			&NFe.infNFe.entrega.CNPJ 	= retornaSoNumeros.Udp(NfeCliCnpj)
+		endif
+		
+		&NFe.infNFe.entrega.xLgr = upper(trim(substr(NfeCliEntLog,1,60)))
+		&NFe.infNFe.entrega.nro		= Upper(NfeCliEntLogNro.Trim())
+		&NFe.infNFe.entrega.xBairro	= upper(trim(Substr(NfeCliEntBai,1,60)))
+		
+		&NFe.infNFe.entrega.xMun		= upper(trim(substr(&NfeCliEntCidNom,1,60)))
+		&NFe.infNFe.entrega.UF.FromString(&NfeCliEntCidUF)
+		
+		if &NfeCliEntCidUF <> 'EX'
+			&NFe.infNFe.entrega.cMun		= trim(Str(&NfeCliEntCidIbge))
+			&NFe.infNFe.entrega.CEP		= RetornaSoNumeros.Udp(NfeCliEntCEP)
+			&NFe.infNFe.entrega.cPais	= '1058'
+			&NFe.infNFe.entrega.xPais	= 'BRASIL'
+		Else			
+			&NFe.infNFe.entrega.cMun	= '9999999'
+			&NFe.infNFe.entrega.CEP		= '99999999'
+			&NFe.infNFe.entrega.cPais	= trim(str(&NfeCliEntPaiCod))
+			&NFe.infNFe.entrega.xPais	= &NfeCliEntPaiNom
+		EndIF
+		
+		if not NfeCliEntCmp.IsEmpty()
+			&NFe.infNFe.entrega.xCpl = upper(trim(Substr(NfeCliEntCmp,1,60)))
+		Endif
+		
+		//		FormataFONE.Call(NfeCliEntFon, &SoNumerosVarchar)
+		//		&SoNumerosVarchar = RetornaSoNumeros.Udp(&SoNumerosVarchar)
+		//		if not &SoNumerosVarchar.IsEmpty()
+		//			&NFe.infNFe.entrega.fone	= &SoNumerosVarchar
+		//		EndiF
+	EndIf
+	//	5501
+	//Verifica o tipo de operação da nota
+	Do Case
+		Case &NfeCliCidUF = 'EX'
+			&NFe.infNFe.ide.idDest = '3' //OPERACAO EXTERIOR
+			
+		Case FilCidUfeCod = NfeCliCidUF
+			&NFe.infNFe.ide.idDest = '1' //1=Operação interna;
+		Case FilCidUfeCod = &NfeCliEntCidUF and NfeIndPres = '1'
+			&NFe.infNFe.ide.idDest = '1' //1=Operação interna;		
+		Otherwise
+			&NFe.infNFe.ide.idDest = '2' //2=Operação interestadual;
+	EndCase
+	
+	// #############   JDF, deixar essa opcao pois tem um rolo da BA que precisa
+	&NFe.infNFe.autXMLs.Clear()
+	
+	If Not FilCtaCnpj.Trim().IsEmpty() and FilCtaCnpj <> &NfeCliCpfCnpj
+		&FilCtaCnpj = RetornaSoNumeros.Udp(FilCtaCnpj)
+		If &FilCtaCnpj.Length() > 11 
+			&AutXmls = new()
+			&AutXmls.CNPJ = RetornaSoNumeros.Udp(&FilCtaCnpj)
+			&NFe.infNFe.autXMLs.Add(&AutXmls)
+		Else
+			&AutXmls = new()
+			&AutXmls.CPF = RetornaSoNumeros.Udp(&FilCtaCnpj)
+			&NFe.infNFe.autXMLs.Add(&AutXmls)
+		EndIf
+	EndIf
+	
+	// autXMLs
+	For each order FilAutXml
+		&FilAutXml = retornaSoNumeros.Udp(FilAutXml)
+		If &FilAutXml.Length() > 11 
+			&AutXmls = new()
+			&AutXmls.CNPJ = &FilAutXml
+			&NFe.infNFe.autXMLs.Add(&AutXmls)
+		else
+			&AutXmls = new()
+			&AutXmls.CPF = &FilAutXml
+			&NFe.infNFe.autXMLs.Add(&AutXmls)
+		EndIf	
+	EndFor
+	
+	//##########################################################################
+	
+	//RESPONSAVEL EMISSOR
+	responsavelTecnico.Call(&NfeChv, &RespCnpj, &RespContato, &RespEmail, &RespFone, &idCSRT, &hashCSRT)
+	&NFe.infNFe.infRespTec.CNPJ = &RespCnpj
+	&NFe.infNFe.infRespTec.xContato = &RespContato
+	&NFe.infNFe.infRespTec.email = &RespEmail
+	&NFe.infNFe.infRespTec.fone = &RespFone	
+	&NFe.infNFe.infRespTec.idCSRT = &idCSRT
+	&NFe.infNFe.infRespTec.hashCSRT = &hashCSRT
+
+	//##################################################
+	//TRANSPORTADORA
+	&NFe.infNFe.transp.modFrete.FromString(NfeTipFrt)
+	
+	Do Case
+		Case NfeTipFrt = TipoFrete.SemFrete
+			//JDF nao pode mais preeencher quando for semfrete.
+		Case NfeTipFrt = TipoFrete.ProprioDestinatario 
+			&NFe.infNFe.transp.transporta.xNome	= trim(Substr(upper(NfeCliRaz.Trim()), 1, 60))
+			
+		CAse NfeTipFrt = TipoFrete.ProprioEmitente
+			&NFe.infNFe.transp.transporta.xNome	= trim(Substr(upper(FilRaz.Trim()), 1, 60))
+			
+		Otherwise
+			If NfeTraTipPes = TipoPessoa.FISICA
+				&SoNumerosVarchar = RetornaSoNumeros.Udp(NfeTraCpf)
+				If not &SoNumerosVarchar.IsEmpty()
+					&NFe.infNFe.transp.transporta.CPF  = &SoNumerosVarchar.Trim()
+				EndIF
+				
+			Else
+				&SoNumerosVarchar = RetornaSoNumeros.Udp(NfeTraCnpj)
+				If not &SoNumerosVarchar.IsEmpty()
+					&NFe.infNFe.transp.transporta.CNPJ = &SoNumerosVarchar.Trim()
+					
+					&SoNumerosVarchar = RetornaSoNumeros.Udp(NfeTraInsEst)
+					if &SoNumerosVarchar.IsEmpty()
+						&NFe.infNFe.transp.transporta.IE = 'ISENTO'
+					else
+						&NFe.infNFe.transp.transporta.IE = &SoNumerosVarchar
+					endif
+				EndIF
+			EndIf
+			
+			if not NfeTraRaz.IsEmpty()
+				&NFe.infNFe.transp.transporta.xNome	= trim(Substr(upper(NfeTraRaz.Trim()), 1, 60))
+				
+				if not NfeTraCidNom.IsEmpty() and not NfeTraCidCod.IsEmpty()
+					&NFe.infNFe.transp.transporta.xMun  = upper(NfeTraCidNom.Trim())
+				EndiF
+				
+				if not NfeTraCidUfeCod.IsEmpty() and not NfeTraCidCod.IsEmpty()
+					&NFe.infNFe.transp.transporta.UF.FromString(NfeTraCidUfeCod)
+				EndIf
+			EndIF
+			
+			If (not NfeTraEnd.IsEmpty()) and (NfeTraEnd.Length() > 3)
+				&NFe.infNFe.transp.transporta.xEnder= upper(NfeTraEnd.Trim())
+				If not NfeTraEndNro.IsEmpty()
+					&NFe.infNFe.transp.transporta.xEnder += ", " + upper(NfeTraEndNro.Trim())
+				EndIF
+				
+				//Tirei pq o campo fica muito grande
+				//			If not NfeTraBai.IsEmpty()
+				//				&NFe.infNFe.transp.transporta.xEnder += ", " + upper(NfeTraBai.Trim())
+				//			EndIF
+				//			If not NfeTraCep.IsEmpty()
+				//				&NFe.infNFe.transp.transporta.xEnder += ", " + upper(NfeTraCep.Trim())
+				//			EndIF
+			Endif
+	EndCase
+
+	
+	//VEICULO
+	If not NfeTraPlaCod.IsEmpty() and not NfeTraPlaUF.IsEmpty() and NfeTipFrt <> TipoFrete.SemFrete
+		&NFe.infNFe.transp.veicTransp.placa = UPPER(StrReplace(NfeTraPlaCod, "-", ""))
+		&NFe.infNFe.transp.veicTransp.UF = NfeTraPlaUF
+		
+		if not NfeTraRntc.IsEmpty() //RNTC NÃO É OBRIGATÓRIO
+			&NFe.infNFe.transp.veicTransp.RNTC = NfeTraRntc.Trim()
+		endif
+	endif
+	
+	//VOLUMES DA NOTA FISCAL
+	If NfeQtdVol > 0 and not NfeEspVol.IsEmpty()
+		&vol = new()
+		&vol.qVol	= trim(str(NfeQtdVol))
+		&vol.esp	= NfeEspVol.Trim()
+		
+		If not NfeMarVol.IsEmpty()
+			&vol.marca	= NfeMarVol.Trim()
+		EndIF
+		
+		If not NfeNroVol.IsEmpty()
+			&vol.nVol	= NfeNroVol.Trim()
+		EndIF
+		
+		&vol.pesoL	= trim(str(NfePesLiq, 9, 3))
+		&vol.pesoB	= trim(str(NfePesBrt, 9, 3))
+		&NFe.infNFe.transp.vols.Add(&vol)
+	EndIF
+	
+	if NfeCliCidUF = 'EX' and &IsImportacao <> true //EXPORTACAO
+		&NFe.infNFe.exporta.UFSaidaPais.FromString(NfeCidUfeCodExp)
+		&NFe.infNFe.exporta.xLocExporta = NfeCidNomExp
+	EndIF
+	
+	&NfeDI = NfeDI
+	&sdtDI.FromXml(&NfeDI)
+	
+	//####################################################################################################
+	//ITENS DA NFe
+	
+	&Item = 0
+	For Each Order EmpCod, FilCod, NfeCod, NfeItmCod	//PRODUTOS
+		&Item += 1
+		&det = new()
+		&det.nItem = trim(str(&Item))
+		
+		&det.prod.cProd		= trim(NfeProGraRef)
+		
+		if not NfeProBar.IsEmpty() and not NfeProBar.IsNull() and &TCon106_NaoDestacarGTIN <> 'S'
+			&det.prod.cEAN		= NfeProBar.Trim()
+			if NfeProBarTrib.IsEmpty() or NfeProBarTrib.IsNull()
+				&det.prod.cEANTrib	= NfeProBar.Trim()
+			Else
+				&det.prod.cEANTrib	= NfeProBarTrib.Trim()
+			EndIf
+		Else
+			&det.prod.cEAN		= 'SEM GTIN'
+			&det.prod.cEANTrib	= 'SEM GTIN'
+		EndiF
+		
+		&NfeProNom = Upper(NfeProNom)
+		If not NfeProVeiPla.IsEmpty()
+			&NfeProNom  += ' PLACA: ' + NfeProVeiPla.Trim()
+		EndIf
+		
+		&det.prod.xProd		= &NfeProNom
+		&det.prod.xProd = &det.prod.xProd.Replace('-',' ')
+		&det.prod.xProd		= trim(&det.prod.xProd)
+		
+		&Mensagem.SetEmpty()
+		//		if not NfeProVeiPla.IsEmpty()
+		//			&Mensagem  += ' PLACA: ' + NfeProVeiPla.Trim()
+		//		Endif
+		if not NfeProVeiCha.IsEmpty()
+			&Mensagem  += ' CHASSI: ' + NfeProVeiCha.Trim()
+		Endif
+		If not NfeProVeiRen.IsEmpty()
+			&Mensagem  += ' RENAVAM: ' + NfeProVeiRen.Trim()
+		Endif
+		if not NfeProVeiAnoFab.IsEmpty()
+			&Mensagem  += ' ' + trim(str(NfeProVeiAnoFab))
+			if not NfeProVeiAnoMod.IsEmpty()
+				&Mensagem  += '/'+ trim(str(NfeProVeiAnoMod)) 
+			EndIf
+		Endif
+		if not NfeProVeiCor.IsEmpty()
+			&Mensagem  += ' COR:' + NfeProVeiCor.Trim()
+		EndIf
+		if not NfeProVeiCom.IsEmpty()
+			&Mensagem  += ' COMBUST.:' + NfeProVeiCom.Trim()
+		EndIf
+		if not NfeProVeiKm.IsEmpty()
+			&Mensagem  += ' KM:' + trim(NfeProVeiKm.ToFormattedString())
+		EndIf
+		
+		If not NfeProDadAdi.IsEmpty()
+			&Mensagem += ' ' + trim(NfeProDadAdi)
+		EndiF
+		
+		&det.prod.NCM		= PadL(trim(str(NfeNcmCod)), 8, '0')
+		If NfeNcmCest <> '0' and not NfeNcmCest.Trim().IsEmpty()
+			&det.prod.CEST		= padL(trim(NfeNcmCest), 7, '0')
+		EndIF
+		&det.prod.uCom		= trim(UPPER(NfeEmbUnd))
+		&det.prod.qCom		= trim(str(NfeProQtd,18,4))
+		&det.prod.vUnCom	= trim(str(NfeProVlrUnt, 18, 5))
+		&det.prod.vProd		= trim(str(NfeProVlrTot, 18,2))
+		
+		&NfeCfoCod = retornaSoNumeros.Udp(NfeCfoCod)
+		
+		//		&IsCfopProducao = false
+		//		if &NfeCfoCod in ('6101', '5101', '6401', '5401', '5402')
+		//			&IsCfopProducao = true
+		//		Endif
+		
+		//TCon141_UnidadeTributavelNotas
+		If (&NfeCliCidUF = 'EX' or (&NfeCfoCod in ('1501','2501','5501','5502','5504','5505','6501','6502','6504','6505'))) //EXTERIOR Unidade Tributavel
+			
+			if not NfeEmbUndTrib.IsEmpty() and not NfeEmbUndTrib.IsNull()
+				&det.prod.uTrib		= trim(UPPER(NfeEmbUndTrib))
+			Else
+				RetornaUnidadeTributavelNCM.Call(NfeNcmCod, &NcmUnd)
+				if &NcmUnd.IsEmpty()
+					&det.prod.uTrib		= trim(UPPER(NfeEmbUnd))
+				Else
+					&det.prod.uTrib		= trim(UPPER(&NcmUnd))
+				EndIf				
+			Endif
+			
+			if not NfeProQtdTrib.IsEmpty() and not NfeProQtdTrib.IsNull()
+				&det.prod.qTrib		= trim(str(NfeProQtdTrib,18,4) )
+			Else
+				&det.prod.qTrib		= trim(str(NfeProQtd,18,4) )
+			Endif
+			
+			if not NfeProVlrUntTrib.IsNull() and not NfeProVlrUntTrib.IsEmpty()
+				&det.prod.vUnTrib	= trim(str(NfeProVlrUntTrib, 18,6))
+			Else
+				&det.prod.vUnTrib	= trim(str(NfeProVlrUnt, 18,6))
+			Endif
+		Else
+			if not NfeEmbUndTrib.IsEmpty() and not NfeEmbUndTrib.IsNull()
+				&det.prod.uTrib		= trim(UPPER(NfeEmbUndTrib))
+			Else
+				&det.prod.uTrib		= trim(UPPER(NfeEmbUnd))
+			Endif
+			//&det.prod.uTrib		= trim(UPPER(NfeEmbUnd))
+			
+			if not NfeProQtdTrib.IsEmpty() and not NfeProQtdTrib.IsNull()
+				&det.prod.qTrib		= trim(str(NfeProQtdTrib,18,4))
+			Else
+				&det.prod.qTrib		= trim(str(NfeProQtd,18,4))
+			Endif
+			//&det.prod.qTrib		= trim(str(NfeProQtd,18,4))
+			
+			if not NfeProVlrUntTrib.IsNull() and not NfeProVlrUntTrib.IsEmpty()
+				&det.prod.vUnTrib	= trim(str(NfeProVlrUntTrib, 18,6))
+			Else
+				&det.prod.vUnTrib	= trim(str(NfeProVlrUnt, 18,6))
+			Endif
+			//&det.prod.vUnTrib	= trim(str(NfeProVlrUnt, 18,5))
+		EndIF
+		
+		&det.prod.indTot	= '1' //O valor do item(vProd) compoe o valor total da nota (NFe 2.0)
+		
+		&det.prod.CFOP.FromString(&NfeCfoCod)
+		
+		if NfeProVlrOutDsp <> 0
+			&det.prod.vOutro = trim(str(NfeProVlrOutDsp, 18,2))
+		EndIF
+		
+		If NfeProVlrDsc <> 0
+			&det.prod.vDesc	= trim(str(NfeProVlrDsc, 18, 2))
+		EndIF
+		
+		//CBENEF
+		if not NfeProCBenef.IsEmpty() and not NfeProCBenef.IsNull()
+			&det.prod.cBenef = trim(NfeProCBenef)
+		Endif
+		
+		//IMPOSTO APROXIMADO
+		if NfeProVlrApxTrib > 0 and (&TCon084_ImpostoAproximado <> 'N')
+			&det.imposto.vTotTrib = trim(str(NfeProVlrApxTrib, 18, 2))
+		endif
+		
+		//RASTREABILIDADE
+		For Each Order EmpCod, FilCod, NfeCod, NfeItmCod, NfeProLotCod
+			Where NfeProLotQtd > 0
+			
+			&NfeProLotCod = trim(toformattedString(NfeProLotVct))
+			
+			if (NfeProLotCod <> '#SEM_LOTE' and not NfeProLotCod.IsEmpty()) or not NfeProLotVct.IsEmpty()
+				if NfeProLotCod = '#SEM_LOTE'
+					&Mensagem += ' LT:' + trim(toformattedString(NfeProLotVct))
+					&rastros = new()
+					&rastros.nLote = trim(toformattedString(NfeProLotVct))
+				Else				
+					&Mensagem += ' LT:' + substr(trim(NfeProLotCod),1,20)
+					&rastros = new()
+					&rastros.nLote = substr(trim(NfeProLotCod),1,20)
+				EndIF
+				
+				if not NfeProLotVct.IsEmpty() and (&NfeProLotCod <> NfeProLotCod) and (NfeProLotCod <> '#SEM_LOTE')
+					&Mensagem += ' VCT:' + trim(toformattedString(NfeProLotVct))
+				Endif
+				
+				iF NOT NfeProLotFab.IsEmpty() and (NfeProLotCod <> '#SEM_LOTE')
+					&Mensagem += ' FAB:' + trim(toformattedString(NfeProLotFab))
+				EndIf
+				
+				&Mensagem += ' QTD: ' + trim(toformattedString(NfeProLotQtd))
+				
+				if not &rastros.nLote.IsEmpty()
+					&rastros.qLote = trim(str(NfeProLotQtd,18,3))
+					
+					if not NfeProLotFab.IsEmpty()
+						&rastros.dFab = str(year(NfeProLotFab),4,0)+'-'+padl(trim(str(month(NfeProLotFab),2,0)),2,'0') +'-'+padl(trim(str(day(NfeProLotFab),2,0)),2,'0')
+					Else
+						&rastros.dFab = str(year(&NfeDtaEms),4,0)+'-'+padl(trim(str(month(&NfeDtaEms),2,0)),2,'0') +'-'+padl(trim(str(day(&NfeDtaEms),2,0)),2,'0')
+					Endif
+					
+					if not NfeProLotVct.IsEmpty()
+						&rastros.dVal = str(year(NfeProLotVct),4,0)+'-'+padl(trim(str(month(NfeProLotVct),2,0)),2,'0') +'-'+padl(trim(str(day(NfeProLotVct),2,0)),2,'0')
+					Else
+						&NfeProLotVct = &NfeDtaEms.AddDays(90)
+						&rastros.dVal = str(year(&NfeProLotVct),4,0)+'-'+padl(trim(str(month(&NfeProLotVct),2,0)),2,'0') +'-'+padl(trim(str(day(&NfeProLotVct),2,0)),2,'0')
+					Endif
+					
+					If not NfeProLotGer.IsEmpty()
+						&Mensagem += ' Ger.:'+TRim(NfeProLotGer.ToFormattedString())
+					EndIf
+					
+					IF Not NfeProLotPen.IsEmpty()
+						&Mensagem += ' Pen.:'+ trim(NfeProLotPen.ToFormattedString())
+					Endif
+					
+					If Not NfeProLotRen.Trim().IsEmpty()
+						&Mensagem += ' RENASEM:'+trim(NfeProLotRen)
+					EndIf
+					
+					If Not NfeProLotPms.IsEmpty()
+						&Mensagem += ' PMS:'+ trim(NfeProLotPms.ToFormattedString())
+					EndIf
+					
+					If Not NfeProLotPur.IsEmpty()
+						&Mensagem += ' Pur:'+  trim(NfeProLotPur.ToFormattedString())
+					EndIf
+					
+					&det.prod.rastros.Add(&rastros)
+				EndIf
+			Endif		
+		EndFor
+		
+		//################################# MEDICAMENTO ####################################################
+		If not NfeProMedAnv.IsEmpty() and not NfeProMedAnv.IsNull()
+			&Mensagem += 'COD. ANVISA:'+substr(trim(NfeProMedAnv),1,13)
+			&Medicamento = New()
+			&Medicamento.cProdANVISA = substr(trim(NfeProMedAnv),1,13)
+			&Medicamento.xMotivoIsencao = trim(NfeProMedMot)
+			&Medicamento.vPMC = trim(str(NfeProMedVlrMax,18,2))
+			&det.prod.meds.Add(&Medicamento)
+		EndIf
+		
+		
+		&Mensagem = &Mensagem.Trim()
+		if not &Mensagem.IsEmpty()
+			&det.infAdProd = UPPER(&Mensagem.Trim())
+		EndIF
+		
+		iF NfeProVlrFrt <> 0
+			&det.prod.vFrete = trim(str(NfeProVlrFrt, 18,2))
+		EndIF
+	
+		iF NfeProVlrSeg <> 0
+			&det.prod.vSeg = trim(str(NfeProVlrSeg, 18,2))
+		EndIF
+		
+		if not &xPed.IsEmpty() and &xPed <> '0'
+			&det.prod.xPed = trim(&xPed)
+			
+			do Case
+				Case not NfeNitemPed.IsEmpty() and not NfeNitemPed.IsNull()
+					&det.prod.nItemPed = trim(str(NfeNitemPed))
+					
+				CAse (not NfePedCod.IsEmpty() and not NfePedCod.IsNull())
+					prcRetornaCodigoPedido_nItem.Call(EmpCod, NfeFilCod, NfePedCod, NfeProCod, NfeProGraCod, &NfeNItemPed)
+					if not &NfeNItemPed.IsEmpty()
+						&det.prod.nItemPed = trim(str(&NfeNItemPed))
+					Endif
+			EndCAse
+		EndIf
+		
+		if &NfeCliCidUF = 'EX' and substr(NfeCfoCod, 1, 1) = '3' //Nota Importacao DI
+			&di = new()
+			if &sdtDI.cExportador.IsEmpty()
+				&di.cExportador = trim(str(NfeCliCod))
+			Else
+				&di.cExportador = &sdtDI.cExportador
+			EndiF
+			
+			if &sdtDI.tpIntermedio <> '1'
+				&di.CNPJ = &sdtDI.CNPJ
+				&di.UFTerceiro.FromString(&sdtDI.UFTerceiro)
+				//			Else
+				//				&di.CNPJ = '00000000000000'
+			EndIF
+			
+			&di.dDesemb = str(year(&sdtDI.dDesemb),4,0)+'-'+padl(trim(str(month(&sdtDI.dDesemb),2,0)),2,'0') +'-'+padl(trim(str(day(&sdtDI.dDesemb),2,0)),2,'0')
+			&di.dDI = str(year(&sdtDI.dDI),4,0)+'-'+padl(trim(str(month(&sdtDI.dDI),2,0)),2,'0') +'-'+padl(trim(str(day(&sdtDI.dDI),2,0)),2,'0')
+			
+			&di.nDI = &sdtDI.nDI
+			&di.tpIntermedio = &sdtDI.tpIntermedio
+			&di.tpViaTransp = &sdtDI.tpViaTransp
+			&di.UFDesemb.FromString(&sdtDI.UFDesemb)
+			
+			if &sdtDI.tpViaTransp = '1'
+				&vAFRMM = trim(str(&sdtDI.vAFRMM, 18, 2))
+				&di.vAFRMM = &vAFRMM
+			EndIF
+			
+			&di.xLocDesemb = &sdtDI.xLocDesemb
+			
+			&di.adis.Clear()
+			for &sdtDIitem in &sdtDI.adis
+				if not &sdtDIitem.nAdicao.IsEmpty() and not &sdtDIitem.nSeqAdic.IsEmpty()
+					&adis = new()
+					&adis.cFabricante = &sdtDIitem.cFabricante
+					&adis.nAdicao = &sdtDIitem.nAdicao
+					if not &sdtDIitem.nDraw.IsEmpty()
+						&adis.nDraw = &sdtDIitem.nDraw
+					EndiF			
+					&adis.nSeqAdic = &sdtDIitem.nSeqAdic
+					
+					if not &sdtDIitem.vDescDI.IsEmpty()
+						&adis.vDescDI = &sdtDIitem.vDescDI
+					endif
+					&di.adis.Add(&adis)
+				EndiF
+			EndFor
+			&det.prod.DIs.Add(&di)
+		EndIF
+		
+		//################################# COMBUSTÍVEL #####################################################
+		
+		If NfeProCodAnp <> 0
+			&det.prod.comb.cProdANP = trim(str(NfeProCodAnp))
+			&det.prod.comb.descANP = trim(RetiraCaracteresEspeciais.Udp(NfeProDscAnp))
+			&det.prod.comb.pGLP = trim(str(NfeProPerGlp, 18, 2)) 
+			&det.prod.comb.pGNi =  trim(str(NfeProPerGni, 18, 2))
+			&det.prod.comb.pGNn = trim(str(NfeProPerGnn, 18, 2)) 
+			&det.prod.comb.vPart = trim(str(NfeProVlrPar, 18, 2))			
+			&det.prod.comb.UFCons = NfeCliCidUF
+			
+			//Retornar Dados Produto
+			prcDadosCombustivel.Call(EmpCod, NfeProCod, &ProOriTriCod, &ProCmbUfOri, &ProCmbPerOri)
+			
+			if not &ProCmbUfOri.IsEmpty()
+				&det.prod.comb.origComb.cUFOrig = RetornaCodigoSiglaEstado.Udp(0, &ProCmbUfOri)
+				&det.prod.comb.origComb.indImport = trim(str(&ProOriTriCod))
+				&det.prod.comb.origComb.pOrig = trim(str(&ProCmbPerOri, 18, 4))
+			Endif
+		EndiF
+		
+		//##################################################
+		//IMPOSTOS - ICMS e S.T
+		&NfeProVlrTot = NfeProVlrTot
+		&NfeProVlrIcms = 0
+		If (&FilRegTrib <> RegimeTributario.SimplesNacional or NfeFin = NotaFinalidade.EmissaoDevolucao  or NfeFin = NotaFinalidade.EmissaoComplementar ) or &NfeCfoCod in ('6949','5949','6206','5206')
+			if &NfeCfoCod in ('6949','5949','6206','5206')
+				&IsTemAlgumCFOP = true
+			Endif
+			
+			//&IsDestacarICMs = true
+			if NfeProVlrIcmsDes.IsEmpty() or NfeProVlrIcmsDes.IsNull()
+				&vBC = trim(str(NfeProBasIcms, 18, 2))
+				&pRedBC = trim(str(NfeProTaxRedIcms, 18, 4))
+				&pICMS = trim(str(NfeProTaxIcms, 18, 4))
+				&vICMS = trim(str(NfeProVlrIcms, 18,2))	
+				&NfeProVlrIcms = NfeProVlrIcms
+			Else
+				&vBC = '0.00'
+				&pRedBC = '0.00'
+				&pICMS = '0.00'
+				&vICMS = '0.00'
+			Endif
+			
+		Else
+			&vBC = '0.00'
+			&pRedBC = '0.00'
+			&pICMS = '0.00'
+			&vICMS = '0.00'
+		Endif
+		
+		&NfeProVlrIcms += NfeProVlrDif
+		
+		&vICMSOp  = trim(str(&NfeProVlrIcms, 18,2))	
+		&vICMSDif = trim(str(NfeProVlrDif, 18,2))	
+		&pDif  = trim(str(NfeProTaxDif, 18, 4))		
+		
+		&vBCST = trim(str(NfeProBasIcmsSt, 18, 2))
+		&pRedBCST = trim(str(NfeProTaxRedIcmsSt, 18, 4))
+		
+		if NfeProUFDestSt.IsEmpty() or NfeProUFDestSt.IsNull()
+			&pICMSST = trim(str(NfeProTaxIcmsSt, 18, 4))
+		Else
+			&pICMSST = trim(str(NfeProUFDestSt, 18, 4))
+		Endif
+		
+		&vICMSST = trim(str(NfeProVlrImcsSt, 18, 2))
+		&vICMSDeson = trim(str(NfeProVlrIcmsDes, 18, 2))
+		&TotNfeProVlrIcmsDes += NfeProVlrIcmsDes
+		&orig = trim(str(NfeOriTriCod,2, 0))
+		&pMVAST = trim(str(NfeProTaxMvaSt, 18, 4))
+		
+		//FECOP
+		&pFCPST = trim(str(NfeProTaxFCPIcmsSt, 18, 2))
+		&vFCPST = trim(str(NfeProVlrFCPIcmsSt, 18, 2))
+		&vBCFCPST = trim(str(NfeProBasFCPIcmsSt, 18, 2))
+		
+		//RETIDO
+		&pSTRetido = trim(str(NfeProTaxIcmsRet, 18, 4))		
+		
+		&vSTRetido = trim(str(NfeProVlrIcmsRet, 18, 2))
+		&vBSTRetido = trim(str(NfeProBasIcmsRet, 18, 2))
+		
+		//credito ICMS
+		&vCredICMSSN = '0.00' 
+		&pCredSN = '0.00'
+		if NfeLctPerCred = Status_SimNao.Sim and FilCrdIcm <> 0 and NfeEntSai = Status_EntradaSaida.Saida and NfeProTer = Nota_ProPriaTerceira.PROPRIA
+			&pCredSN = trim(str(FilCrdIcm,18, 4))
+			&valorMoeda = Round((&NfeProVlrTot * FilCrdIcm) / 100, 2)
+			&vCredICMSSN = trim(str(&valorMoeda,18,2))
+		endif
+			
+		Do Case
+			Case NfeSitCod = '00'
+				&det.imposto.ICMS.ICMS00.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS00.CST	= '00'
+				&det.imposto.ICMS.ICMS00.modBC	= '3'
+				&det.imposto.ICMS.ICMS00.vBC	= trim(&vBC)
+				&det.imposto.ICMS.ICMS00.pICMS	= trim(&pICMS)
+				&det.imposto.ICMS.ICMS00.vICMS	= trim(&vICMS)
+				
+				//				RetornaPercentualPobreza.Call(&NfeCliCidUF, &pFCP)
+				
+				//				If &pFCP > 0 and NfeProVlrIcms > 0
+				//					&vFCP = round((NfeProBasIcms * (&pFCP/100)),2)
+				//					
+				//					&vICMS = trim(str(NfeProVlrIcms, 18,2))							
+				//					
+				//					&tvFCP += &vFCP
+				//					&det.imposto.ICMS.ICMS00.pFCP = trim(str(&pFCP,18,2))
+				//					&det.imposto.ICMS.ICMS00.vFCP = trim(str(&vFCP,13,2))
+				//				Else
+				//					If &pFCP >= 0
+				//						&det.imposto.ICMS.ICMS00.pFCP = trim(str(&pFCP,18,2))
+				//						&det.imposto.ICMS.ICMS00.vFCP = '0.00'
+				//					EndIf
+				//				Endif
+				
+			Case NfeSitCod = '10'
+				&det.imposto.ICMS.ICMS10.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS10.CST	= '10'
+				&det.imposto.ICMS.ICMS10.modBC	= '3'
+				&det.imposto.ICMS.ICMS10.vBC	= trim(&vBC)
+				&det.imposto.ICMS.ICMS10.pICMS	= trim(&pICMS)
+				&det.imposto.ICMS.ICMS10.vICMS	= trim(&vICMS)
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMS10.modBCST		= '4'
+					&det.imposto.ICMS.ICMS10.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMS10.modBCST		= '6'
+				Endif				
+				
+				&det.imposto.ICMS.ICMS10.pRedBCST= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMS10.vBCST	= trim(&vBCST)
+				&det.imposto.ICMS.ICMS10.pICMSST= trim(&pICMSST)
+				&det.imposto.ICMS.ICMS10.vICMSST= trim(&vICMSST)
+				
+				//FECOP
+				if NfeProTaxFCPIcmsSt > 0 and NfeProVlrFCPIcmsSt > 0
+					&det.imposto.ICMS.ICMS10.pFCPST = &pFCPST
+					&det.imposto.ICMS.ICMS10.vFCPST = &vFCPST
+					&det.imposto.ICMS.ICMS10.vBCFCPST = &vBCFCPST
+				Endif
+				
+			Case NfeSitCod = '20'
+				&det.imposto.ICMS.ICMS20.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS20.CST	= '20'
+				&det.imposto.ICMS.ICMS20.modBC	= '3'
+				&det.imposto.ICMS.ICMS20.pRedBC	= trim(&pRedBC)
+				&det.imposto.ICMS.ICMS20.vBC	= trim(&vBC)
+				&det.imposto.ICMS.ICMS20.pICMS	= trim(&pICMS)
+				&det.imposto.ICMS.ICMS20.vICMS	= trim(&vICMS)
+				
+				//vICMSDeson
+				//motDesICMS Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 
+				//3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+				
+				//FECOP
+				//if NfeProTaxFCPIcmsSt > 0 and NfeProVlrFCPIcmsSt > 0
+				//	&det.imposto.ICMS.ICMS10.pFCPST = NfeProTaxFCPIcmsSt
+				//	&det.imposto.ICMS.ICMS10.vFCPST = vFCPST
+				//	&det.imposto.ICMS.ICMS10.vBCFCPST = &vBCFCPST
+				//Endif
+				
+			Case NfeSitCod = '30'
+				&det.imposto.ICMS.ICMS30.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS30.CST	= '30'
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMS30.modBCST		= '4'
+					&det.imposto.ICMS.ICMS30.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMS30.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMS30.pRedBCST= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMS30.vBCST	= trim(&vBCST)
+				&det.imposto.ICMS.ICMS30.pICMSST= trim(&pICMSST)
+				&det.imposto.ICMS.ICMS30.vICMSST= trim(&vICMSST)
+				
+				if not NfeProVlrIcmsDes.IsEmpty() and not NfeProVlrIcmsDes.IsNull()  //and not NfeCliSuf.IsEmpty()
+					&det.imposto.ICMS.ICMS30.vICMSDeson = trim(&vICMSDeson)
+				endif
+				if not NfeProMotDes.IsEmpty() and not NfeProMotDes.IsNull()
+					&det.imposto.ICMS.ICMS30.motDesICMS = NfeProMotDes//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					if NfeProMotDes = 7 //SUFRAMA
+					&det.imposto.ICMS.ICMS30.indDeduzDeson = '1'//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					Endif
+				endif				
+				//1=Táxi;
+				//3=Produtor Agropecuário;
+				//4=Frotista/Locadora;
+				//5=Diplomático/Consular;
+				//6=Utilitários e Motocicletas da Amazônia Ocidental e Áreas de
+				//Livre Comércio (Resolução 714/88 e 790/94 – CONTRAN e
+				//suas alterações);
+				//7=SUFRAMA;
+				//8=Venda a Órgão Público;
+				//9=Outros. (NT 2011/004);
+				//10=Deficiente Condutor (Convênio ICMS 38/12);
+				//11=Deficiente Não Condutor (Convênio ICMS 38/12).
+				
+				//FECOP
+				if NfeProTaxFCPIcmsSt > 0 and NfeProVlrFCPIcmsSt > 0
+					&det.imposto.ICMS.ICMS30.pFCPST = &pFCPST
+					&det.imposto.ICMS.ICMS30.vFCPST = &vFCPST
+					&det.imposto.ICMS.ICMS30.vBCFCPST = &vBCFCPST
+				Endif
+				
+			Case NfeSitCod = '40'
+				&det.imposto.ICMS.ICMS40.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS40.CST	= '40'
+				
+				if not NfeProVlrIcmsDes.IsEmpty() and not NfeProVlrIcmsDes.IsNull()  //and not NfeCliSuf.IsEmpty()
+					&det.imposto.ICMS.ICMS40.vICMSDeson = trim(&vICMSDeson)
+				endif
+				if not NfeProMotDes.IsEmpty() and not NfeProMotDes.IsNull()
+					&det.imposto.ICMS.ICMS40.motDesICMS = NfeProMotDes//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					if NfeProMotDes = 7 //SUFRAMA
+					&det.imposto.ICMS.ICMS40.indDeduzDeson = '1'//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					Endif
+				endif	
+				
+			Case NfeSitCod = '41'
+				&det.imposto.ICMS.ICMS40.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS40.CST	= '41'
+				
+				if not NfeProVlrIcmsDes.IsEmpty() and not NfeProVlrIcmsDes.IsNull()  //and not NfeCliSuf.IsEmpty()
+					&det.imposto.ICMS.ICMS40.vICMSDeson = trim(&vICMSDeson)
+				endif
+				if not NfeProMotDes.IsEmpty() and not NfeProMotDes.IsNull()
+					&det.imposto.ICMS.ICMS40.motDesICMS = NfeProMotDes//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//if NfeProMotDes = 7 //SUFRAMA
+					&det.imposto.ICMS.ICMS40.indDeduzDeson = '1'//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//Endif
+				endif
+				
+			Case NfeSitCod = '50'
+				&det.imposto.ICMS.ICMS40.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS40.CST	= '50'
+				
+				if not NfeProVlrIcmsDes.IsEmpty() and not NfeProVlrIcmsDes.IsNull()  //and not NfeCliSuf.IsEmpty()
+					&det.imposto.ICMS.ICMS40.vICMSDeson = trim(&vICMSDeson)
+				endif
+				if not NfeProMotDes.IsEmpty() and not NfeProMotDes.IsNull()
+					&det.imposto.ICMS.ICMS40.motDesICMS = NfeProMotDes//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					if NfeProMotDes = 7 //SUFRAMA
+					&det.imposto.ICMS.ICMS40.indDeduzDeson = '1'//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					Endif
+				endif	
+				
+			Case NfeSitCod = '51'
+				&det.imposto.ICMS.ICMS51.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS51.CST	= '51'
+				&det.imposto.ICMS.ICMS51.modBC	= '3'
+				&det.imposto.ICMS.ICMS51.pRedBC	= trim(&pRedBC)
+				&det.imposto.ICMS.ICMS51.vBC	= trim(&vBC)
+				&det.imposto.ICMS.ICMS51.pICMS	= trim(&pICMS)
+				&det.imposto.ICMS.ICMS51.vICMS	= trim(&vICMS)
+				if NfeProTaxDif > 0
+					&det.imposto.ICMS.ICMS51.vICMSOp	= trim(&vICMSOp)
+					&det.imposto.ICMS.ICMS51.vICMSDif 	= trim(&vICMSDif)
+					&det.imposto.ICMS.ICMS51.pDif 		= trim(&pDif)
+				EndiF
+				
+			Case NfeSitCod = '60' and NfeProCodAnp <> 0
+				&det.imposto.icms.ICMSST.orig.FromString(&orig)
+				&det.imposto.icms.ICMSST.CST	= '60'				
+				//&det.imposto.icms.ICMSST.	    = trim(&pSTRetido) //>>FALTA PREENCHER ESTE CAMPO				
+				&det.imposto.icms.ICMSST.vBCSTRet	= trim(&vBSTRetido) //>>>>>> FALTA PREENCHER ESTE CAMPO	
+				&det.imposto.icms.ICMSST.vICMSSTRet	= trim(&vSTRetido) //>>>>>> FALTA PREENCHER ESTE CAMPO
+				&det.imposto.icms.ICMSST.vBCSTDest  = trim(&vBSTRetido) //>>>>>> FALTA PREENCHER ESTE CAMPO
+				&det.imposto.icms.ICMSST.vICMSSTDest= trim(&vSTRetido) //>>>>>> FALTA PREENCHER ESTE CAMPO
+				
+			Case NfeSitCod = '60' and (NfeProCodAnp.IsEmpty() or NfeProCodAnp.IsNull())
+				&det.imposto.ICMS.ICMS60.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS60.CST	= '60'
+				
+				&det.imposto.ICMS.ICMS60.pST	    = trim(&pSTRetido) //>>FALTA PREENCHER ESTE CAMPO				
+				&det.imposto.ICMS.ICMS60.vBCSTRet	= trim(&vBSTRetido) //>>>>>> FALTA PREENCHER ESTE CAMPO	
+				&det.imposto.ICMS.ICMS60.vICMSSTRet	= trim(&vSTRetido) //>>>>>> FALTA PREENCHER ESTE CAMPO
+				&det.imposto.ICMS.ICMS60.vICMSSubstituto = '0.00'
+				
+			Case NfeSitCod = '61'
+				&det.imposto.ICMS.ICMS61.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS61.CST = '61'
+				&det.imposto.ICMS.ICMS61.qBCMonoRet	= trim(&vBSTRetido)
+				
+				&TotalBaseRetido += NfeProBasIcmsRet
+				&TotalValorRetido += NfeProVlrIcmsRet
+				
+				&det.imposto.ICMS.ICMS61.adRemICMSRet   = trim(&pSTRetido)  
+				&det.imposto.ICMS.ICMS61.vICMSMonoRet	= trim(&vSTRetido) 
+				
+			Case NfeSitCod = '70'
+				&det.imposto.ICMS.ICMS70.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS70.CST	= '70'
+				
+				&det.imposto.ICMS.ICMS70.modBC	= '3'
+				&det.imposto.ICMS.ICMS70.pRedBC	= trim(&pRedBC)
+				&det.imposto.ICMS.ICMS70.vBC	= trim(&vBC)
+				&det.imposto.ICMS.ICMS70.pICMS	= trim(&pICMS)
+				&det.imposto.ICMS.ICMS70.vICMS	= trim(&vICMS)
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMS70.modBCST		= '4'
+					&det.imposto.ICMS.ICMS70.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMS70.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMS70.pRedBCST= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMS70.vBCST	= trim(&vBCST)
+				&det.imposto.ICMS.ICMS70.pICMSST= trim(&pICMSST)
+				&det.imposto.ICMS.ICMS70.vICMSST= trim(&vICMSST)
+				
+				if not NfeProVlrIcmsDes.IsEmpty() and not NfeProVlrIcmsDes.IsNull() //and not NfeCliSuf.IsEmpty()
+					&det.imposto.ICMS.ICMS70.vICMSDeson = trim(&vICMSDeson)
+				endif
+				if not NfeProMotDes.IsEmpty() and not NfeProMotDes.IsNull()
+					&det.imposto.ICMS.ICMS70.motDesICMS = NfeProMotDes//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					if NfeProMotDes = 7 //SUFRAMA
+					&det.imposto.ICMS.ICMS70.indDeduzDeson = '1'//Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+					//					Endif
+				endif
+				//1=Táxi;
+				//3=Produtor Agropecuário;
+				//4=Frotista/Locadora;
+				//5=Diplomático/Consular;
+				//6=Utilitários e Motocicletas da Amazônia Ocidental e Áreas de
+				//Livre Comércio (Resolução 714/88 e 790/94 – CONTRAN e
+				//suas alterações);
+				//7=SUFRAMA;
+				//8=Venda a Órgão Público;
+				//9=Outros. (NT 2011/004);
+				//10=Deficiente Condutor (Convênio ICMS 38/12);
+				//11=Deficiente Não Condutor (Convênio ICMS 38/12).
+				
+				//FECOP
+				if NfeProTaxFCPIcmsSt > 0 and NfeProVlrFCPIcmsSt > 0
+					&det.imposto.ICMS.ICMS70.pFCPST = &pFCPST
+					&det.imposto.ICMS.ICMS70.vFCPST = &vFCPST
+					&det.imposto.ICMS.ICMS70.vBCFCPST = &vBCFCPST
+				Endif
+				
+			Case NfeSitCod = '90'
+				&det.imposto.ICMS.ICMS90.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMS90.CST	= '90'
+				&det.imposto.ICMS.ICMS90.modBC	= '3'
+				&det.imposto.ICMS.ICMS90.vBC	= trim(&vBC)
+				&det.imposto.ICMS.ICMS90.pRedBC	= trim(&pRedBC)
+				&det.imposto.ICMS.ICMS90.pICMS	= trim(&pICMS)
+				&det.imposto.ICMS.ICMS90.vICMS	= trim(&vICMS)
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMS90.modBCST		= '4'
+					&det.imposto.ICMS.ICMS90.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMS90.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMS90.pRedBCST= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMS90.vBCST	= trim(&vBCST)
+				&det.imposto.ICMS.ICMS90.pICMSST= trim(&pICMSST)
+				&det.imposto.ICMS.ICMS90.vICMSST= trim(&vICMSST)
+				
+				//vICMSDeson
+				//motDesICMS Campo será preenchido quando o campo anterior estiver preenchido. Informar o motivo da desoneração: 3=Uso na agropecuária; 9=Outros; 12=Órgão de fomento e desenvolvimento agropecuário
+				//motDesICMS 6=Utilitários e Motocicletas da Amazônia Ocidental e Áreas de Livre Comércio (Resolução 714/88 e 790/94 – CONTRAN e suas alterações); 7=SUFRAMA; 9=Outros;
+				
+				//FECOP
+				if NfeProTaxFCPIcmsSt > 0 and NfeProVlrFCPIcmsSt > 0
+					&det.imposto.ICMS.ICMS90.pFCPST = &pFCPST
+					&det.imposto.ICMS.ICMS90.vFCPST = &vFCPST
+					&det.imposto.ICMS.ICMS90.vBCFCPST = &vBCFCPST
+				Endif
+				
+			Case NfeSitCod = '101' //APARTIR DAQUI EH SIMPLES NACIONAL
+				&det.imposto.ICMS.ICMSSN101.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN101.CSOSN	    = '101'
+				&det.imposto.ICMS.ICMSSN101.pCredSN     = trim(&pCredSN)
+				&det.imposto.ICMS.ICMSSN101.vCredICMSSN = trim(&vCredICMSSN)
+				
+				//Credito Icms 
+				NfeTaxCrd = val(&pCredSN)
+				NfeVlrCrd = val(&vCredICMSSN)
+				
+			Case NfeSitCod = '102'
+				&det.imposto.ICMS.ICMSSN102.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN102.CSOSN = '102'
+				
+			Case NfeSitCod = '103'
+				&det.imposto.ICMS.ICMSSN102.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN102.CSOSN = '103'
+				
+			Case NfeSitCod = '300'
+				&det.imposto.ICMS.ICMSSN102.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN102.CSOSN = '300'
+				
+			Case NfeSitCod = '400'
+				&det.imposto.ICMS.ICMSSN102.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN102.CSOSN = '400'
+				
+			Case NfeSitCod = '201'
+				&det.imposto.ICMS.ICMSSN201.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN201.CSOSN 		= '201'
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMSSN201.modBCST		= '4'
+					&det.imposto.ICMS.ICMSSN201.pMVAST	= trim(&pMVAST) 
+				Else
+					&det.imposto.ICMS.ICMSSN201.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMSSN201.pRedBCST	= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMSSN201.vBCST		= trim(&vBCST)
+				&det.imposto.ICMS.ICMSSN201.pICMSST		= trim(&pICMSST)
+				&det.imposto.ICMS.ICMSSN201.vICMSST		= trim(&vICMSST)
+				&det.imposto.ICMS.ICMSSN201.pCredSN		= trim(&pCredSN)
+				&det.imposto.ICMS.ICMSSN201.vCredICMSSN = trim(&vCredICMSSN)
+				
+				//Credito Icms 
+				NfeTaxCrd = val(&pCredSN)
+				NfeVlrCrd = val(&vCredICMSSN)
+				
+			Case NfeSitCod = '202'
+				&det.imposto.ICMS.ICMSSN202.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN202.CSOSN	= '202'
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMSSN202.modBCST		= '4'
+					&det.imposto.ICMS.ICMSSN202.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMSSN202.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMSSN202.pRedBCST= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMSSN202.vBCST   = trim(&vBCST)
+				&det.imposto.ICMS.ICMSSN202.pICMSST = trim(&pICMSST)
+				&det.imposto.ICMS.ICMSSN202.vICMSST = trim(&vICMSST)
+				
+			Case NfeSitCod = '203'
+				&det.imposto.ICMS.ICMSSN202.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN202.CSOSN	= '203'
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMSSN202.modBCST		= '4'
+					&det.imposto.ICMS.ICMSSN202.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMSSN202.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMSSN202.pRedBCST= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMSSN202.vBCST   = trim(&vBCST)
+				&det.imposto.ICMS.ICMSSN202.pICMSST = trim(&pICMSST)
+				&det.imposto.ICMS.ICMSSN202.vICMSST = trim(&vICMSST)
+				
+			Case NfeSitCod = '500'
+				&det.imposto.ICMS.ICMSSN500.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN500.CSOSN		= '500'
+				
+				&det.imposto.ICMS.ICMSSN500.pST	        = trim(&pSTRetido) 
+				&det.imposto.ICMS.ICMSSN500.vBCSTRet	= trim(&vBSTRetido)
+				&det.imposto.ICMS.ICMSSN500.vICMSSTRet	= trim(&vSTRetido) 
+				
+			Case NfeSitCod = '900'
+				&det.imposto.ICMS.ICMSSN900.orig.FromString(&orig)
+				&det.imposto.ICMS.ICMSSN900.CSOSN		= '900'
+				&det.imposto.ICMS.ICMSSN900.modBC   	= '3'
+				&det.imposto.ICMS.ICMSSN900.vBC			= trim(&vBC)
+				&det.imposto.ICMS.ICMSSN900.pRedBC		= trim(&pRedBC)
+				&det.imposto.ICMS.ICMSSN900.pICMS 		= trim(&pICMS)
+				&det.imposto.ICMS.ICMSSN900.vICMS		= trim(&vICMS)
+				
+				if not NfeProTaxMvaSt.IsEmpty()
+					&det.imposto.ICMS.ICMSSN900.modBCST		= '4'
+					&det.imposto.ICMS.ICMSSN900.pMVAST	= trim(&pMVAST)
+				Else
+					&det.imposto.ICMS.ICMSSN900.modBCST		= '6'
+				Endif
+				
+				&det.imposto.ICMS.ICMSSN900.pRedBCST	= trim(&pRedBCST)
+				&det.imposto.ICMS.ICMSSN900.vBCST		= trim(&vBCST)
+				&det.imposto.ICMS.ICMSSN900.pICMSST		= trim(&pICMSST)
+				&det.imposto.ICMS.ICMSSN900.vICMSST		= trim(&vICMSST)
+				&det.imposto.ICMS.ICMSSN900.pCredSN		= trim(&pCredSN)
+				&det.imposto.ICMS.ICMSSN900.vCredICMSSN	= trim(&vCredICMSSN)
+				
+				//Credito Icms 
+				NfeTaxCrd = val(&pCredSN)
+				NfeVlrCrd = val(&vCredICMSSN)
+		EndCase
+		
+		//IPI
+		&vBCIPI = trim(str(NfeProBasIpi, 18, 2))
+		&pIPI = trim(str(NfeProTaxIpi, 18, 4))
+		&vIPI = trim(str(NfeProVlrIpi, 18,2))
+		
+		If &IsImportacao = true
+			Do case
+				
+				CAse (NfeCstIpi <> '99' and NfeCstIpi <> '49') or NfeProVlrIpi > 0
+					//IPI TRIBUTADO IPITrib
+					if NfeIpiEnq > 0
+						&det.imposto.IPI.cEnq = padL(trim(str(NfeIpiEnq)),3,'0')
+					Else
+						&det.imposto.IPI.cEnq = '999'
+					Endif
+					
+					&det.imposto.IPI.IPITrib.pIPI =&pIPI.Trim()
+					&det.imposto.IPI.IPITrib.vBC = &vBCIPI.Trim()
+					&det.imposto.IPI.IPITrib.vIPI = &vIPI.Trim()
+					
+					&Numeric = val(NfeCstIpi)
+					&Varchar = Substr(NfeCfoCod, 1, 1)
+					
+					Do Case 
+						Case &Varchar in ('5','6','7') and &Numeric < 50 //Ajusta cst entrada para notas de venda
+							&det.imposto.IPI.IPITrib.CST = '99'
+							NfeCstIpi = '99'
+							
+						Case &Varchar in ('1','2','3') and &Numeric >= 50 //ajusta cst venda para notas de entrada
+							&det.imposto.IPI.IPITrib.CST = '49'
+							NfeCstIpi = '49'
+							
+						otherwise
+							&det.imposto.IPI.IPITrib.CST = NfeCstIpi
+					Endcase
+				OtherWise
+					
+					if NfeIpiEnq > 0
+						&det.imposto.IPI.cEnq = padL(trim(str(NfeIpiEnq)),3,'0')
+					Else
+						&det.imposto.IPI.cEnq = '999'
+					Endif
+					
+					&Numeric = val(NfeCstIpi)
+					&Varchar = Substr(NfeCfoCod, 1, 1)
+					
+					Do Case 
+						Case &Varchar in ('5','6','7') and &Numeric < 50
+							&det.imposto.IPI.IPINT.CST = '99'
+							NfeCstIpi = '99'
+						Case &Varchar in ('1','2','3') and &Numeric >= 50
+							&det.imposto.IPI.IPINT.CST = '49'
+							NfeCstIpi = '49'
+							
+						otherwise
+							
+							&det.imposto.IPI.IPINT.CST = NfeCstIpi					
+					Endcase
+			EndCase
+	
+		Else
+			
+			Do CAse 
+				CAse NfeCstIpi in ('01', '02', '03', '04', '05', '51', '52', '53', '54', '55')
+					//IPI NAO TRIBUTADO
+					if NfeIpiEnq > 0
+						&det.imposto.IPI.cEnq = padL(trim(str(NfeIpiEnq)),3,'0')
+					Else
+						&det.imposto.IPI.cEnq = '999'
+					Endif
+					
+					&Numeric = val(NfeCstIpi)
+					&Varchar = Substr(NfeCfoCod, 1, 1)
+					
+					Do Case 
+						Case &Varchar in ('5','6','7') and &Numeric < 50 //Ajusta cst entrada para notas de venda
+							&Numeric += 50
+							&NovoVarchar = trim(str(&Numeric))
+							&det.imposto.IPI.IPINT.CST = &NovoVarchar
+							NfeCstIpi = &NovoVarchar
+							
+						Case &Varchar in ('1','2','3') and &Numeric >= 50 //ajusta cst venda para notas de entrada
+							&Numeric -= 50
+							&NovoVarchar = trim(str(&Numeric))
+							&det.imposto.IPI.IPINT.CST = &NovoVarchar
+							NfeCstIpi = &NovoVarchar
+						Otherwise
+							&det.imposto.IPI.IPINT.CST = NfeCstIpi
+						
+					EndCAse
+				
+					
+				CAse (NfeCstIpi <> '99' and NfeCstIpi <> '49') or NfeProVlrIpi > 0
+					//IPI TRIBUTADO
+					if NfeIpiEnq > 0
+						&det.imposto.IPI.cEnq = padL(trim(str(NfeIpiEnq)),3,'0')
+					Else
+						&det.imposto.IPI.cEnq = '999'
+					Endif
+					
+					&det.imposto.IPI.IPITrib.pIPI =&pIPI.Trim()
+					&det.imposto.IPI.IPITrib.vBC = &vBCIPI.Trim()
+					&det.imposto.IPI.IPITrib.vIPI = &vIPI.Trim()
+					
+					&Numeric = val(NfeCstIpi)
+					&Varchar = Substr(NfeCfoCod, 1, 1)
+					
+					Do Case 
+						Case &Varchar in ('5','6','7') and &Numeric < 50 //Ajusta cst entrada para notas de venda
+							&det.imposto.IPI.IPITrib.CST = '99'
+							NfeCstIpi = '99'
+							
+						Case &Varchar in ('1','2','3') and &Numeric >= 50 //ajusta cst venda para notas de entrada
+							&det.imposto.IPI.IPITrib.CST = '49'
+							NfeCstIpi = '49'
+							
+						otherwise
+							&det.imposto.IPI.IPITrib.CST = NfeCstIpi
+					Endcase
+			EndCAse
+		Endif
+		
+		//VII
+		If &IsImportacao = true
+			&vBCIPI = trim(str(NfeProII_Bas, 18, 2))
+			&vDespAdu = trim(str(NfeProII_DspAdu, 18, 2))
+			&vII  = trim(str(NfeProII_vlr, 18, 2))
+			&totvII_Moeda += NfeProII_vlr
+			&vIOF  = trim(str(NfeProII_IOF, 18, 2))
+			
+			&det.imposto.II.vBC = &vBCIPI.Trim()
+			&det.imposto.II.vDespAdu = &vDespAdu.Trim()
+			&det.imposto.II.vII = &vII.Trim()
+			&det.imposto.II.vIOF = &vIOF.Trim()
+		Endif
+		
+		//PIS
+		&vPIS = '0.00'
+		&vBCPIS = '0.00'
+		If NfeProVlrPIS <> 0
+			&vPIS = trim(str(NfeProVlrPIS, 18,2))
+			if not NfeProBasPIS.IsEmpty() or not NfeProBasPIS.IsNull()
+				&vBCPIS = trim(str(NfeProBasPIS, 18,2))
+			Else
+				&vBCPIS = trim(str(&NfeProVlrTot, 18,2))
+			EndIf		
+		EndIF
+		&pPIS = trim(str(NfeProTaxPIS, 18, 4))
+		
+		Do Case
+			Case NfeCstPIS in (NF_CstPIS.CST01,NF_CstPIS.CST02)
+				&det.imposto.PIS.PISAliq.CST.FromString(NfeCstPIS)
+				&det.imposto.PIS.PISAliq.vBC	= trim(&vBCPIS)
+				&det.imposto.PIS.PISAliq.pPIS	= trim(&pPIS)
+				&det.imposto.PIS.PISAliq.vPIS	= trim(&vPIS)
+				
+			Case NfeCstPIS = NF_CstPIS.CST03							
+				&det.imposto.PIS.PISQtde.CST		= '03'
+				&det.imposto.PIS.PISQtde.qBCProd	= trim(&vBCPIS)
+				&det.imposto.PIS.PISQtde.vAliqProd	= trim(&pPIS)
+				&det.imposto.PIS.PISQtde.vPIS		= trim(&vPIS)
+				
+			Case NfeCstPIS in (NF_CstPIS.CST04,NF_CstPIS.CST06,NF_CstPIS.CST07,NF_CstPIS.CST08,NF_CstPIS.CST09)
+				&det.imposto.PIS.PISNT.CST	= NfeCstPIS
+				
+			Case NfeCstPIS in (NF_CstPIS.CST99, NF_CstPIS.CST49, NF_CstPIS.CST98)
+				&det.imposto.PIS.PISOutr.CST.FromString(NfeCstPIS)
+				&det.imposto.PIS.PISOutr.vBC		= trim(&vBCPIS)
+				&det.imposto.PIS.PISOutr.pPIS		= trim(&pPIS)
+				&det.imposto.PIS.PISOutr.vPIS		= trim(&vPIS)
+				
+			Otherwise
+				&det.imposto.PIS.PISNT.CST	= '07'
+		EndCase							
+		
+		//COFINS
+		&vCOFINS = '0.00'
+		&pCOFINS = trim(str(NfeProTaxCofins, 18, 4))
+		&vBCPIS = '0.00'
+		If NfeproVlrCofins <> 0
+			if not NfeProBasCofins.IsEmpty() or not NfeProBasCofins.IsNull()
+				&vBCPIS = trim(str(NfeProBasPIS, 18,2))
+			Else
+				&vBCPIS = trim(str(&NfeProVlrTot, 18,2))
+			EndIf
+			&vCOFINS = trim(str(NfeproVlrCofins, 18,2))
+		EndIF
+		
+		Do Case
+			Case NfeCstCofins in('01','02')
+				&det.imposto.COFINS.COFINSAliq.CST		= NfeCstCofins
+				&det.imposto.COFINS.COFINSAliq.vBC		= trim(&vBCPIS)
+				&det.imposto.COFINS.COFINSAliq.pCOFINS	= trim(&pCOFINS)
+				&det.imposto.COFINS.COFINSAliq.vCOFINS	= trim(&vCOFINS)
+				
+			Case NfeCstCofins = '03'
+				&det.imposto.COFINS.COFINSQtde.CST			= '03'
+				&det.imposto.COFINS.COFINSQtde.qBCProd		= trim(&vBCPIS)
+				&det.imposto.COFINS.COFINSQtde.vAliqProd	= trim(&pCOFINS)
+				&det.imposto.COFINS.COFINSQtde.vCOFINS		= trim(&vCOFINS)
+				
+			Case NfeCstCofins in ('04','06','07','08','09')
+				&det.imposto.COFINS.COFINSNT.CST = NfeCstCofins
+				
+			Case NfeCstCofins in ('99', '49', '98')
+				&det.imposto.COFINS.COFINSOutr.CST			= NfeCstCofins
+				&det.imposto.COFINS.COFINSOutr.vBC			= trim(&vBCPIS)
+				&det.imposto.COFINS.COFINSOutr.pCOFINS		= trim(&pCOFINS)
+				&det.imposto.COFINS.COFINSOutr.vCOFINS		= trim(&vCOFINS)
+				
+			Otherwise
+				&det.imposto.COFINS.COFINSNT.CST = '07'
+		EndCase
+		
+		//ICMSUFDest
+		
+		If &FilRegTrib <> RegimeTributario.SimplesNacional or NfeFin = NotaFinalidade.EmissaoDevolucao  or NfeFin = NotaFinalidade.EmissaoComplementar
+			if NfeProVlrIcms > 0 and NfeProUFDest > 0 and NfeProTaxIcms > 0 //and &NFe.infNFe.dest.indIEDest <> '1'
+				
+				&DifalMoeda = 0
+				&pICMSUFDest = trim(str(NfeProUFDest, 8,2))
+				&pICMS = trim(str(NfeProTaxIcms, 18, 2))
+				if NfeProUFDest > NfeProTaxIcms
+					&DifalTaxa = NfeProUFDest - NfeProTaxIcms
+				Else
+					&DifalTaxa = NfeProUFDest
+				EndIf
+				
+				if &DifalTaxa > 0
+					&DifalMoeda = round(NfeProBasIcms *(&DifalTaxa/100), 2)
+				Else
+					&DifalTaxa = 0
+				Endif
+				&ValorUfDestinoMoeda += &DifalMoeda
+				&det.imposto.ICMSUFDest.vBCUFDest = trim(&vBC)
+				&det.imposto.ICMSUFDest.vBCFCPUFDest = '0.00'
+				&det.imposto.ICMSUFDest.pFCPUFDest = '0.00'
+				&det.imposto.ICMSUFDest.pICMSUFDest = trim(&pICMSUFDest)
+				&det.imposto.ICMSUFDest.pICMSInter = trim(&pICMS)
+				&det.imposto.ICMSUFDest.pICMSInterPart = '100.00'
+				&det.imposto.ICMSUFDest.vFCPUFDest = '0.00'
+				&det.imposto.ICMSUFDest.vICMSUFDest = trim(str(&DifalMoeda, 18,2))	
+				&det.imposto.ICMSUFDest.vICMSUFRemet = '0.00'
+			Endif
+		Endif
+			
+		//IBS CBS
+		
+		//Valores IBS e CBS
+		&NfeIbsBasVarchar = trim(str(NfeIbsBas, 18, 2))	
+		
+		&NfeIbsUfPerVarchar =  trim(str(NfeIbsUfPer, 18, 4))	
+		&NfeIbsUfPerRedVarchar =  trim(str(NfeIbsUfPerRed, 18, 4))	
+		&NfeIbsUfPerEfeVarchar =  trim(str(NfeIbsUfPerEfe, 18, 4))	
+		&NfeIbsUfVlrVarchar = trim(str(NfeIbsUfVlr, 18, 2))	
+				
+		&NfeIbsMunPerVarchar = trim(str(NfeIbsMunPer, 18, 4))	
+		&NfeIbsMunPerRedVarchar = trim(str(NfeIbsMunPerRed, 18, 4))	
+		&NfeIbsMunPerEfeVarchar = trim(str(NfeIbsMunEfe, 18, 4))	
+		&NfeIbsMunVlrVarchar = trim(str(NfeIbsMunVlr, 18,2))
+		
+		&NfeCbsPerVarchar = trim(str(NfeCbsPer, 18, 4))	
+		&NfeCbsPerRedVarchar = trim(str(NfeCbsPerRed, 18, 4))	
+		&NfeCbsPerEfeVarchar = trim(str(NfeCbsPerEfe, 18, 4))	
+		&NfeCbsVlrVarchar = trim(str(NfeCbsVlr, 18,2))
+		
+		&TotalIbsMoeda = NfeIbsMunVlr+NfeIbsUfVlr
+		&NfeTotalIbsVarchar = trim(Str(&TotalIbsMoeda,18,2))
+		
+		if (not NfeIbsSit.IsEmpty() and not NfeIbsSit.IsNull())
+			&IsTotalizaIbs = true
+			&det.imposto.IBSCBS.CST = NfeIbsSit
+			&det.imposto.IBSCBS.cClassTrib = NfeIbsClassTrib
+			
+			//precisa retornar as configuracoes do ClassTrib
+			&sdtCadastroTabelaImpostoCbs = new()
+			&sdtCadastroTabelaImpostoCbs.CImpClsCST = NfeIbsSit
+			&sdtCadastroTabelaImpostoCbs.CImpClsTrib = NfeIbsClassTrib
+			prcRetornaClassTrib_IBSCBS.Call(&sdtCadastroTabelaImpostoCbs)
+			
+			//Base Calculo
+			if &sdtCadastroTabelaImpostoCbs.Cltind_gIBSCBS = 'S' 
+				&det.imposto.IBSCBS.gIBSCBS.vBC = &NfeIbsBasVarchar
+				
+				//Ibs UF caso tenha aliquota
+				&det.imposto.IBSCBS.gIBSCBS.gIBSUF.pIBSUF = &NfeIbsUfPerVarchar
+				//caso tenha reducao preencher tags
+				if NfeIbsUfPerRed > 0
+					&det.imposto.IBSCBS.gIBSCBS.gIBSUF.gRed.pRedAliq = &NfeIbsUfPerRedVarchar
+					&det.imposto.IBSCBS.gIBSCBS.gIBSUF.gRed.pAliqEfet = &NfeIbsUfPerEfeVarchar
+				Endif
+				
+				&det.imposto.IBSCBS.gIBSCBS.gIBSUF.vIBSUF = &NfeIbsUfVlrVarchar
+				
+				//Ibs Municipio caso tenha
+				&det.imposto.IBSCBS.gIBSCBS.gIBSMun.pIBSMun = &NfeIbsMunPerVarchar
+				//caso tenha reducao preencher tags
+				if NfeIbsMunPerRed > 0
+					&det.imposto.IBSCBS.gIBSCBS.gIBSMun.gRed.pRedAliq = &NfeIbsMunPerRedVarchar
+					&det.imposto.IBSCBS.gIBSCBS.gIBSMun.gRed.pAliqEfet = &NfeIbsMunPerEfeVarchar
+				Endif
+				&det.imposto.IBSCBS.gIBSCBS.gIBSMun.vIBSMun = &NfeIbsMunVlrVarchar
+				
+				//valor tota do ibs
+				if NfeIbsMunEfe > 0 or NfeIbsUfPerEfe > 0
+					&det.imposto.IBSCBS.gIBSCBS.vIBS = &NfeTotalIbsVarchar
+				Endif
+			
+				//Cbs
+				&det.imposto.IBSCBS.gIBSCBS.gCBS.pCBS = &NfeCbsPerVarchar
+				//caso tenha reducao preencher tags
+				if NfeCbsPerRed > 0
+					&det.imposto.IBSCBS.gIBSCBS.gCBS.gRed.pRedAliq = &NfeCbsPerRedVarchar
+					&det.imposto.IBSCBS.gIBSCBS.gCBS.gRed.pAliqEfet = &NfeCbsPerEfeVarchar
+				Endif
+				&det.imposto.IBSCBS.gIBSCBS.gCBS.vCBS = &NfeCbsVlrVarchar
+			Endif
+			
+			if &sdtCadastroTabelaImpostoCbs.CltIsDif = 'S' //Exige Diferimento
+				&NfeIbsUfPerDifVarchar = trim(Str(NfeIbsUfPerDif,18,4))
+				&NfeIbsUfVlrDifVarchar = trim(Str(NfeIbsUfVlrDif,18,2))			
+				&NfeIbsMunPerDifVarchar = trim(Str(NfeIbsMunPerDif,18,4))
+				&NfeIbsMunVlrDifVarchar = trim(Str(NfeIbsMunVlrDif,18,2))			
+				&NfeCbsVlrDifVarchar = trim(Str(NfeCbsVlrDif, 18,2))
+				&NfeCbsPerDifVarchar = trim(Str(NfeCbsPerDif, 18,4))
+				
+				//Diferimento Ibs UF
+				&det.imposto.IBSCBS.gIBSCBS.gIBSUF.gDif.pDif = &NfeIbsUfPerDifVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gIBSUF.gDif.vDif = &NfeIbsUfVlrDifVarchar
+			
+				&det.imposto.IBSCBS.gIBSCBS.gIBSMun.gDif.pDif = &NfeIbsMunPerDifVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gIBSMun.gDif.vDif = &NfeIbsMunVlrDifVarchar
+			
+				&det.imposto.IBSCBS.gIBSCBS.gCBS.gDif.pDif = &NfeCbsPerDifVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gCBS.gDif.vDif = &NfeCbsVlrDifVarchar
+			Endif
+		
+			if &sdtCadastroTabelaImpostoCbs.CltClsIsTribReg = 'S' //Exige Tributacao Regular
+				
+				&NfeRegIbsUfeTaxEfeVarchar = trim(Str(NfeRegIbsUfeTaxEfe, 18,4))
+				&NfeRegIbsUfeVlrVarchar = trim(Str(NfeRegIbsUfeVlr, 18,2))
+				&NfeRegIbsMunTaxEfeVarchar = trim(Str(NfeRegIbsMunTaxEfe, 18,4))
+				&NfeRegIbsMunVlrVarchar = trim(Str(NfeRegIbsMunVlr, 18,2))
+				&NfeRegCbsTaxEfeVarchar = trim(Str(NfeRegCbsTaxEfe, 18,4))
+				&NfeRegCbsTaxVlrVarchar = trim(Str(NfeRegCbsVlr, 18,2))
+				
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.CSTReg = NfeRegIbsSit
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.cClassTribReg = NfeRegIbsClassTrib
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.pAliqEfetRegIBSUF = &NfeRegIbsUfeTaxEfeVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.vTribRegIBSUF = &NfeRegIbsUfeVlrVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.pAliqEfetRegIBSMun = &NfeRegIbsMunTaxEfeVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.vTribRegIBSMun = &NfeRegIbsMunVlrVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.pAliqEfetRegCBS = &NfeRegCbsTaxEfeVarchar
+				&det.imposto.IBSCBS.gIBSCBS.gTribRegular.vTribRegCBS = &NfeRegCbsTaxVlrVarchar
+			Endif
+		
+		Endif
+		
+		&NFe.infNFe.dets.Add(&det)
+	EndFor
+	
+	//##################################################
+	//TOTAIS
+	If &FilRegTrib <> RegimeTributario.SimplesNacional or NfeFin = NotaFinalidade.EmissaoDevolucao  or NfeFin = NotaFinalidade.EmissaoComplementar or &IsTemAlgumCFOP = true //or &IsDestacarICMs = true
+		if &TotNfeProVlrIcmsDes.IsEmpty()
+			&moeda = NfeVlrTotBasIcms
+			&tot_vBC = trim(str(&moeda, 18,2))
+			&moeda = NfeVlrTotIcms
+			&tot_vICMS = trim(str(&moeda, 18, 2))
+		Else
+			&tot_vBC = '0.00'
+			&tot_vICMS = '0.00'
+		Endif	
+	Else
+		&tot_vBC = '0.00'
+		&tot_vICMS = '0.00'
+	Endif
+	
+	&tot_vBCST = trim(str(NfeVlrTotBasIcmsSt, 18,2))
+	&tot_vST = trim(str(NfeVlrTotIcmsSt, 18,2))
+	&tot_vProd = trim(str(NfeVlrTotPro, 18,2))
+	&tot_vFrete = trim(str(NfeVlrTotFrt, 18,2))
+	&tot_vSeg = trim(str(NfeVlrTotSeg, 18,2))
+	&tot_vDesc = trim(str(NfeVlrTotDsc, 18, 2))
+	
+	&tot_vIPI = trim(str(NfeVlrTotIpi, 18,2))
+	&tot_vPIS = trim(str(NfeVlrTotPIS, 18,2))
+	&tot_vCOFINS = trim(str(NfeVlrTotCOFINS, 18,2))
+	&tot_vOutro = trim(str(NfeVlrTotOutDsp,18,2))
+	
+	&VarcharNfeTotFPIcmsSt = trim(str(NfeTotFPIcmsSt,18,2))
+	
+	//	if &TotNfeProVlrIcmsDes > 0
+	//		&tot_vNF = trim(str(NfeVlrTot-&TotNfeProVlrIcmsDes, 18,2))
+	//	Else
+	&tot_vNF = trim(str(NfeVlrTot, 18,2))
+	//	EndIf
+	
+	&tot_vICMSDeson = trim(str(&TotNfeProVlrIcmsDes, 18,2))
+	&tot_vii = trim(str(&totvII_Moeda, 18, 2))
+	
+	&NFe.infNFe.total.ICMSTot.vBC		= trim(&tot_vBC)
+	&NFe.infNFe.total.ICMSTot.vICMS		= trim(&tot_vICMS)
+	
+	&NFe.infNFe.total.ICMSTot.vICMSDeson= trim(&tot_vICMSDeson)
+	
+	
+	&NFe.infNFe.total.ICMSTot.vBCST		= trim(&tot_vBCST)
+	&NFe.infNFe.total.ICMSTot.vST		= trim(&tot_vST)
+	
+	&NFe.infNFe.total.ICMSTot.vFCPST      = trim(&VarcharNfeTotFPIcmsSt)
+	&NFe.infNFe.total.ICMSTot.vProd		= trim(&tot_vProd)
+	&NFe.infNFe.total.ICMSTot.vFrete	= trim(&tot_vFrete)
+	&NFe.infNFe.total.ICMSTot.vSeg		= trim(&tot_vSeg)
+	&NFe.infNFe.total.ICMSTot.vDesc		= trim(&tot_vDesc)
+	
+	&NFe.infNFe.total.ICMSTot.vII       = trim(&tot_vii)
+	
+	&NFe.infNFe.total.ICMSTot.vFCP      = trim(str(&tvFCP,13,2))
+	&NFe.infNFe.total.ICMSTot.vFCPSTRet      = '0.00'
+	//	&NFe.infNFe.total.ICMSTot.vFCPUFDest	= '0.00'
+	
+	if &TotalBaseRetido > 0 and &TotalValorRetido  > 0
+		&NFe.infNFe.total.ICMSTot.qBCMonoRet = trim(str(&TotalBaseRetido, 18,2))
+		&NFe.infNFe.total.ICMSTot.vICMSMonoRet = trim(str(&TotalValorRetido, 18,2))
+	Endif
+	
+	If &ValorUfDestinoMoeda > 0
+		&vICMSUFDest = trim(str(&ValorUfDestinoMoeda, 18,2))
+		&NFe.infNFe.total.ICMSTot.vICMSUFDest	= trim(&vICMSUFDest)
+	Endif
+	
+	//	&NFe.infNFe.total.ICMSTot.vICMSUFRemet	= '0.00'
+	&NFe.infNFe.total.ICMSTot.vIPI      = trim(&tot_vIPI)
+	
+	&NFe.infNFe.total.ICMSTot.vIPIDevol = '0.00'
+	&NFe.infNFe.total.ICMSTot.vPIS		= trim(&tot_vPIS)
+	&NFe.infNFe.total.ICMSTot.vCOFINS	= trim(&tot_vCOFINS)
+	&NFe.infNFe.total.ICMSTot.vOutro	= trim(&tot_vOutro)
+	&NFe.infNFe.total.ICMSTot.vNF		= trim(&tot_vNF)
+	
+
+	if (&IsTotalizaIbs = true)
+		//TOTAIS IBS E CBS
+		&NfeTotIbsBasVarchar = trim(str(NfeTotIbsBas, 18,2))
+		&NfeTotIbsUfVlrVarchar = trim(str(NfeTotIbsUfVlr, 18,2))
+		&NfeTotIbsMunVlrVarchar = trim(str(NfeTotIbsMunVlr, 18,2))
+		&NfeTotIbsVlrVarchar = trim(str(NfeTotIbsVlr, 18,2))
+		&NfeTotCbsVlrVarchar = trim(str(NfeTotCbsVlr, 18,2))
+		
+		&NfeTotCbsVlrDifVarchar = trim(str(NfeTotCbsVlrDif, 18,2))
+		&NfeTotIbsUfVlrDifVarchar = trim(str(NfeTotIbsUfVlrDif, 18,2))
+		&NfeTotIbsMunVlrDifVarchar = trim(str(NfeTotIbsMunVlrDif, 18,2))
+
+		//IBSCBSTot
+		&NFe.infNFe.total.IBSCBSTot.vBCIBSCBS = &NfeTotIbsBasVarchar
+		&NFe.infNFe.total.IBSCBSTot.gIBS.gIBSUF.vDif = &NfeTotIbsUfVlrDifVarchar
+		&NFe.infNFe.total.IBSCBSTot.gIBS.gIBSUF.vDevTrib = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gIBS.gIBSUF.vIBSUF = &NfeTotIbsUfVlrVarchar
+		
+		//mun
+		&NFe.infNFe.total.IBSCBSTot.gIBS.gIBSMun.vDevTrib = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gIBS.gIBSMun.vDif = &NfeTotIbsMunVlrDifVarchar
+		&NFe.infNFe.total.IBSCBSTot.gIBS.gIBSMun.vIBSMun = &NfeTotIbsMunVlrVarchar
+		
+		&NFe.infNFe.total.IBSCBSTot.gIBS.vIBS = &NfeTotIbsVlrVarchar
+		
+		&NFe.infNFe.total.IBSCBSTot.gIBS.vCredPres = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gIBS.vCredPresCondSus = '0.00'
+		
+		&NFe.infNFe.total.IBSCBSTot.gCBS.vDif = &NfeTotCbsVlrDifVarchar
+		&NFe.infNFe.total.IBSCBSTot.gCBS.vDevTrib = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gCBS.vCBS = &NfeTotCbsVlrVarchar
+		&NFe.infNFe.total.IBSCBSTot.gCBS.vCredPres = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gCBS.vCredPresCondSus = '0.00'
+		
+		&NFe.infNFe.total.IBSCBSTot.gMono.vIBSMono = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gMono.vCBSMono = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gMono.vIBSMonoReten = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gMono.vCBSMonoReten = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gMono.vIBSMonoRet = '0.00'
+		&NFe.infNFe.total.IBSCBSTot.gMono.vCBSMonoRet = '0.00'
+		
+		
+		&NFe.infNFe.total.vNFTot =  trim(&tot_vNF)			
+	Endif
+
+	if not NfeVlrTotApxTrib.IsEmpty()  and (&TCon084_ImpostoAproximado <> 'N')//TOTAL APROXIMADO IMPOSTOS
+		&NFe.infNFe.total.ICMSTot.vTotTrib = trim(str(NfeVlrTotApxTrib,18,2))
+	endif
+	
+	//##################################################
+	//DUPLICATAS
+	if NfeFin = NotaFinalidade.EmissaoNormal
+		
+		&NfeDupCount = NfeDupCount
+		If &NfeDupCount > 0			
+			For Each Order EmpCod, FilCod, NfeCod, NfeDupVct
+				Where NfeDupVlr > 0
+				where NfeDupVct <= serverdate()
+				
+				&NfeDupCount -= 1
+			EndFor
+		EndIf
+	
+		If &NfeDupCount > 0	
+			&NFe.infNFe.cobr.fat.nFat = trim(str(NfeDupCount))
+			&NFe.infNFe.cobr.fat.vLiq = trim(&tot_vNF)
+			&NFe.infNFe.cobr.fat.vOrig = trim(&tot_vNF)
+			&NFe.infNFe.cobr.fat.vDesc = '0.00'
+			
+			For Each Order EmpCod, FilCod, NfeCod, NfeDupVct
+				Where NfeDupVlr > 0
+								
+				&NfeDupVct = NfeDupVct
+				if NfeDupVct <= serverdate()
+					&NfeDupVct = serverdate()
+//					&NfeDupVct = &NfeDupVct.AddDays(1) //jdf testar se com mais de uma duplicata pode ter uma assim.
+				EndIf
+		
+				&dup = new()
+				&NfeDupItmCod += 1
+				&dup.nDup = padL(trim(str(&NfeDupItmCod)), 3, '0') //trim(NfeDupNro)
+				&dup.dVenc = str(year(&NfeDupVct),4,0)+'-'+padl(trim(str(month(&NfeDupVct),2,0)),2,'0') +'-'+padl(trim(str(day(&NfeDupVct),2,0)),2,'0')   //Y07 dVenc Data de vencimento D Opcional Formato “AAAA-MM-DD”
+				&dup.vDup = trim(str(NfeDupVlr, 18,2))
+				&NFe.infNFe.cobr.dups.Add(&dup)
+			EndFor
+			
+			RetornaTotalDuplicatasNFe.Call(EmpCod, FilCod, NfeCod, &DinCreVlrDup, &CarCreVlrDup, &CarDebVlrDup, &DupCreVlrDup, &TotalMoeda)
+			
+			if &DinCreVlrDup > 0
+				&Varchar = trim(str(&DinCreVlrDup, 18,2))
+				&pags = new()
+				&pags.tPag = '01' //01=Dinheiro
+				&pags.vPag = trim(&Varchar)
+				&NFe.infNFe.pag.detPag.Add(&pags)
+			Endif
+			
+			if &DupCreVlrDup > 0
+				&Varchar = trim(str(&DupCreVlrDup, 18,2))
+				&pags = new()
+				&pags.tPag = '14' //14=Duplicata Mercantil
+				&pags.vPag = trim(&Varchar)
+				&NFe.infNFe.pag.detPag.Add(&pags)
+			Endif
+			
+			if &CarDebVlrDup > 0
+				&Varchar = trim(str(&CarDebVlrDup, 18,2))
+				&pags = new()
+				&pags.tPag = '04' //03=Cartão de Débito
+				&pags.vPag = trim(&Varchar)
+				&pags.card.tpIntegra = '2'
+				&NFe.infNFe.pag.detPag.Add(&pags)
+			Endif
+			
+			if &CarCreVlrDup > 0
+				&Varchar = trim(str(&CarCreVlrDup, 18,2))
+				&pags = new()
+				&pags.tPag = '03' //03=Cartão de Crédito
+				&pags.vPag = trim(&Varchar)
+				&pags.card.tpIntegra = '2'
+				&NFe.infNFe.pag.detPag.Add(&pags)
+			Endif
+			
+		Else
+			&pags = new()
+			&pags.tPag = '90' //90= Sem pagamento
+			&pags.vPag = '0.00' //trim(&tot_vNF) //90= Sem pagamento
+			&NFe.infNFe.pag.detPag.Add(&pags)
+		Endif
+	Else
+		&pags = new()
+		&pags.tPag = '90' //90= Sem pagamento
+		&pags.vPag = '0.00' //trim(&tot_vNF) //90= Sem pagamento
+		&NFe.infNFe.pag.detPag.Add(&pags)
+	EndIf
+	
+	if not NfeDadAdi.IsEmpty()
+		&NfeDadAdi = RetiraCaracteresEspeciais.Udp(NfeDadAdi)
+		//replace  genexus para retirar ENTER das descrições
+		&NfeDadAdi = &NfeDadAdi.ReplaceRegEx('\s+', ' ')
+		&NfeDadAdi = &NfeDadAdi.Trim()
+	endif
+	
+	if &ValorUfDestinoMoeda > 0
+		&NfeDadAdi += format(' DIFAL: R$%1', trim(toformattedString(&ValorUfDestinoMoeda)))
+	Endif
+	
+	if not &NfeDadAdi.IsEmpty()
+		&NFe.infNFe.infAdic.infCpl = &NfeDadAdi.Trim()
+	Endif
+	
+	NfeTotIcmsUfDest = &ValorUfDestinoMoeda
+	NfeChv = &NfeChv
+	
+	&Xml  = &NFe.ToXml()
+	limpaXmlNFe.call(&Xml)
+	
+	NfeArqXml.FromString(&Xml)
+EndFor
+
+commit
+
+If &Transmitir = 'S'
+	
+	if &EnvioProcessamento = 'P'
+		&Nome = &sdtConfiguracoesPasta.PastaNFprocessamento + &NfeChv.Trim() + '-nfe.xml'
+	Else
+		&Nome = &sdtConfiguracoesPasta.PastaNFenvio + &NfeChv.Trim() + '-nfe.xml'
+	Endif
+
+	//GERA ARQUIVO XML NA PASTA ENVIO
+	&ArquivoEnvio.Source = &Nome
+	if &ArquivoEnvio.Exists()
+		&ArquivoEnvio.Delete()
+	endif			
+	
+	//GERA NA PASTA DE ENVIO	
+	&XmlWriter.Open(&Nome)
+	&XmlWriter.WriteRawText('<?xml version="1.0" encoding="utf-8" ?>')
+	
+	&XmlWriter.WriteRawText(&Xml)
+	&XmlWriter.Close()
+		
+	RetornaExisteSolicitacaoPendente.Call(&EmpCod, &FilCod, &NfeCod, 0, TipoSolicitacao.Autorizar_NFE, &IsPendente, &SolCod)
+	if &SolCod.IsEmpty()
+		GravaSolicitacao.Call(&EmpCod, &FilCod, &NfeCod, 0, TipoSolicitacao.Autorizar_NFE, &PesCod, &SolCod)
+	Endif
+EndIF
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&NfeCod, in:&Transmitir, in:&PesCod, in:&EnvioProcessamento, inout:&SolCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="NfeCliCidUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCidUF</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCidUF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AAMM">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AAMM</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="adis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>adis</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.det.prod.DI.adi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoEnvio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoEnvio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="aux">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>aux</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>50</Value></Property><Property><Name>AttMaxLen</Name><Value>50</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cDV">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cDV</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cNF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dEmi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dEmi</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="det">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>det</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.det</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dhEmi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dhEmi</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>25</Value></Property><Property><Name>AttMaxLen</Name><Value>25</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dhSaiEnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dhSaiEnt</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>25</Value></Property><Property><Name>AttMaxLen</Name><Value>25</Value></Property></Properties>
+        </Variable>
+        <Variable Name="di">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>di</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.det.prod.DI</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dup</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.cobr.dup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsImportacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsImportacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Item">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Item</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NcmUnd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NcmUnd</Value></Property><Property><Name>Description</Name><Value>Und</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NcmUnd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NFe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCfoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCfoCod</Value></Property><Property><Name>Description</Name><Value>Cfop</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCfoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChv</Value></Property><Property><Name>Description</Name><Value>Chave NFE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChvRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChvRef</Value></Property><Property><Name>Description</Name><Value>NFe Referenciada</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>60</Value></Property><Property><Name>AttMaxLen</Name><Value>60</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDI</Value></Property><Property><Name>Description</Name><Value>Dados da DI</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDI</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProVlrIcms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProVlrIcms</Value></Property><Property><Name>Description</Name><Value>Unitario ICMS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProVlrIcms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProVlrTot</Value></Property><Property><Name>Description</Name><Value>Valor Total Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRef</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.ide.NFref</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="orig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>orig</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PaiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PaiCod</Value></Property><Property><Name>Description</Name><Value>País</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PaiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PaiNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PaiNom</Value></Property><Property><Name>Description</Name><Value>País Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PaiNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pCOFINS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pCOFINS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pCredSN">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pCredSN</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pDif">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pDif</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedNum</Value></Property><Property><Name>Description</Name><Value>Pedido Num.Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pICMS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pICMS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pICMSST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pICMSST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pIPI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pIPI</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pMVAST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pMVAST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pPIS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pRedBC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pRedBC</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pRedBCST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pRedBCST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDI</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDI</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDIitem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDIitem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDI.adi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SoNumerosVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SoNumerosVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon084_ImpostoAproximado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon084_ImpostoAproximado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vBC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vBC</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vBCST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vBCST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vCOFINS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vCOFINS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vDesc</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vFrete">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vFrete</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vICMS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vICMS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vICMSDeson">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vICMSDeson</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vIPI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vIPI</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vNF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vOutro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vOutro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vPIS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vProd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vProd</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vSeg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vSeg</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Transmitir">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Transmitir</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vAFRMM">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vAFRMM</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="valorMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>valorMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vBC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vBC</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vBCST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vBCST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vCOFINS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vCOFINS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vCredICMSSN">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vCredICMSSN</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vDespAdu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vDespAdu</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VersaoNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VersaoNF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>5</Value></Property><Property><Name>AttMaxLen</Name><Value>5</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vICMS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vICMS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vICMSDif">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vICMSDif</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vICMSOp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vICMSOp</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vICMSST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vICMSST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vII">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vII</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vIOF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vIOF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vIPI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vIPI</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vol</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.transp.vol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vPIS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Xml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Xml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>99999999</Value></Property><Property><Name>AttMaxLen</Name><Value>99999999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlWriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlWriter</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pags">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pags</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.pag.detPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRegTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRegTrib</Value></Property><Property><Name>Description</Name><Value>Regime Tributario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbFilRegTrib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pFCP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pFCP</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Taxa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vFCP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vFCP</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>5</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>5</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tvFCP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tvFCP</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Numeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Numeric</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPendente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPendente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon106_NaoDestacarGTIN">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon106_NaoDestacarGTIN</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDadAdi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDadAdi</Value></Property><Property><Name>Description</Name><Value>Dados Adicionais</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDadAdi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ObsConts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ObsConts</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.infAdic.obsCont</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeSer</Value></Property><Property><Name>Description</Name><Value>Serie</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeFin</Value></Property><Property><Name>Description</Name><Value>Finalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DinCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DinCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CarCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CarCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DupCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DupCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDupItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDupItmCod</Value></Property><Property><Name>Description</Name><Value>Item Sequencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDupItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespEmail</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespCnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespContato">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespContato</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespFone">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespFone</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDupVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDupVct</Value></Property><Property><Name>Description</Name><Value>Vencimento Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDupVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDestacarICMs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDestacarICMs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="rastros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>rastros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.det.prod.rastro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEntPaiNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEntPaiNom</Value></Property><Property><Name>Description</Name><Value>País Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PaiNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEntPaiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEntPaiCod</Value></Property><Property><Name>Description</Name><Value>País</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PaiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEntCidUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEntCidUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEntCidIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEntCidIbge</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEntCidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEntCidNom</Value></Property><Property><Name>Description</Name><Value>Cidade Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotVct</Value></Property><Property><Name>Description</Name><Value>Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cNF_Numeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cNF_Numeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NFeinfNFeideNFrefs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NFeinfNFeideNFrefs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.ide.NFref</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDocRefDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDocRefDta</Value></Property><Property><Name>Description</Name><Value>Dta Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDocRefDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutXmls">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutXmls</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.autXML</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCtaCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCtaCnpj</Value></Property><Property><Name>Description</Name><Value>Cnpj Contador</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCtaCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCpfCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCpfCnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="totvII_Moeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>totvII_Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tot_vii">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tot_vii</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CarDebVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CarDebVlrDup</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pICMSUFDest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pICMSUFDest</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DifalTaxa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DifalTaxa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Taxa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DifalMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DifalMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorUfDestinoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorUfDestinoMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vICMSUFDest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vICMSUFDest</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProNom</Value></Property><Property><Name>Description</Name><Value>Descrição Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon141_UnidadeTributavelNotas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon141_UnidadeTributavelNotas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotGer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotGer</Value></Property><Property><Name>Description</Name><Value>Germinação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotGer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotPen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotPen</Value></Property><Property><Name>Description</Name><Value>Peneira</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotPen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotRen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotRen</Value></Property><Property><Name>Description</Name><Value>RENASEN</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotRen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotPms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotPms</Value></Property><Property><Name>Description</Name><Value>PMS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotPms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotPur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotPur</Value></Property><Property><Name>Description</Name><Value>Pureza</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotPur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RastroVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RastroVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Obs500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProLotCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProLotCod</Value></Property><Property><Name>Description</Name><Value>Lote</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProLotCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIndPres">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIndPres</Value></Property><Property><Name>Description</Name><Value>Indicador Presenca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeIndPres</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnvioProcessamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnvioProcessamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TbImpUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TbImpUfeCod</Value></Property><Property><Name>Description</Name><Value>Tb Imp Ufe Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbImpUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon151_EmiteNfeMesRetroativo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon151_EmiteNfeMesRetroativo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Serie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Serie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vICMSDeson">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vICMSDeson</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotNfeProVlrIcmsDes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotNfeProVlrIcmsDes</Value></Property><Property><Name>Description</Name><Value>Valor Desonerado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProVlrIcmsDes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VarcharNfeTotFPIcmsSt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VarcharNfeTotFPIcmsSt</Value></Property><Property><Name>Description</Name><Value>Nfe Tot FPIcms St</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vBCFCPST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vBCFCPST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vFCPST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vFCPST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pFCPST">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pFCPST</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Medicamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Medicamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.det.prod.med</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pSTRetido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pSTRetido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vSTRetido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vSTRetido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vBSTRetido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vBSTRetido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTemAlgumCFOP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTemAlgumCFOP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xPed">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xPed</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNItemPed">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNItemPed</Value></Property><Property><Name>Description</Name><Value>Item do Cliente NFE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNitemPed</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovoVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovoVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vBCIPI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vBCIPI</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vBCPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vBCPIS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtNotasReferenciadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtNotasReferenciadas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtNotasReferenciadas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtNotasReferenciadasItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtNotasReferenciadasItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtNotasReferenciadas.sdtNotasReferenciadasItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon180_AgrupaGrade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon180_AgrupaGrade</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProOriTriCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProOriTriCod</Value></Property><Property><Name>Description</Name><Value>Origem Tributária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProOriTriCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCmbUfOri">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCmbUfOri</Value></Property><Property><Name>Description</Name><Value>UF Origem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCmbUfOri</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCmbPerOri">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCmbPerOri</Value></Property><Property><Name>Description</Name><Value>Pro Cmb Per Ori</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCmbPerOri</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalValorRetido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalValorRetido</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalBaseRetido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalBaseRetido</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="moeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="idCSRT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>idCSRT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hashCSRT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hashCSRT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataInicio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataInicio</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAutXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAutXml</Value></Property><Property><Name>Description</Name><Value>Fil Aut Xml</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAutXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDupCount">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDupCount</Value></Property><Property><Name>Description</Name><Value>Qtd Faturas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDupCount</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VarcharNfeIbsBas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VarcharNfeIbsBas</Value></Property><Property><Name>Description</Name><Value>Valor Base</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeIbsBas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsBasVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsBasVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsUfPerVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsUfPerVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsUfPerRedVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsUfPerRedVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsUfPerEfeVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsUfPerEfeVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsUfVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsUfVlrVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsMunPerVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsMunPerVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCbsVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCbsVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCbsPerRedVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCbsPerRedVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCbsPerEfeVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCbsPerEfeVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsMunVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsMunVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsMunPerEfeVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsMunPerEfeVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsMunPerRedVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsMunPerRedVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCbsPerVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCbsPerVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotCbsVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotCbsVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotIbsBasVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotIbsBasVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotIbsUfVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotIbsUfVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotIbsMunVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotIbsMunVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotIbsVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotIbsVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon206_DestacarIbsCbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon206_DestacarIbsCbs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCadastroTabelaImpostoCbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCadastroTabelaImpostoCbs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCadastroTabelaImpostoCbs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotalIbsVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotalIbsVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalIbsMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalIbsMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsUfPerDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsUfPerDifVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsUfVlrDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsUfVlrDifVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsMunPerDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsMunPerDifVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeIbsMunVlrDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeIbsMunVlrDifVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCbsVlrDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCbsVlrDifVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCbsPerDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCbsPerDifVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotIbsMunVlrDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotIbsMunVlrDifVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotIbsUfVlrDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotIbsUfVlrDifVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTotCbsVlrDifVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTotCbsVlrDifVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRegIbsUfeTaxEfeVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRegIbsUfeTaxEfeVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRegIbsUfeVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRegIbsUfeVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRegIbsMunTaxEfeVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRegIbsMunTaxEfeVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRegIbsMunVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRegIbsMunVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRegCbsTaxEfeVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRegCbsTaxEfeVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeRegCbsTaxVlrVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeRegCbsTaxVlrVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTotalizaIbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTotalizaIbs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraXmlNFeModelo55_4</Value></Property><Property><Name>Description</Name><Value>Gera Xml NFe Modelo55_4</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

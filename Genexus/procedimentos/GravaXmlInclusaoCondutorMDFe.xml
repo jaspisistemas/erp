@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="3da02edb-1b7b-48ed-b7ed-63881a7bef92" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2019-08-06T14:46:41.0000000Z" checksum="554b0ea57b00a1a6fa5af7acd5003ab6" fullyQualifiedName="GravaXmlInclusaoCondutorMDFe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="5a596bcd-1a00-4f51-8725-abd1bd37e914" name="GravaXmlInclusaoCondutorMDFe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Xml Inclusao Condutor MDFe" parent="NfePrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+retornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &sdtConfiguracoesPasta)
+
+&hoje = serverdate()  
+&hojeHora = ServerNow()
+&VersaoNF = RetornaVersaoNotas.Udp(VersaoNota.VersaoMDFe)
+		
+For Each Order EmpCod, FilCod, MDFeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where MDFeCod = &MDFeCod
+	
+	&MDFeChv = MDFeChv
+	&MDFeProt = MDFeProt
+	
+	&cUF = retornaCodigoSiglaEstado.Udp(0, FilCidUfeCod)
+	
+	&FilFusHor = RetornaFusoHorario.Udp(ServerDate(), FilCidUfeCod)
+	
+	&FilCpj = FilCpj
+	&FilCidUfeIbge = FilCidUfeIbge
+	
+	For Each Order EmpCod, FilCod, MDFeCod,MdfeEveCod
+		Where MdfeEveCod = &MdfeEveCod
+		&MdfeEveMotCod = MdfeEveMotCod
+		Exit
+	EndFor
+	
+    Exit
+EndFor
+
+commit
+
+GravaSolicitacao.Call(&EmpCod, &FilCod, &MDFeCod, &MdfeEveCod, TipoSolicitacao.incluirCondutor_MDFe, &PesCod, &SolCod)
+
+//GRAVA ARQUIVO CANCELAMENTO .XML
+&ano = str(YEAR(&hoje))
+&mes = str(MONTH(&hoje))
+&dia = str(DAY(&hoje))
+&hora = PadL(trim(str(Hour(&hojeHora))),2, '0') + ':' + PadL(trim(str(Minute(&hojeHora))),2, '0') + ':00'
+
+&id = 'ID110114' + &MDFeChv + Padl(trim(str(&MdfeEveMotCod)),2,'0') //“ID” + tpEvento + chave da NF-e + nSeqEvento
+
+&Nome_enviar = &sdtConfiguracoesPasta.PastaNFenvio.Trim() + 'MDFe'+trim(&MDFeChv) + '-ped-eve.xml'
+
+&ArqNota.Open(&Nome_enviar) // Abrir o arquivo XML
+&ArqNota.WriteStartDocument('UTF-8')
+
+&ArqNota.WriteStartElement('eventoMDFe') //<eventoMDFe xmlns="http://www.portalfiscal.inf.br/mdfe" versao="1.00">
+&ArqNota.WriteAttribute('xmlns', 'http://www.portalfiscal.inf.br/mdfe')
+&ArqNota.WriteAttribute('versao',&VersaoNF)
+
+&ArqNota.WriteStartElement('infEvento')//<infEvento Id="ID1101123512101014278500019058001000000001149128302901">
+&ArqNota.WriteAttribute('Id', &id)
+
+&soNumero = str(&FilCidUfeIbge)
+&ArqNota.WriteElement('cOrgao',Substr(trim(&soNumero), 1, 2))//<cOrgao>35</cOrgao>
+&ArqNota.WriteElement('tpAmb',&sdtConfiguracoesPasta.FilAmbEms)       //<tpAmb>2</tpAmb>
+
+&soNumero = RetornaSonumeros.Udp(&FilCpj)
+If &soNumero.Trim().Length() > 11
+	&ArqNota.WriteElement('CNPJ', &soNumero) //<CNPJ>10142785000190</CNPJ>
+Else
+	&ArqNota.WriteElement('CPF', &soNumero) 
+EndIf
+
+&ArqNota.WriteElement('chMDFe',&MDFeChv) //<chMDFe>35121010142785000190580010000000011491283029</chMDFe>
+
+&Hoje = serverdate()
+&soNumero   = str(year(&Hoje),4,0) +'-'+padl(trim(str(month(&Hoje),2,0)),2,'0') +'-'+padl(trim(str(day(&Hoje),2,0)),2,'0') +'T'+&hora+'-'+&FilFusHor
+
+&ArqNota.WriteElement('dhEvento',&soNumero) //<dhEvento>2012-10-07T03:20:28</dhEvento>
+&ArqNota.WriteElement('tpEvento','110114') //<tpEvento>110112</tpEvento> INCLUSAO CONDUTOR
+&ArqNota.WriteElement('nSeqEvento',trim(str(&MdfeEveMotCod))) //<nSeqEvento>1</nSeqEvento>
+
+&ArqNota.WriteStartElement('detEvento')  //<detEvento versaoEvento="1.00">
+&ArqNota.WriteAttribute('versaoEvento', &VersaoNF) //&VersaoNF
+
+&ArqNota.WriteStartElement('evIncCondutorMDFe')
+&ArqNota.WriteElement('descEvento', 'Inclusao Condutor')
+
+&ArqNota.WriteStartElement('condutor')
+&ArqNota.WriteElement('xNome',TRIM(&MDFeMotNom))
+&soNumero = RetornaSonumeros.Udp(&MDFeMotCpf)
+&ArqNota.WriteElement('CPF', &soNumero)
+&ArqNota.WriteEndElement() //</condutor>
+
+&ArqNota.WriteEndElement() //</evIncCondutorMDFe>
+&ArqNota.WriteEndElement() //</detEvento>
+&ArqNota.WriteEndElement() //</infEvento>
+&ArqNota.WriteEndElement() //eventoMDFe
+
+&ArqNota.Close()
+
+wpcondutorMDFeRecepcao.Link(&EmpCod, &FilCod, &MDFeCod, &SolCod)
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&MDFeCod, in:&MdfeEveCod, in:&MDFeMotCpf,in:&MDFeMotNom, in:&PesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xJust">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xJust</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="id">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>id</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArqNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArqNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hojeHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hojeHora</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hora</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Hora</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VersaoNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VersaoNF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_enviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_enviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeChv</Value></Property><Property><Name>Description</Name><Value>Chave MDFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeProt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeProt</Value></Property><Property><Name>Description</Name><Value>Protocolo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeProt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeIbge</Value></Property><Property><Name>Description</Name><Value>Ibge</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidUfeIbge</Value></Property></Properties>
+        </Variable>
+        <Variable Name="soNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>soNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFusHor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFusHor</Value></Property><Property><Name>Description</Name><Value>Fuso Horario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFusHor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeMotNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeMotNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeMotNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeMotCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeMotCpf</Value></Property><Property><Name>Description</Name><Value>CPF </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeMotCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeEveMotCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeEveMotCod</Value></Property><Property><Name>Description</Name><Value>Seq Evento Mot</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeEveMotCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeEveCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeEveCod</Value></Property><Property><Name>Description</Name><Value>Evento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeEveCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaXmlInclusaoCondutorMDFe</Value></Property><Property><Name>Description</Name><Value>Grava Xml Inclusao Condutor MDFe</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

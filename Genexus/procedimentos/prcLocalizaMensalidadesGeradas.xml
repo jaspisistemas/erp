@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="148cb7cd-276a-4a11-8085-1dff4f680f33" user="WINJEAN\jeanfae" versionDate="2025-06-03T12:09:07.0000000Z" lastUpdate="2025-05-28T16:59:10.0000000Z" checksum="296d87744f5b2cf143ef6a224e6fd17b" fullyQualifiedName="prcLocalizaMensalidadesGeradas" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="f0286a96-1479-4f32-ab58-dd9c7bfc68c4" name="prcLocalizaMensalidadesGeradas" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Localiza Mensalidades Geradas" parent="prcServicos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&SdtPedidos.Clear()
+
+For Each order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	where PedDtaEms.year()  = &AnoEmissao
+	where PedDtaEms.Month() = &MesEmissao
+	where PedDtaEms.Day()   = &DiaEmissao when not &DiaEmissao.IsEmpty()
+	where PedSerItmCod > 0
+	Where PedSts = Status_Pedido.FECHADO
+	Where PedStsFin = Status_Financeiro.FECHADO
+	Where PedCliRaz like &PesRaz or PedCliFan like &PesRaz when not &PesRaz.IsEmpty()
+	
+	&SdtPedidosItem = new()
+	&SdtPedidosItem.isMarcar = false
+	&SdtPedidosItem.EmPCod = EmpCod
+	&SdtPedidosItem.FiLCod = FilCod
+	&SdtPedidosItem.PedCod = PedCod
+	&SdtPedidosItem.PedDtaEms = PedDtaEms
+	&SdtPedidosItem.PedCliCod = PedCliCod
+	&SdtPedidosItem.PedCliCodRaz = PedCliCodRaz
+	&SdtPedidosItem.PedVlrLiq = PedVlrLiq
+	
+	&NfeCod.SetEmpty()
+	&NfeNum.SetEmpty()
+	&NfeSts.SetEmpty()
+	
+	&NfsCod.SetEmpty()
+	&NfsNum.SetEmpty()
+	&NfsSts.SetEmpty()
+
+	//pega nota de servico
+	&NfsPedCod = PedCod
+	&NfsPedFilCod = FilCod
+	do 'getNFSe'
+	
+	//pega nota de prodt
+	&NfePedCod = PedCod
+	&NfeFilCod = FilCod
+	do 'getNFe'
+	
+	&SdtPedidosItem.NfeCod = &NfeCod
+	&SdtPedidosItem.NfeNum = &NfeNum
+	&SdtPedidosItem.NfeSts = &NfeSts
+	
+	
+	&SdtPedidosItem.NfsCod = &NfsCod
+	&SdtPedidosItem.NfsNum = &NfsNum
+	&SdtPedidosItem.NfsSts = &NfsSts
+	
+	//localiza Duplicata
+	For Each ORder EmpCod, FilCod, CreCod
+		Where CrePedCod = PedCod
+		Where CreSts <> Status_Duplicata.CANCELADA
+//		Where CreVlrDup = CreVlrSdo //JDF TEM QUE PEGAR A DUP.
+		
+		&SdtPedidosItem.CreCod = CreCod
+		&SdtPedidosItem.CreDupNro = CreDupNro
+		&SdtPedidosItem.CreDtaRet = CreDtaRet
+		&SdtPedidosItem.CreSts = CreSts
+		Exit
+	EndFor
+	&PedCliCod = PedCliCod
+	do 'getEmailFone'
+	
+	&SdtPedidosItem.IsJaEnviou = false
+	For Each Order EmpCod, EmlTip, EmlFilCod, EmlSeqCod
+		Where EmlTip = TipoContaEmail.Email_Financeiro
+		Where EmlTipEml = TipoSolicitacao.Envia_Mensalidade
+		Where EmlFilCod = FilCod
+		Where EmlSeqCod = PedCod
+		&SdtPedidosItem.IsJaEnviou = true
+		Exit
+	When none
+		For Each ORder EmpCod, WaPedCod
+			Where WaPedCod = PedCod
+			&SdtPedidosItem.IsJaEnviou = true
+			Exit
+		EndFor
+	EndFor
+
+	if &IsNotaAutorizada = false or ((&NfsCod > 0 and &NfsSts = Status_NFe.Autorizada) or (&NfeCod > 0 and &NfeSts = Status_NFe.Autorizada)) 
+		if &IsBoletoRegistrado = false or (not &SdtPedidosItem.CreDtaRet.IsEmpty())
+			
+			if &IsNaoEnviados = false or (&SdtPedidosItem.IsJaEnviou = false)
+				&SdtPedidos.Add(&SdtPedidosItem)
+			EndIf
+		Endif
+	Endif
+
+EndFor
+
+Sub 'getEmailFone'
+	//localiza primeiro email financeiro
+	For Each Order EmpCod, PesCod, PesEmlCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PedCliCod
+		Where PesEmlFin = true
+		
+		&SdtPedidosItem.PesPrmEml = PesEml
+		Exit
+	EndFor
+	
+	//localiza Primeiro Fone Financeiro
+	For Each Order EmpCod, PesCod, PesFonCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PedCliCod
+		Where PesFonWhatsBol = true
+		
+		&SdtPedidosItem.PesPrmFon = PesFonNum
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'getNFe'
+	For Each ORder EmpCod, NfeFilCod, NfePedCod, (NfeCod)
+		Where EmpCod = &EmpCod
+		Where NfePedCod = &NfePedCod
+		Where NfeFilCod = &NfeFilCod
+		Where NfeSts = Status_Nfe.Autorizada or NfeSts = Status_Nfe.Digitando
+		
+		&NfeCod = NfeCod
+		&NfeNum = NfeNum
+		&NfeSts = NfeSts		
+		if NfeSts = Status_Nfe.Autorizada
+			Exit
+		Endif
+		
+	EndFor
+EndSub
+
+Sub 'getNFSe'
+	For Each ORder EmpCod, NfsPedFilCod, NfsPedCod, (NfsCod)
+		Where EmpCod = &EmpCod
+		Where NfsPedCod = &NfsPedCod
+		Where NfsPedFilCod = &NfsPedFilCod
+		Where NfsSts = Status_Nfe.Autorizada or NfsSts = Status_Nfe.Digitando
+		
+		&NfsCod = NfsCod
+		&NfsNum = NfsNum
+		&NfsSts = NfsSts
+		if NfsSts = Status_Nfe.Autorizada
+			Exit
+		Endif
+		
+	EndFor
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&AnoEmissao, in:&MesEmissao, in:&DiaEmissao, in:&IsNotaAutorizada, in:&IsBoletoRegistrado, in:&IsNaoEnviados, in:&PesRaz, out:&SdtPedidos);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPedidos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPedidos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoEmissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoEmissao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MesEmissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MesEmissao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiaEmissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiaEmissao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPedidosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPedidosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidos.sdtPedidosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsPedFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsPedFilCod</Value></Property><Property><Name>Description</Name><Value>Nfs Ped Fil Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsPedFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsPedCod</Value></Property><Property><Name>Description</Name><Value>Nfs Ped Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsPedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsNum</Value></Property><Property><Name>Description</Name><Value>Numero NFSe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsSts</Value></Property><Property><Name>Description</Name><Value>Nfs Sts</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfePedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfePedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfePedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfePedFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfePedFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBoletoRegistrado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBoletoRegistrado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsNotaAutorizada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsNotaAutorizada</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsNaoEnviados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsNaoEnviados</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcLocalizaMensalidadesGeradas</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

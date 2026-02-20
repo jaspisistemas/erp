@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2020-06-22T12:49:11.0000000Z" checksum="397b100ad6aebdd79044a385c6f9f78d" fullyQualifiedName="CarregarFluxoCaixa" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="13e4e7af-6f8a-4c5b-973e-f07dc708409a" name="CarregarFluxoCaixa" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Carregar Fluxo Caixa" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&DataFim = &Data + 31
+&SdtFluxo.Clear()
+&SdoAtu = 0
+For each Order EmpCod,CtaBanSts
+	Where EmpCod = &EmpCod
+	Where CtaBanSts = Status_AtivoInativo.ATIVO
+	
+	For each Order EmpCod,CtabanCod,(SdoDta)
+		Where SdoDta < &Data
+		&SdoAtu += SdoAtu
+		Exit	
+	EndFor
+EndFor
+
+
+
+For each Order EmpCod,CreRecPag,CreVlrSdo,CreDtaVct //contas Receber - ANTERIORES
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreVlrSdo > 0
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CreDtaVct < &Data
+//	Where CreTipDup = TipoDuplicata.Duplicata
+	&auxData = &Data-1
+	&RecCreVlrSdo += CreVlrSdo
+EndFor
+
+For each Order EmpCod,CreRecPag,CreVlrSdo,CreDtaVct //contas pagar - ANTERIORES
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Pagar
+	Where CreVlrSdo > 0
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CreDtaVct < &Data
+	&auxData = &Data-1
+	&PagCreVlrSdo += CreVlrSdo
+EndFor
+do 'Sdtanterior'
+
+//######################################################################################################
+For each Order EmpCod,CreRecPag,CreVlrSdo,CreDtaVct //contas Receber
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreVlrSdo > 0
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CreDtaVct >= &Data and CreDtaVct <= &DataFim
+	&auxData = CreDtaVct
+	&CreVlrSdo = CreVlrSdo
+	Do 'carregaSdtReceber'
+EndFor
+
+//#####################################################################
+For each Order EmpCod,CreRecPag,CreVlrSdo,CreDtaVct //contas Pagar
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Pagar
+	Where CreVlrSdo > 0
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CreDtaVct >= &Data and CreDtaVct <= &DataFim
+	&auxData = CreDtaVct
+	&CreVlrSdo = CreVlrSdo
+	Do 'carregaSdtPagar'
+EndFor
+
+//#####################################################################
+For each Order EmpCod,CreRecPag,CreVlrSdo,CreDtaVct //contas Pagar - Pago
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Pagar
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CrePagDta >= &Data and CrePagDta <= &DataFim
+	&auxData = CrePagDta
+	&CreVlrSdo = CrePagVlr
+	Do 'carregaSdtPago'
+EndFor
+
+For each Order EmpCod,CreRecPag,CreVlrSdo,CreDtaVct //contas Pagar - Recebido
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CrePagDta >= &Data and CrePagDta <= &DataFim
+	&auxData = CrePagDta
+	&CreVlrSdo = CrePagVlr
+	Do 'carregaSdtRecebido'
+EndFor
+
+&SdtFluxo.Sort('Data')
+
+For &SdtFluxoItem in &SdtFluxo
+	If &SdtFluxoItem.Data >= &Data
+		&SdtFluxoItem.BanVlrTot = &SdoAtu
+		&SdtFluxoItem.TotGer = &SdoAtu + &SdtFluxoItem.CtaTotal
+		&SdoAtu = &SdoAtu + &SdtFluxoItem.CtaTotal
+	EndIf
+Endfor
+
+Sub 'carregaSdtReceber'
+	&IsAchou = False
+	
+	For &SdtFluxoItem in &SdtFluxo
+		If &SdtFluxoItem.Data = &auxData
+			&IsAchou = True
+			&SdtFluxoItem.CtaReceber += &CreVlrSdo
+			&SdtFluxoItem.CtaTotal = (&SdtFluxoItem.CtaReceber - &SdtFluxoItem.CtaPagar) - &SdtFluxoItem.CtaFolPg
+			Exit
+		EndIf
+	EndFor
+	
+	If &IsAchou = False
+		&SdtFluxoItem = new()
+		&SdtFluxoItem.Data = &auxData
+		&SdtFluxoItem.CtaReceber = &CreVlrSdo
+		&SdtFluxoItem.CtaTotal = (&SdtFluxoItem.CtaReceber - &SdtFluxoItem.CtaPagar) - &SdtFluxoItem.CtaFolPg
+		&SdtFluxo.Add(&SdtFluxoItem)
+	EndIf
+EndSub
+
+Sub 'carregaSdtPagar'
+	&IsAchou = False	
+	For &SdtFluxoItem in &SdtFluxo
+		If &SdtFluxoItem.Data = &auxData
+			&IsAchou = True
+			&SdtFluxoItem.CtaPagar += &CreVlrSdo
+			&SdtFluxoItem.CtaTotal = (&SdtFluxoItem.CtaReceber - &SdtFluxoItem.CtaPagar) - &SdtFluxoItem.CtaFolPg
+			Exit
+		EndIf
+	EndFor
+
+	If &IsAchou = False
+		&SdtFluxoItem = new()
+		&SdtFluxoItem.Data = &auxData
+		&SdtFluxoItem.CtaPagar = &CreVlrSdo
+		&SdtFluxoItem.CtaTotal = (&SdtFluxoItem.CtaReceber - &SdtFluxoItem.CtaPagar) - &SdtFluxoItem.CtaFolPg
+		&SdtFluxo.Add(&SdtFluxoItem)
+	EndIf
+EndSub
+
+Sub 'carregaSdtPago'
+	&IsAchou = False
+	
+	For &SdtFluxoItem in &SdtFluxo
+		If &SdtFluxoItem.Data = &auxData
+			&IsAchou = True
+			&SdtFluxoItem.MovPago += &CreVlrSdo
+			&SdtFluxoItem.MovTotMov = &SdtFluxoItem.MovReceb - &SdtFluxoItem.MovPago
+			Exit
+		EndIf
+	EndFor
+	
+	If &IsAchou = False
+		&SdtFluxoItem = new()
+		&SdtFluxoItem.Data = &auxData
+		&SdtFluxoItem.MovPago += &CreVlrSdo
+		&SdtFluxoItem.MovTotMov = &SdtFluxoItem.MovReceb - &SdtFluxoItem.MovPago
+		&SdtFluxo.Add(&SdtFluxoItem)
+	EndIf
+EndSub
+
+Sub 'carregaSdtRecebido'
+	&IsAchou = False	
+	For &SdtFluxoItem in &SdtFluxo
+		If &SdtFluxoItem.Data = &auxData
+			&IsAchou = True
+			&SdtFluxoItem.MovReceb += &CreVlrSdo
+			&SdtFluxoItem.MovTotMov = &SdtFluxoItem.MovReceb - &SdtFluxoItem.MovPago
+			Exit
+		EndIf
+	EndFor
+	
+	If &IsAchou = False
+		&SdtFluxoItem = new()
+		&SdtFluxoItem.Data = &auxData
+		&SdtFluxoItem.MovReceb += &CreVlrSdo
+		&SdtFluxoItem.MovTotMov = &SdtFluxoItem.MovReceb - &SdtFluxoItem.MovPago
+		&SdtFluxo.Add(&SdtFluxoItem)
+	EndIf
+EndSub
+
+sub 'Sdtanterior'	
+	&SdtFluxoItem = new()
+	&SdtFluxoItem.Data       = &auxData
+	&SdtFluxoItem.CtaPagar   = &PagCreVlrSdo
+	&SdtFluxoItem.CtaReceber = &RecCreVlrSdo
+	&SdtFluxoItem.CtaTotal   = &SdtFluxoItem.CtaReceber - &SdtFluxoItem.CtaPagar
+	&SdtFluxoItem.BanVlrTot  = &SdoAtu
+	&SdtFluxoItem.TotGer  = &SdoAtu
+	&SdtFluxo.Add(&SdtFluxoItem)
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&Data,in:&MostrarVazio,&SdtFluxo);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="SdtFluxo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtFluxo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtFluxo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Data">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Data</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MostrarVazio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MostrarVazio</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataFim">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataFim</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtFluxoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtFluxoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtFluxo.SdtFluxoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdoAtu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdoAtu</Value></Property><Property><Name>Description</Name><Value>Saldo Atual</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SdoAtu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PagCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PagCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>CarregarFluxoCaixa</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

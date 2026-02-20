@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7529ae64-c871-4084-a67d-a1ef9467c563" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:46:15.0000000Z" checksum="8d83c285a3299ea6a995822f24babdd7" fullyQualifiedName="prcVerificaProgressEmissaoGNRE" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="2e08ee63-0c09-4cce-8a79-4c490fd88a6f" name="prcVerificaProgressEmissaoGNRE" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Verifica Progress Emissao GNRE" parent="GNRE" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &sdtConfiguracoesPasta)
+
+&Total 		= &SdtGNRE.Count*3	//## Total de segundos em que o sistema fará a verificação 
+&Count 		= 0					//## Segundo inicial 										
+&Percentual = 0					//## PErcentual da leitura 									
+
+&ProgressIni 	= serverNow()	//## Data em que o progresso iniciou						
+&Mensagem 		= ''				//## XMLLog do progresso 									
+
+do 'Atualiza'				//## Verifica se há um progresso existente 					
+do 'VerificaXML'
+
+&Percentual 	= 100			//## Percentual final 										
+&ProgressFin 	= serverNow()	//## Data da finalização do Progresso 						
+do 'Atualiza'
+
+//Do 'EnviaNotificacaoConcluido'
+
+Sub 'VerificaXML'
+	
+	//## BUSCA TODAS AS NOTAS DO SDT	##\\
+
+	For &SdtGNREItem In &SdtGNRE
+		&NomeXML 		= &SdtConfiguracoesPasta.PastaNFretorno+&SdtGNREItem.NomeArquivo+'-ret-gnre.xml'	//## Nome de Leitura	##\\
+		
+		&IsExiste 			= False
+		Do While &IsExiste 	= False
+			&File.Source	= &NomeXML
+			If &File.Exists()
+				&Count 		+= 1			
+				&Percentual = round((&Count / &Total) * 100, 0)
+				Do 'Atualiza'
+				&IsExiste 	= True
+				Exit
+			EndIf
+			
+			&Dorme = Sleep(2)
+		EndDo
+		
+		&NumRec.SetEmpty()
+		&SitRecp.SetEmpty()
+		prcLerRetGNREXml.Call(&NomeXML, &NumRec, &SitRecp)
+		If &SitRecp <> "100" and &SitRecp <> "101"
+			&Count 		+= 1			
+			&Percentual = round((&Count / &Total) * 100, 0)
+			Do 'Atualiza'
+			New											 
+				EmpCod 		= &EmpCod					// Código da Empresa		
+				FilCod 		= &FilCod					// Código da Filial	
+				GNRENumRec 	= 'ERRO'					// Recibo da GNRE			
+				GNREDtaEms 	= &Today					// Data de Emissão		
+				GNREFunCod 	= &FunCod					// Funcionário que emitiu
+			EndNew
+			Commit
+			
+			New										
+				EmpCod 		=	&EmpCod					//## Código da Empresa				
+				FilCod 		= 	&FilCod					//## Código da Filial				
+				GNRENumRec 	= 	'ERRO'					//## Número do Recibo 	da GNRE		
+				GNREChavNot = 	&SdtGNREItem.NfeChv		//## Chave 				da Nfe		
+				GNREVlrTot	= 	Trim(Str(&SdtGNREItem.ValorPrincipal,8, 2))	//## Valor	Total 		da GNRE		
+				GNRETipo 	= 	&SdtGNREItem.GnreRecCod	//## Receita 			da GNRE		
+				GNRELotPDF 	= 	''						//## Arquivo em PDF		da GNRE		
+				GNRELotXML 	= 	''						//## Arquivo em XML		da GNRE	
+				GNRESts		= 	&SitRecp
+			EndNew
+			Commit
+			
+			&Count 			+= 1			
+			&Percentual 	= round((&Count / &Total) * 100, 0)
+			Do 'Atualiza'
+			Exit
+		Else
+			&IsExiste 			= False
+			prcGerarXmlGNREUniNfe2.Call(&NumRec, &SdtGNREItem.NomeArquivo)
+			Do While &IsExiste 	= False
+				&File.Source	= &sdtConfiguracoesPasta.PastaNFretorno+&SdtGNREItem.NomeArquivo+'_guias-pro-rec.xml'
+				If &File.Exists()
+					&Count 		+= 1			
+					&Percentual = round((&Count / &Total) * 100, 0)
+					Do 'Atualiza'
+					&IsExiste 	= True
+					Exit
+				EndIf
+				&Dorme = Sleep(2)
+			EndDo
+			prcGravaLogGNRE_Novo.Call(&NumRec, &SdtGNREItem.NfeChv, Trim(Str(&SdtGNREItem.NfeNum)), &SdtGNREItem.NomeArquivo, &EmpCod, &FilCod, &GerarDuplicata, &PesCodFornecedor, &PlanCod, &FunCod, &SdtGNREItem.GnreRecCod)
+			
+			&Count 			+= 1			
+			&Percentual 	= round((&Count / &Total) * 100, 0)
+			Do 'Atualiza'
+		EndIf
+	EndFor
+
+EndSub
+
+Sub 'Atualiza'				//## Grava um novo progresso, ou atualiza um existente
+	
+	For Each Order ProgressId
+		Where ProgressId = &ProgressId
+		
+		ProgressValue = &Percentual
+		ProgressLogXml = &Mensagem
+	  	ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+		  
+	When none
+		
+		New
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressLogXml = &Mensagem
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		EndNew
+		
+	EndFor
+	
+	Commit	
+	
+EndSub
+
+//Sub 'EnviaNotificacaoConcluido'
+//	
+//	For Each Order EmpCod, PesCod
+//		Where EmpCod = &EmpCod
+//		Where PesCod = &FunCod
+//		
+//		&Filter.ExternalId = trim(str(PesExtCod)) //## Define o filtro que será usado no GetUser 
+//		For &User in GAMRepository.GetUsersOrderBy(&Filter, GAMUserListOrder.None, &Errors) //## Procura o GAMGUID do usuário e envia a notificação para o mesmo 
+//			&IDUsuario = &User.GUID //## Define IDUsuario como o código do GAMGUID
+//			
+//			&NotificationLink = wpgerarGNRE.Link()			
+//			WWP_SendNotification(!'Compromisso', !"Compromissos", '', "fas fa-exclamation FontColorIconWarning", "GNRE(s) emitida(as)!", Format("O envio da(as) GNRE(s) foi concluido com êxito! %2 %3", "Confira em: Consulta GNRE!"), Format("O envio da(as) GNRE(s) foi concluido com êxito! %2 %3", "Confira em: Consulta GNRE!"), &NotificationLink, '', '', True, &IDUsuario)
+//
+//			Exit
+//		EndFor
+//		Exit
+//	EndFor
+//	
+//EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&ProgressId, In:&SdtGNRE, In:&EmpCod, In:&FilCod, In:&GerarDuplicata, In:&PesCodFornecedor, In:&PlanCod, In:&FunCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunCod</Value></Property><Property><Name>Description</Name><Value>Funcionário</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FunCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtGNRE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtGNRE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGNRE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Errors">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Errors</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Existe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Existe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Filter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Filter</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMUserFilter, GeneXusSecurity</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GerarDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GerarDuplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IDUsuario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IDUsuario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExiste">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExiste</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeXML">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeXML</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NotificationLink">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NotificationLink</Value></Property><Property><Name>Description</Name><Value>Notification Link</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumRec</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCodFornecedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCodFornecedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtGNREItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtGNREItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGNRE.sdtGNREItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SitRecp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SitRecp</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="User">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>User</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMUser, GeneXusSecurity</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcVerificaProgressEmissaoGNRE</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

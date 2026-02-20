@@ -1,0 +1,506 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06acaad3-3dbb-4c3d-9822-e27e37423136" user="SRVORDIG\Administrador" versionDate="2025-08-22T13:32:57.0000000Z" lastUpdate="2025-08-19T14:58:20.0000000Z" checksum="3e725dc15cb2e2f6c5e65479903a8526" fullyQualifiedName="ProcLoadInicio" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="cc09c6dd-9811-482b-bc9e-c95a8b483cf4" name="ProcLoadInicio" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Carrega Dados do Inicio (setContext)" parent="Procedimentos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&IsOkLicenca = true
+&IsOkAcesso = True
+&EmpCod = &ParEmpCod
+&FilCod = &ParFilCod
+&Data = serverdate() + 30
+&WebSession.Set('#semsinal', 'sinalizando')
+
+&UserNick = &GAMUser.GetName()
+&PesExtCod = Val(&GAMUser.GetExternalId())
+
+&BrowserID = BrowserID()
+if &BrowserID = 7 //CHORME OU JASPI
+	&VersaoBrowser = BrowserVersion()
+	&Context.BrowserVersion = val(substr(&VersaoBrowser,1,2))
+Endif
+
+&Context.UserName = &UserNick
+&Context.PesExtCod = &PesExtCod
+
+&TipoPerfil = RetTipNick.Udp(&GAMUser.GetExternalId()) // 1 Usuario 2 Contador
+If upper(&UserNick) = 'SUPORTE.JASPI' or &TipoPerfil = 3
+	&Context.TipoPerfil = 3
+	&Context.Old_Perfil = 3
+	&TipoPerfil = 3
+Else
+	&Context.TipoPerfil = &TipoPerfil
+	&Context.Old_Perfil = &TipoPerfil
+Endif
+
+If Not &GAMUser.GetExternalId().IsEmpty() and &EmpCod = 0  //login normal e direto
+	
+	For each order PesExtCod, EmpCod, PesCod   //Carrega Pessoa do Usuário encontrado.
+		Where PesExtCod = &PesExtCod
+		
+		&EmpCod = EmpCod
+		&PesCod = PesCod
+		if &FilCod = 0
+			&FilCod = PesFilCod	
+		Endif
+		
+		&PesExtAcs = PesExtAcs
+		&Context.EmpCod = EmpCod
+		&Context.EmpRaz = EmpRaz.Trim()
+		&Context.FilCod = &FilCod
+		&Context.FilRaz = RetornaNomeCadFilial.udp(EmpCod, &FilCod)
+		
+		&Context.PesCod = PesCod
+		&Context.PesRaz = PesRaz
+		&Context.PesIsVen = PesIsVen  // Vendedor
+		&Context.PesIsFun = PesIsFun  // Funcionário
+		
+		Exit
+	EndFor
+	
+	//################################################################################# CARREGA EMPRESA DO uSUÁRIO
+	For Each Order EmpCod
+		Where EmpCod = &EmpCod
+		
+		&EmpLicAut = EmpLicAut
+		
+		If not EmpHostExt.Trim().IsEmpty()
+			If EmpHostExt.Trim() <> &HttpRequest.ServerHost
+				If &PesExtAcs <> true
+					&IsOkAcesso = false
+					&isOk = GAMRepository.Logout(&Errors)
+					msg('Usuário não autorizado ao acesso externo pelo IP: '+RemoteAddr())
+				EndIf
+			EndIf
+		EndIf
+		
+		if &IsOkAcesso = true
+			VerificaLicenca.Call(EmpCod, EmpChv, EmpCodSec, '', &IsOkLicenca)
+			
+			If EmpStsImp < 100
+				CompletandoCadastro.Link(EmpCod, EmpCodSec)
+			EndIF
+		Endif
+	
+		Exit
+	When none
+		ErroImplantacao.Link()
+	EndFor
+	
+	//######################################################### Carrega dados bancários do usuário
+	If &PesCod <> 0 and &IsOkAcesso = true
+		&Context.CtaBanCod = 0
+		For Each Order EmpCod, CtabanCod, CtaFunCod
+			Where EmpCod = &EmpCod
+			Where CtaFunCod = &PesCod
+			Where CtaFunIsPad = Status_SimNao.Sim
+			Where CtaBanFilCod = &FilCod
+			where CtaFunIsCx = Status_SimNao.Sim
+			
+			&Context.CtaBanCod = CtabanCod
+			&Context.CtaBanNom = CtaBanNom
+			Exit
+		EndFor
+		
+		Do 'FilialVinculadaPessoa'
+		do 'EmpresaAcesso'
+		
+		setWWPContext.Call(&Context)
+	EndIF
+Else
+	If &EmpCod <> 0
+		For Each Order EmpCod
+			Where EmpCod = &EmpCod
+			
+			&EmpLicAut = EmpLicAut
+			&EmpChv = EmpChv
+			&EmpCodSec = EmpCodSec
+			
+			&Context.EmpCod = EmpCod
+			&Context.EmpRaz = EmpRaz.Trim()
+			
+			For each order EmpCod,FilCod
+				Where FilCod = &parFilCod when not &parFilCod.IsEmpty()
+				&FilCod = FilCod
+				&Context.FilCod = FilCod
+				&Context.FilRaz = FilRaz
+				&Context.FilTime = FilTime
+				Exit
+			EndFor
+			
+			Exit
+		EndFor
+		
+		Do Case
+			Case &TipoPerfil = 3
+				if &PesExtCod <> 0
+					For each order SupCod
+						Where SupExtID = &PesExtCod
+					
+						&Context.PesRaz = SupNom
+						&Context.PesCod = SupCod
+						&PesCod = SupCod
+					
+						For each order SupCod, SupEmpCod
+							Where SupEmpCod = &EmpCod
+							if SupEmpAce <> true
+								&IsOkAcesso = false
+								&EmpCod = 0
+								&Context.PesRaz = ''
+								&Context.PesCod = 0
+								&Context.EmpCod = 0
+								&Context.FilCod = 0	
+							Else
+								if not SupPesCod.IsEmpty() and not SupPesCod.IsNull()
+									&Context.PesRaz = SupNom
+									&Context.PesCod = SupPesCod
+									&PesCod = SupPesCod
+									&TipoPerfil = 1
+									&Context.TipoPerfil = 1
+								Endif
+							Endif
+						
+							Exit
+						EndFor			
+						
+						exit
+					EndFor
+				Else
+					&Context.PesCod = -1
+					&PesCod = -1
+				Endif
+				
+				if &PesCod > 0
+					For each order EmpCod, PesCod   //Carrega Pessoa do Usuário encontrado.
+						Where EmpCod = &EmpCod
+						Where PesCod = &PesCod
+						
+						&EmpCod = EmpCod
+						&PesCod = PesCod
+						if &FilCod = 0
+							&FilCod = PesFilCod	
+						Endif
+						
+						&PesExtAcs = PesExtAcs
+						&Context.EmpCod = EmpCod
+						&Context.EmpRaz = EmpRaz.Trim()
+						&Context.FilCod = &FilCod
+						&Context.FilRaz = RetornaNomeCadFilial.udp(EmpCod, &FilCod)
+						
+						&Context.PesCod = PesCod
+						&Context.PesRaz = PesRaz
+						&Context.PesIsVen = PesIsVen  // Vendedor
+						&Context.PesIsFun = PesIsFun  // Funcionário
+						
+						Exit
+					EndFor
+					
+					//######################################################### Carrega dados bancários do usuário
+					&Context.CtaBanCod = 0
+					For Each Order EmpCod, CtabanCod, CtaFunCod
+						Where EmpCod = &EmpCod
+						Where CtaFunCod = &PesCod
+						Where CtaFunIsPad = Status_SimNao.Sim
+						Where CtaBanFilCod = &FilCod
+						Where CtaFunIsCx = Status_SimNao.Sim
+	
+						&Context.CtaBanCod = CtabanCod
+						&Context.CtaBanNom = CtaBanNom
+						Exit
+					EndFor
+					
+					For each Order EmpCod, FilCod
+						Where EmpCod = &EmpCod
+						
+						&Filials = new()
+						&Filials.FilCodVin = FilCod
+						&Filials.FilRazVin = FilRaz
+						&Filials.FilTip = FilTip
+						&Context.Filials.Add(&Filials)						
+					EndFor
+				
+					Do 'FilialVinculadaPessoa'
+					do 'EmpresaAcesso'
+					setWWPContext.Call(&Context)
+					
+				Else					
+					For Each Order EmpCod, CtabanCod, CtaBanFilCod
+						Where EmpCod = &EmpCod
+						Where CtaBanFilCod = &FilCod
+						&Context.CtaBanCod = CtabanCod
+						&Context.CtaBanNom = CtaBanNom
+						Exit
+					EndFor
+					
+					&Context.PesIsVen = True  // Vendedor
+					&Context.PesIsFun = True  // Funcionário
+					
+					Do 'FilialVinculadaSuporteContador'
+					do 'EmpresaAcessoSuporteContador'
+					
+					setWWPContext.Call(&Context)
+				Endif
+				
+			CAse &TipoPerfil = 2
+				//Contador
+				
+				For each order CrtExtId
+					Where CrtExtId = &PesExtCod
+					&Context.PesRaz = CrtRaz
+					&Context.PesCod = ((CrtCod + 10000)*-1) ///Contador
+					&PesCod = ((CrtCod + 10000)*-1) ///Contador
+					exit
+				EndFor
+				
+				&Context.EmpCod = &EmpCod
+				&Context.FilCod = &FilCod
+				&Context.PesIsVen = True  // Vendedor
+				&Context.PesIsFun = True  // Funcionário
+				
+				Do 'FilialVinculadaSuporteContador'
+				setWWPContext.Call(&Context)
+				
+		EndCAse
+		
+		VerificaLicenca.Call(&EmpCod, &EmpChv, &EmpCodSec, '', &IsOkLicenca)
+	EndIf
+EndIf
+
+if &PesCod <> 0	and &IsOkAcesso = true
+	CarregaSdtPerfil.Call(&Context.EmpCod, &Context.PesCod, &AutGrpNom)
+	If &AutGrpNom.Count > 0
+		&DVelop_Menu.Clear()
+		NovoMontaMenuSuperiorV15.Call(&Context.EmpCod, &Context.Old_Perfil, &DVelop_Menu)
+		NovoLateralGx15.Call(&Context.EmpCod, &Context.PesCod, &Context.Old_Perfil)		
+	EndIF
+
+	AtualizaWidgetsPessoa.Call(&Context.EmpCod, &Context.PesCod)
+EndIF
+
+Sub 'FilialVinculadaSuporteContador'
+	
+	For each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		&Filials = new()
+		&Filials.FilCodVin = FilCod
+		&Filials.FilRazVin = gxGetMLi(FilCodNom, 1, 20)
+		&Filials.FilTip = FilTip
+		&Context.Filials.Add(&Filials)
+		
+		&FilialLancamento = new()
+		&FilialLancamento.PesFilAce = FilCod
+		&FilialLancamento.PesFilRaz = gxGetMLi(FilCodNom, 1, 20)
+		&FilialLancamento.PesFilTip = FilTip
+		&Context.FilialLancamento.Add(&FilialLancamento)
+	EndFor
+EndSub
+
+Sub 'EmpresaAcessoSuporteContador'
+	For Each Order EmpCod, PesCod, PesAceEmpCod
+		Where EmpCod = &EmpCod
+		//Where PesCod = &PesCod
+		
+		&IsjaAdicionou = false
+		for &EmpresaAcesso in &Context.EmpresaAcesso
+			if &EmpresaAcesso.PesAceEmpCod = PesAceEmpCod
+				&IsjaAdicionou = true
+				exit
+			Endif
+		EndFor
+
+		if &IsjaAdicionou = false
+			&EmpresaAcesso = New()
+			&EmpresaAcesso.PesAceEmpCod = PesAceEmpCod
+			&EmpresaAcesso.PesAcePesCod = -1		
+			&Context.EmpresaAcesso.Add(&EmpresaAcesso)
+		Endif
+	EndFor
+
+EndSub
+
+Sub 'EmpresaAcesso'
+	For Each Order EmpCod, PesCod, PesAceEmpCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		
+		&EmpresaAcesso = New()
+		&EmpresaAcesso.PesAceEmpCod = PesAceEmpCod
+		&EmpresaAcesso.PesAcePesCod = PesAcePesCod		
+		&Context.EmpresaAcesso.Add(&EmpresaAcesso)
+	EndFor
+
+EndSub
+
+Sub 'FilialVinculadaPessoa'
+
+	For each Order EmpCod, PesCod, PesFilAce
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		where PesFilAceNiv > 0
+	
+		&Filials = new()
+		&Filials.FilCodVin = PesFilAce
+		&Filials.FilRazVin =  gxGetMLi(PesFilAceNom, 1, 20)
+		&Filials.FilTip = PesFilTip
+		&Context.Filials.Add(&Filials)
+		
+		if PesFilAceNiv > 1 //FILIAL LANCAMENTO
+			&FilialLancamento = new()
+			&FilialLancamento.PesFilAce = PesFilAce
+			&FilialLancamento.PesFilRaz = gxGetMLi(PesFilAceNom, 1, 20)
+			&FilialLancamento.PesFilTip = PesFilTip
+			&Context.FilialLancamento.Add(&FilialLancamento)
+		Endif
+	
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&parEmpCod, in:&parFilCod, out:&IsOkLicenca,out:&IsOkAcesso);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GAMUser">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GAMUser</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMUser, GeneXusSecurity</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Filials">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Filials</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext.FilialsItem, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtCod</Value></Property><Property><Name>Description</Name><Value>Pessoa código externo GAM</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutGrpNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutGrpNom</Value></Property><Property><Name>Description</Name><Value>Descrição</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutGrpNom</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOkLicenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOkLicenca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ParFiLCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WebSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WebSession</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpLicAut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpLicAut</Value></Property><Property><Name>Description</Name><Value>LicencaAutomatico</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpLicAut</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtAcs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtAcs</Value></Property><Property><Name>Description</Name><Value>Acesso Externo permitido ?</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtAcs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOkAcesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOkAcesso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserNick">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserNick</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomeGrande100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Data">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Data</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DVelop_Menu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DVelop_Menu</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:DVelop_Menu, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VersaoBrowser">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VersaoBrowser</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BrowserID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BrowserID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoPerfil">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoPerfil</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpChv</Value></Property><Property><Name>Description</Name><Value>Empresa Chave Liberação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCodSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCodSec</Value></Property><Property><Name>Description</Name><Value>Código Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCodSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilialLancamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilialLancamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext.FilialLancamento, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpresaAcesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpresaAcesso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext.EmpresaAcessoItem, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsjaAdicionou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsjaAdicionou</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Errors">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Errors</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isOk</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ProcLoadInicio</Value></Property><Property><Name>Description</Name><Value>Carrega Dados do Inicio (setContext)</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

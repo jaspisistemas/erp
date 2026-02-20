@@ -1,0 +1,768 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="SRVORDIG\Administrador" versionDate="2024-04-15T12:27:10.0000000Z" lastUpdate="2024-04-11T19:29:44.0000000Z" checksum="2f462a41c101c42d1dda7d35a085a826" fullyQualifiedName="Autorizar_CTE_Retornos" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="db5398d9-197b-44e9-9790-1cecbe57703a" name="Autorizar_CTE_Retornos" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Autorizar_CTE_Retornos" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//AUTORIZA CTE
+&ano = str(year(ServerDate()))
+For Each Order EmpCod, FilCod, CteCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where CteCod = &CteCod
+	
+	&PastaDanfeData = str(year(CteDtaEms),4,0)+padl(trim(str(month(CteDtaEms),2,0)),2,'0')
+//	&Nome_arquivo_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ trim(CteChv) + '-cte.err'
+	&Nome_arquivo_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ trim(CteChv) + '-pro-rec.err'
+    &ModCod = CteModCod
+	&CteChv = CteChv
+	&CteNum = CteNum
+	&NewTentativa = 0
+	&SolSts = Status_Solicitacao.Pendente
+	
+	Do while &NewTentativa < 10 and &SolSts = Status_Solicitacao.Pendente
+		&CteAutNumLot = ''
+		&CteAutNumRec = ''
+		&NewTentativa += 1
+		
+		&mensagem = 'Tentativa ' + trim(str(&NewTentativa))
+		do 'Mensagem'
+		
+		do 'Procedimentos_AUTORIZA'
+		
+		if &SolSts = Status_Solicitacao.Pendente
+			&dorme = sleep(1)
+		EndIF
+	EndDo
+	
+	Exit
+EndFor
+&FILE.Close()
+&XMLReader.Close()
+
+if &SolSts <> Status_Solicitacao.Pendente
+	if not &Arquivo_lote_correto.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&Arquivo_lote_correto)
+		do 'mensagem'
+		&FILE.Source = &Arquivo_lote_correto.Trim()
+		iF &File.Exists()
+			&File.Delete()
+		EndIf
+	EndIF
+	
+	if not &arquivo_lote_erro.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&arquivo_lote_erro)
+		do 'mensagem'
+		&File.Source = &arquivo_lote_erro.Trim()
+		If &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+	
+	if not &Nome_arquivo_erro.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&Nome_arquivo_erro)
+		do 'mensagem'
+		&File.Source = &Nome_arquivo_erro.Trim()
+		If &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+	
+	if not &Arquivo_rec_correto.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&Arquivo_rec_correto)
+		do 'mensagem'
+		&File.Source = &Arquivo_rec_correto.Trim()
+		If &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+	
+	if not &arquivo_rec_erro.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&arquivo_rec_erro)
+		do 'mensagem'
+		&File.Source = &arquivo_rec_erro.Trim()    
+		if &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+EndIF
+
+Sub 'Mensagem'
+	msg(&mensagem  + ' Hora: ' + serverTime(), status)
+EndSub
+
+Sub 'Procedimentos_AUTORIZA'
+	&SolMsg = ''
+	&mensagem = &Nome_arquivo_erro
+	do 'mensagem'
+	&File.Source = &Nome_arquivo_erro //XML REJEITADO
+	If &File.Exists()		
+		&SolSts = Status_Solicitacao.Falha
+		&NewTentativa = 99
+		
+		&SolMsg = 'Xml Rejeitado: '
+		&ResultadoAbertura = DFROpen(&Nome_arquivo_erro)
+		&ResultadoNext = 0
+		Do while &ResultadoNext = 0
+			&Ret =  DFRGTxt(&CampoUnico, 500)	
+			&SolMsg += &CampoUnico	
+			&ResultadoNext =  DFRNext()
+		EndDo
+		&resultadoNext = DFRClose()
+		
+		&mensagem = &SolMsg
+		do 'mensagem'
+	Else	
+		do 'pegar_numero_lote'
+		
+		if &CteAutNumLot <> ''
+			&dorme = sleep(1)
+			do 'pegar_recibo'
+		EndIF
+		
+		If &CteAutDigVal = '' //se tiver vazio não pegou na opção 2 do recibo -pro-rec.xml
+			If &CteAutNumLot <> '' and &CteAutNumRec <> ''
+				&dorme = sleep(1)
+				do 'pegar_numero_do_protocolo'
+			Else
+				do 'pegar_Retorno' //aqui novo modelo assicrono
+				
+				&CteAutSts = trim(str(&cStat))	
+			EndIF
+		EndIf
+		
+		If &CteAutSts <> ''
+			Do Case
+				Case &CteAutSts = '100' //100-uso autorizado,
+					
+					AtualizaNumeroProtocoloCTe.Call('AUTORIZA_CTE', &EmpCod, &FilCod, &CteCod, &CteAutSts, &CteAutNumLot, &CteAutNumRec, &CteAutDatHorRec, &CteAutMsg, &CteAutNumPro, &CteAutDigVal, Status_NFe.Autorizada, &SolPesCod)
+					
+					&SolSts = Status_Solicitacao.Finalizada
+			        
+		            do 'ArquivoXML'			        
+				Case &CteAutSts in ('205', '302', '301') //DENEGADA
+					AtualizaNumeroProtocoloCTe.Call('AUTORIZA_CTE', &EmpCod, &FilCod, &CteCod, &CteAutSts, &CteAutNumLot, &CteAutNumRec, &CteAutDatHorRec, &CteAutMsg, &CteAutNumPro, &CteAutDigVal, Status_NFe.Denegada, &SolPesCod)
+					
+					&SolSts = Status_Solicitacao.Finalizada
+					
+					do 'ArquivoXML'
+				Case &CteAutSts = '206' or &CteAutSts = '102'  //INUTILIZA
+					&SolSts = Status_Solicitacao.Finalizada
+					
+					GravaInutilizacaoCte.Call(&EmpCod, &FilCod, &CteSer, &ModCod, &CteNum, &CteNum, &CteAutNumLot, &CteAutNumRec, &CteAutDatHorRec, &CteAutMsg, &CteAutNumPro)
+					For Each Order EmpCod, FilCod
+						Where EmpCod = &EmpCod
+						Where FilCod = &FilCod
+						Where FilNfeCod = &CteCod
+						&FilInuCod = FilInuCod
+					EndFor				
+					GravaInutilizacao.Call(&EmpCod, &FilCod,&CteCod, &FilInuCod,&ano, &CteNum, &CteNum,&ModCod, &CteSer, &CteAutDatHorRec, &CteAutNumPro, 0, Status_NFe.Inutilizada)
+					do 'ArquivoXML'
+					
+				Case &CteAutSts = '703' //703 - Data-Hora de Emissao posterior ao horario de recebimento Tolerância de até 5 minutos. 
+					//					TrocarFusoHorario.Call(FusoHorario.HorarioVerao) //MUDAR PARA O HORARIO DE VERAO
+					
+					&SolSts = Status_Solicitacao.Finalizada
+					
+					//Case &NfeAutSts = '703' //703 - Data-Hora de Emissao posterior ao horario de recebimento Tolerância de até 5 minutos. 
+					//TrocarFusoHorario.Call(FusoHorario.HorarioNormal) //MUDAR PARA O HORARIO NORMAL
+					
+				Otherwise
+				
+					&SolSts = Status_Solicitacao.Falha
+					
+					do 'ArquivoXML'
+			EndCase
+		EndIF
+	Endif
+	
+EndSUb
+
+Sub 'pegar_numero_lote'
+	&Arquivo_lote_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &CteChv.Trim() + '-num-lot.xml'
+	&arquivo_lote_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &CteChv.Trim() + '-cte.err'
+	
+	&mensagem = &Arquivo_lote_correto
+	do 'mensagem'
+	&mensagem = &arquivo_lote_erro
+	do 'mensagem'
+	&File.Source = &Arquivo_lote_correto
+	if &File.Exists()
+		&XMLReader.Open(&Arquivo_lote_correto)
+		&XMLReader.ReadType(1,'NumeroLoteGerado')
+		&CteAutNumLot = &XMLReader.Value
+		&XMLReader.Close()
+		
+		&mensagem = 'Numero do Lote Gerado: ' + &CteAutNumLot.Trim()
+		&SolMsg = &mensagem
+		do 'Mensagem'
+		
+	Else
+		&File.Source = &arquivo_lote_erro
+		if &File.Exists()
+			
+			&NewTentativa = 99
+			&SolSts = Status_Solicitacao.Falha
+			
+			&SolMsg = 'Lote Erro: '
+			&ResultadoAbertura = DFROpen(&arquivo_lote_erro)
+			&ResultadoNext = 0
+			Do while &ResultadoNext = 0
+				&Ret =  DFRGTxt(&CampoUnico, 500)	
+				&SolMsg += trim(&CampoUnico	)
+				&ResultadoNext =  DFRNext()
+			EndDo
+			&resultadoNext = DFRClose()
+			
+			&mensagem = &SolMsg
+			do 'Mensagem'
+		EndIf
+	EndIF
+EndSub
+
+Sub  'pegar_Retorno'
+	&Arquivo_rec_correto2 = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &CteChv.Trim() + '-pro-rec.xml'
+	&mensagem = &Arquivo_rec_correto2
+	do 'mensagem'
+	
+	&File.Source = &Arquivo_rec_correto2
+	if &File.Exists()
+		
+		&XMLReader.Open(&Arquivo_rec_correto2)
+		&XMLReader.ReadType(1,'cStat')
+		&cStat = val(&XMLReader.Value)
+		
+		&XMLReader.ReadType(1,'xMotivo')
+		&xMotivo = &XMLReader.Value
+		
+		&ret = &XmlReader.ReadType(1, 'protCTe') 
+		if &ret <> 0
+			&XmlReader.Read()
+			
+			Do While &XMLReader.Name <> 'protCTe'
+				Do Case
+					Case &XMLReader.Name = 'infProt'
+						&XMLReader.Read()
+						
+						Do while &XmlReader.Name <> 'infProt'
+							Do Case
+								Case &XMLReader.Name = 'nProt'
+									&CteAutNumPro = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'digVal'
+									&CteAutDigVal = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'cStat'
+									&CteAutSts = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'xMotivo'
+									&CteAutMsg = trim(&XMLReader.Value)
+							Endcase
+							
+							&XmlReader.Read()
+							
+							if &XmlReader.EOF = true
+								Exit
+							endif
+						EndDo
+				EndCase
+				
+				&XmlReader.Read()
+				
+				if &XmlReader.EOF = true
+					Exit
+				endif
+			EndDo			
+		EndIF
+		&XMLReader.Close()
+		
+		&mensagem = 'Status Retorno: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+		&SolMsg = &mensagem
+		do 'Mensagem'
+	EndIf
+
+EndSub
+
+Sub 'pegar_recibo'
+	&Arquivo_rec_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&CteAutNumLot.Trim(), 15, '0') + '-rec.xml'
+	&Arquivo_rec_correto2 = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&CteAutNumLot.Trim(), 15, '0') + '-pro-rec.xml'
+	&arquivo_rec_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&CteAutNumLot.Trim(), 15, '0') + '-rec.err'	
+	&arquivo_rec_erro2    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&CteAutNumLot.Trim(), 15, '0') + '-pro-rec.err'
+	
+	&mensagem = &Arquivo_rec_correto
+	do 'mensagem'
+	&mensagem = &arquivo_rec_erro
+	do 'mensagem'
+	
+	&mensagem = &Arquivo_rec_correto2
+	do 'mensagem'
+	&mensagem = &arquivo_rec_erro2
+	do 'mensagem'
+	
+	&File.Source = &Arquivo_rec_correto
+	if &File.Exists()
+	
+		&XMLReader.Open(&Arquivo_rec_correto)
+		&XMLReader.ReadType(1,'cStat')
+		&cStat = val(&XMLReader.Value)
+		
+		&XMLReader.ReadType(1,'xMotivo')
+		&xMotivo = &XMLReader.Value
+		
+		&ret = &XmlReader.ReadType(1, 'infRec') 
+		if &ret <> 0
+			&XmlReader.Read()
+			
+			Do while &XmlReader.Name <> 'infRec'				
+				Do Case
+					Case &XMLReader.Name = 'nRec'
+						&CteAutNumRec = &XMLReader.Value
+						
+					Case &XMLReader.Name = 'dhRecbto'
+						&CteAutDatHorRec = trim(&XMLReader.Value)
+				Endcase
+				
+				&XmlReader.Read()
+				if &XmlReader.EOF = true
+					Exit
+				endif
+			EndDo
+		EndIF
+		&XMLReader.Close()
+		
+		&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&CteAutNumRec) + ' dhRecbto:' + trim(&CteAutDatHorRec)
+		&SolMsg = &mensagem
+		do 'Mensagem'
+	Else
+		&File.Source = &Arquivo_rec_correto2 // arquivo de retorno quando  e sincrono do vai pular a sub 'pegar_numero_do_protocolo'
+		
+		if &File.Exists()
+			
+			&XMLReader.Open(&Arquivo_rec_correto2)
+			&XMLReader.ReadType(1,'cStat')
+			&cStat = val(&XMLReader.Value)
+			&XMLReader.ReadType(1,'xMotivo')
+			&xMotivo = &XMLReader.Value
+			
+			//EXEMPLO RETORNO
+//			<retCTeOS versao="3.00" xmlns="http://www.portalfiscal.inf.br/cte">
+//				<tpAmb>2</tpAmb>
+//				<cUF>41</cUF>
+//				<verAplic>PR-v3_3_09</verAplic>
+//				<cStat>760</cStat>
+//				<xMotivo>INSS deve ser preenchido para tomador pessoa juridica</xMotivo>
+//			</retCTeOS>
+			
+			&ret = &XmlReader.ReadType(1, 'protCTe') 
+			if &ret <> 0 and &cStat <> 101		
+				&XmlReader.Read()
+				
+				Do While &XMLReader.Name <> 'protCTe'
+					Do Case
+						Case &XMLReader.Name = 'infProt'
+							&XMLReader.Read()
+							
+							Do while &XmlReader.Name <> 'infProt'
+								Do Case
+									Case &XMLReader.Name = 'nProt'
+										&CteAutNumPro = &XMLReader.Value
+										
+									Case &XMLReader.Name = 'digVal'
+										&CteAutDigVal = &XMLReader.Value
+										
+									Case &XMLReader.Name = 'cStat'
+										&CteAutSts = &XMLReader.Value
+										
+									Case &XMLReader.Name = 'xMotivo'
+										&CteAutMsg = trim(&XMLReader.Value)
+								Endcase
+								
+								&XmlReader.Read()
+								
+								if &XmlReader.EOF = true
+									Exit
+								endif
+							EndDo
+					EndCase					
+					
+					&XmlReader.Read()
+					
+					if &XmlReader.EOF = true
+						Exit
+					endif
+				EndDo
+				
+			EndIF
+			
+			&XMLReader.Close()
+			
+			Do Case //104 lote processado
+				CAse &cStat <> 100 and &cStat <> 101 and &cStat <> 102 and &cStat <> 205 and &cStat <> 302 and &cStat <> 301 and &cStat <> 703 and &cStat <> 104
+					&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+					&NewTentativa = 99
+					&SolSts = Status_Solicitacao.Falha
+					&SolMsg = &mensagem
+					do 'Mensagem'
+					
+				otherwise
+					
+					if &cStat = 104 //LOTE PROCESSADO
+						&mensagem =  &CteAutSts + ' ' + &cteAutMsg + ' Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+						&SolMsg  = &mensagem
+					Else
+						&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) 
+						&SolMsg = &mensagem
+					Endif				
+					do 'Mensagem'
+			Endcase
+		Else			
+			&File.Source = &arquivo_rec_erro
+			if &File.Exists()
+				
+				&NewTentativa = 99
+				&SolSts = Status_Solicitacao.Falha
+				
+				&SolMsg = 'Recibo Erro: '
+				&ResultadoAbertura = DFROpen(&arquivo_rec_erro)
+				&ResultadoNext = 0
+				Do while &ResultadoNext = 0
+					&Ret =  DFRGTxt(&CampoUnico, 500)	
+					&SolMsg += &CampoUnico	
+					&ResultadoNext =  DFRNext()
+				EndDo
+				&resultadoNext = DFRClose()
+				
+				&mensagem = &SolMsg
+				do 'Mensagem'
+			Else
+				&File.Source = &arquivo_rec_erro2
+				if &File.Exists()
+					
+					&NewTentativa = 99
+					&SolSts = Status_Solicitacao.Falha
+					
+					&SolMsg = 'Recibo Erro: '
+					&ResultadoAbertura = DFROpen(&arquivo_rec_erro2)
+					&ResultadoNext = 0
+					Do while &ResultadoNext = 0
+						&Ret =  DFRGTxt(&CampoUnico, 500)	
+						&SolMsg += &CampoUnico	
+						&ResultadoNext =  DFRNext()
+					EndDo
+					&resultadoNext = DFRClose()
+					
+					&mensagem = &SolMsg
+					do 'Mensagem'
+				EndIf
+			EndIf
+		EndIF
+	EndIf
+EndSub
+
+Sub 'pegar_numero_do_protocolo'
+	&CteAutSts = ''
+	&CteAutNumPro = ''
+	&CteAutDigVal = ''
+	&CteAutMsg = ''
+	
+	&Arquivo_protocolo_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &CteAutNumRec.Trim() + '-pro-rec.xml'
+	&arquivo_protocolo_erro = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &CteAutNumRec.Trim() + '-pro-rec.err'    
+	&mensagem = &Arquivo_protocolo_correto
+	do 'mensagem'
+	&mensagem = &arquivo_protocolo_erro
+	do 'mensagem'
+	&File.Source = &Arquivo_protocolo_correto 
+	If &File.Exists()
+		&XMLReader.Open(&Arquivo_protocolo_correto)
+		
+		&ret = &XmlReader.ReadType(1, 'protCTe') 
+		if &ret <> 0
+			&XmlReader.Read()
+			
+			Do While &XMLReader.Name <> 'protCTe'
+				Do Case
+					Case &XMLReader.Name = 'infProt'
+						&XMLReader.Read()
+						
+						Do while &XmlReader.Name <> 'infProt'
+							Do Case
+								Case &XMLReader.Name = 'nProt'
+									&CteAutNumPro = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'digVal'
+									&CteAutDigVal = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'cStat'
+									&CteAutSts = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'xMotivo'
+									&CteAutMsg = trim(&XMLReader.Value)
+							Endcase
+							
+							&XmlReader.Read()
+							
+							if &XmlReader.EOF = true
+								Exit
+							endif
+						EndDo
+				EndCase
+				
+				&XmlReader.Read()
+				
+				if &XmlReader.EOF = true
+					Exit
+				endif
+			EndDo			
+		EndIF
+		&XMLReader.Close()
+		
+		&mensagem = 'Protocolo Status: ' + trim(&CteAutSts) + ' - ' + trim(&CteAutMsg)
+		&SolMsg = &mensagem
+		do 'Mensagem'
+	Else
+		&File.Source = &arquivo_protocolo_erro
+		If &File.Exists()
+			
+			&NewTentativa = 99	
+			&SolSts = Status_Solicitacao.Falha
+			
+			&SolMsg = 'Protocolo Erro: '
+			&ResultadoAbertura =   DFROpen(&arquivo_protocolo_erro)    
+		    &ResultadoNext = 0
+			Do while &ResultadoNext = 0
+				&Ret =  DFRGTxt(&CampoUnico, 500)
+				
+				&SolMsg += &CampoUnico
+				
+				&ResultadoNext =  DFRNext()
+			EndDo
+			&resultadoNext = DFRClose()
+			
+			&mensagem = &SolMsg
+			do 'Mensagem'
+		EndIf
+	EndIF
+EndSub
+
+Sub 'ArquivoXML'
+	&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeData) +'/'+&CteChv.trim()+'-procCTe.xml'
+	
+	&file.Source = &ArquivoPronto
+	If &file.Exists()
+		GravaArquivoXmlCTE.Call(&EmpCod, &FilCod, &CteCod, &ArquivoPronto)
+	EndIf
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&CteCod, &sdtConfiguracoesPasta, inout:&NewTentativa, inout:&SolSts, inout:&SolMsg, in:&SolPesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewTentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewTentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeData</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_arquivo_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_arquivo_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ModCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ModCod</Value></Property><Property><Name>Description</Name><Value>Modelo Documentos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteModCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteChv</Value></Property><Property><Name>Description</Name><Value>Chave de acesso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutNumLot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutNumLot</Value></Property><Property><Name>Description</Name><Value>Número do Lote</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutNumLot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutNumRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutNumRec</Value></Property><Property><Name>Description</Name><Value>Número do Recibo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutNumRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLReader</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FILE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FILE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_lote_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_lote_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_lote_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_lote_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_rec_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_rec_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_rec_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_rec_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutSts</Value></Property><Property><Name>Description</Name><Value>Status Autorizado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cStat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cStat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xMotivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xMotivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutDigVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutDigVal</Value></Property><Property><Name>Description</Name><Value>Cte Aut Dig Val</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutDigVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutNumPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutNumPro</Value></Property><Property><Name>Description</Name><Value>Cte Protocolo Autorização</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutNumPro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPronto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPronto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutDatHorRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutDatHorRec</Value></Property><Property><Name>Description</Name><Value>Data e Hora do Recibo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutDatHorRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSer</Value></Property><Property><Name>Description</Name><Value>Série</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInuCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInuCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInuCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_protocolo_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_protocolo_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_protocolo_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_protocolo_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_rec_correto2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_rec_correto2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_rec_erro2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_rec_erro2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumRec</Value></Property><Property><Name>Description</Name><Value>Recibo da NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutDatHorRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutDatHorRec</Value></Property><Property><Name>Description</Name><Value>Data Hora Recibo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutDatHorRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutMsg</Value></Property><Property><Name>Description</Name><Value>msg</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutMsg</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Autorizar_CTE_Retornos</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

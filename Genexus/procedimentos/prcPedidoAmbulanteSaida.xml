@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="86cf8388-bbd0-4e8e-b057-1f4f397b01e0" user="WINJEAN\jeanfae" versionDate="2026-01-14T13:19:12.0000000Z" lastUpdate="2026-01-13T11:53:38.0000000Z" checksum="7e837d51649e2f0dbb5b13510e097aba" fullyQualifiedName="prcPedidoAmbulanteSaida" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="5c3f0f48-975d-405e-9917-64c5d8a24cf2" name="prcPedidoAmbulanteSaida" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Pedido Ambulante Saida" parent="prcLojas" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&Total = 10
+&Count = 0
+&Percentual = 5
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+&IsContinua = true
+do while  &IsContinua = true
+	&PedCod = 0
+	
+	&SdtGravaPedido = new()
+	&SdtGravaPedido.FilCod = &FilCod
+	&SdtGravaPedido.EmpCod = &empCod
+	&SdtGravaPedido.LctCod = &LctCod	
+	&SdtGravaPedido.PedFatFilCod = &FilCodFat
+	&SdtGravaPedido.PedVenCod = &PedVenCod
+	&SdtGravaPedido.PedTipFrt = TipoFrete.Emitente
+	
+	For Each ORder EmpCod, FilCod
+		Where EmpCod = &empCod
+		Where FilCod = &FilCod
+		
+		&tabCod  = FilTabCod
+		&SdtGravaPedido.TabCod = FilTabCod
+		&SdtGravaPedido.TabColCod = FilTabColCod
+		&SdtGravaPedido.PedCliCod = FilPesCod
+		&TabColCod = FilTabColCod
+		Exit
+	EndFor
+	
+	if &tabCod.IsEmpty()
+		&tabCod = '1'
+		&TabColCod = 1
+	Endif
+	
+	&SdtGravaPedido.PedDtaEms = serverdate()
+	
+	GravaPedidoVenda.Call(TrnMode.Insert, &empCod, &FilCod, &PedCod, &SdtGravaPedido, &PedVenCod, &WwpContextUserName)
+	For Each Order EmpCod, FilCod, PedCod
+		Where EmpCod = &empCod
+		Where FilCod = &FilCod
+		Where PedCod = &PedCod
+		PedSts = Status_Pedido.CANCELADO //JDF cancela para depois abrir em baixo
+		PedStsFin = Status_Financeiro.CANCELADO
+		Exit
+	EndFor
+
+ 	commit
+	
+	&Count = 0
+	
+	For Each ORder EmpCod, FilCod, ProCod, ProGraCod
+		where EmpCod = &empCod
+		Where FilCod = &FilCod
+		Where EstQtd > 0
+		where ProCod > &ProCod
+		
+		&PedVlrUnt = 0		
+		RetornaPrecoUnitarioVenda.Call(EmpCod, &tabCod, '', ProCod, ProGraCod, &TabColCod, serverdate(), &PedDtaVct, &PedVlrUnt )
+		
+		if &PedVlrUnt > 0
+			&Count += 1
+			
+			&sdtAddPedidoProduto = new()			
+			&sdtAddPedidoProduto.PedItmAcr = 0
+			&sdtAddPedidoProduto.PedItmDsc = 0
+			&sdtAddPedidoProduto.PedItmIpi = 0
+			&sdtAddPedidoProduto.PedItmIcmSt = 0
+			&sdtAddPedidoProduto.PedItmIcmStPob = 0
+			&sdtAddPedidoProduto.PedItmIcm = 0
+			&sdtAddPedidoProduto.PedQtdEmb = EstQtd
+			&sdtAddPedidoProduto.PedProEmbQtd = ProEmbQtd
+			&sdtAddPedidoProduto.PedItmCmp = ''
+		//	&sdtAddPedidoProduto.PedItmAjuIpiBas = PedItmAjuIpiBas
+		//	&sdtAddPedidoProduto.PedItmAjuIcmBas = PedItmAjuIcmBas
+		//	&sdtAddPedidoProduto.PedItmAjuIcmStBas = PedItmAjuIcmStBas
+		//	&sdtAddPedidoProduto.PedItmAjuPisBas = PedItmAjuPisBas
+			&sdtAddPedidoProduto.PedItmPis = 0
+			&sdtAddPedidoProduto.PedItmCofins = 0
+			
+			GravaItemPedidoCompra.Call(&empCod, &FilCod, &PedCod, 0, ProCod, ProGraCod, EstQtd, &PedVlrUnt, &sdtAddPedidoProduto, &sdtProdutoLote, &InseridoMensagem, &AlteradoMensagem, &WwpContextUserName, 'N')
+			
+			&ProCod = ProCod
+			if &Count = 399
+				Exit
+			EndIf
+		Endif
+		
+	EndFor
+
+	//Atualiza Total pedido
+	AtualizaTotaisPedido.Call(&EmpCod, &FilCod, &PedCod, 0, 'C')
+	AtualizaEstoqueGerencialCompra.Call(&EmpCod, &FilCod, &PedCod, &PedDtaFat, &EmpCod,  Status_Pedido.ABERTO)
+	
+	if &Count < 399
+		&IsContinua = false
+	Endif
+Enddo
+
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit	
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&empCod, in:&FilCod, in:&FilCodFat, in:&LctCod, in:&PedVenCod, in:&WwpContextUserName);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="LctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="empCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>empCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCodFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCodFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtGravaPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtGravaPedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGravaPedido</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AlteradoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AlteradoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoLote">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoLote</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutoLote</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InseridoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InseridoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabColCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabColCod</Value></Property><Property><Name>Description</Name><Value>Coluna</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUnt</Value></Property><Property><Name>Description</Name><Value>Produto Valor Unitário Bruto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsContinua">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsContinua</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaVct</Value></Property><Property><Name>Description</Name><Value>Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WwpContextUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WwpContextUserName</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:wwpContextUserName</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAddPedidoProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAddPedidoProduto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAddPedidoProduto</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcPedidoAmbulanteSaida</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

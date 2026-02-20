@@ -1,0 +1,594 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="148cb7cd-276a-4a11-8085-1dff4f680f33" user="WIN-JEAN\jean.fae" versionDate="2023-03-29T21:23:20.0000000Z" lastUpdate="2023-03-28T13:31:37.0000000Z" checksum="747b28a8287a607f7ea9632bab8bf947" fullyQualifiedName="GravaDuplicatasTemporariasContratoPrevisao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="7483ff77-21da-4fd6-a491-229e7030b1cd" name="GravaDuplicatasTemporariasContratoPrevisao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Duplicatas Temporarias Contrato Previsao" parent="prcServicos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+For Each Order DupTmpEmpCod,DupTmpFilCod,DupTmpPesCod,DupTmpCreCod
+	Where DupTmpEmpCod = &EmpCod
+	Where DupTmpFilCod = &FilCod
+	Where DupTmpPesCod = &PesCod
+	Delete
+EndFor
+	
+Commit	
+//TABELA SERVICOCLIENTE - SOMENTE CONTRATOS E PREVISOES
+For each order EmpCod, SerItmCod
+	where EmpCod = &EmpCod
+	where SerItmCod = &SerItmCod	
+//	where SerItmSts = Status_AtivoInativo.ATIVO //Inativo tbm pode visualizar
+	&SerFilCod = SerFilCod
+	&SerCliCod = SerCliCod
+	&SerItmRecPag = SerItmRecPag
+	&SerItmTipPlan = SerItmTipPlan
+	&SerItmDesc = SerItmDesc
+	&SerItmDiaVct = SerItmDiaVct
+	&SerItmUltVct = SerItmUltVct
+	&SerItmDtaInicio = SerItmDtaInicio
+	&SerItmDtaFim = SerItmDtaFim
+	
+	if SerItmDesc = 0
+		&SerItmVlr = SerItmVlr
+	else
+		&SerItmVlr = SerItmVlr - (SerItmVlr * (SerItmDesc / 100))
+	EndIf
+	
+	&SerItmTip = SerItmTip
+	&SerItmQtdMes = SerItmQtdMes
+	&SerItmAbv = SerItmAbv
+	&SerItmPlanCod = SerItmPlanCod
+	&SerItmCbrCod = SerItmCbrCod
+	&SerCliNom = SerCliNom
+	exit
+
+When none
+	msg('When none')
+EndFor
+
+
+//INICIALIZAÇÃO DE VARIAVEIS
+
+&CreVlrDup = SerItmVlr
+&CreVlrSdo = SerItmVlr
+
+if &SerItmTipPlan = TipoPlano.ANUAL
+	&QtdAnos = (&SerItmQtdMes / 12)
+EndIf
+
+
+
+
+GeraDtaVctContratoPrevisao.Call(&SerItmTip, &SerItmTipPlan, &SerItmDtaInicio, &SerItmDiaVct, &MesVct, &DataVencimento)
+
+
+
+DO CASE
+	//CONTRATO
+	CASE &SerItmTip = TipoLancamentoServico.CONTRATO and &SerItmTipPlan = TipoPlano.MENSAL
+	
+		For &Count = 1 TO &SerItmQtdMes //step 1
+			
+			if &DataVencimento <= &SerItmDtaFim or &SerItmDtaFim.IsEmpty()
+				For each order EmpCod, FilCod, CreCliCod, CreSerItmCod, CreRecPag, CreCod
+					where EmpCod = &EmpCod
+					where FilCod = &FilCod
+					where CreCliCod = &SerCliCod
+					where CreSerItmCod = &SerItmCod
+					where CreRecPag = &SerItmRecPag
+					where CreDtaVct.Month() = &DataVencimento.Month() and CreDtaVct.Year() = &DataVencimento.Year() //verificar, inicio mes 12 e dup mes 01
+					&SerDupNro = CreDupNro
+					&SerDtaEms = CreDtaEms
+					&SerDtaVct = CreDtaVct
+					&CreVlrDup = CreVlrDup
+					&CreVlrSdo = CreVlrSdo
+					&CreCbrCod = CreCbrCod			
+					&CrePlanCod = CrePlanCod
+					&CreCod = CreCod
+					&CreBloNro = CreBloNro
+					&CreSts = CreSts
+					&CreRecPag = CreRecPag
+					Do 'GravaTmp'
+				When none				//ABV 2019/8
+					&SerDupNro = 'C.' + &SerItmAbv +/* + trim(str(&SerItmCod)) +*/ ' ' + trim(str(&DataVencimento.Year())) + '/' + trim(str(&DataVencimento.Month()))
+					&SerDtaEms = serverdate()
+					&SerDtaVct = &DataVencimento
+					&CreCbrCod = &SerItmCbrCod
+					&CrePlanCod = &SerItmPlanCod
+					&CreCod = 0
+					&CreVlrDup = &SerItmVlr
+					&CreVlrSdo = &SerItmVlr
+					&CreRecPag = &SerItmRecPag
+					Do 'GravaTmp'
+				EndFor
+				&AuxDataVencimento = &DataVencimento
+				&DataVencimento = &DataVencimento.AddMonths(1)
+				&DataVencimento = YmDToD(&DataVencimento.Year(), &DataVencimento.Month(), &SerItmDiaVct)
+				
+				if &DataVencimento.IsEmpty()
+					&AuxDataVencimento = YmDToD(&AuxDataVencimento.Year(), &AuxDataVencimento.Month(), 1)
+					&AuxDataVencimento = &AuxDataVencimento.AddMonths(1)
+					&AuxData = EoM(&AuxDataVencimento)
+					&UltDiaMes = &AuxData.Day()
+					&DataVencimento = YmDToD(&AuxDataVencimento.Year(), &AuxDataVencimento.Month(), &UltDiaMes)
+				EndIf		
+			EndIf
+		EndFor	
+	//---------------------------------------------------------------------------------------------------------------------
+		
+		
+		
+		
+		
+		
+		
+		
+	CASE &SerItmTip = TipoLancamentoServico.CONTRATO and &SerItmTipPlan = TipoPlano.ANUAL 
+		
+		For &Count = 1 to &QtdAnos //STEP 1
+			
+			if &DataVencimento <= &SerItmDtaFim or &SerItmDtaFim.IsEmpty()
+				For each order EmpCod, FilCod, CreCliCod, CreSerItmCod, CreRecPag, CreCod
+					where EmpCod = &EmpCod
+					where FilCod = &FilCod
+					where CreCliCod = &SerCliCod
+					where CreSerItmCod = &SerItmCod
+					where CreRecPag = &SerItmRecPag
+					where CreDtaVct.Month() = &DataVencimento.Month() and CreDtaVct.Year() = &DataVencimento.Year() //verificar, inicio mes 12 e dup mes 01
+					&SerDupNro = CreDupNro
+					&SerDtaEms = CreDtaEms
+					&SerDtaVct = CreDtaVct
+					&CreVlrDup = CreVlrDup
+					&CreVlrSdo = CreVlrSdo
+					&CreCbrCod = CreCbrCod			
+					&CrePlanCod = CrePlanCod
+					&CreCod = CreCod
+					&CreBloNro = CreBloNro
+					&CreSts = CreSts
+					&CreRecPag = CreRecPag
+					Do 'GravaTmp'
+				When none				// ABV /2019
+					&SerDupNro = 'C.' + &SerItmAbv + /*trim(str(&SerItmCod)) +*/ ' /'  + trim(str(&DataVencimento.Year())) //+ '/' + trim(str(&Count))
+					&SerDtaEms = serverdate()
+					&SerDtaVct = &DataVencimento
+					&CreCbrCod = &SerItmCbrCod
+					&CrePlanCod = &SerItmPlanCod
+					&CreCod = 0
+					&CreVlrDup = &SerItmVlr
+					&CreVlrSdo = &SerItmVlr
+					&CreRecPag = &SerItmRecPag
+					Do 'GravaTmp'
+				EndFor
+				&AuxDataVencimento = &DataVencimento
+				&DataVencimento = &DataVencimento.AddYears(1)
+				&DataVencimento = YmDToD(&DataVencimento.Year(), &DataVencimento.Month(), &SerItmDiaVct)
+				
+				if &DataVencimento.IsEmpty()
+					&AuxDataVencimento = YmDToD(&AuxDataVencimento.Year() + 1, &AuxDataVencimento.Month(), 1)
+					&AuxData = EoM(&AuxDataVencimento)
+					&UltDiaMes = &AuxData.Day()
+					&DataVencimento = YmDToD(&AuxDataVencimento.Year() + 1, &AuxDataVencimento.Month(), &UltDiaMes)
+				EndIf	
+			EndIf
+		EndFor
+		
+	//---------------------------------------------------------------------------------------------------------------------
+		
+		
+		
+		
+		
+		
+		
+		//PREVISAO		
+	case &SerItmTip = TipoLancamentoServico.PREVISAO and &SerItmTipPlan = TipoPlano.MENSAL
+		
+		For &Count = 1 TO &SerItmQtdMes //step 1
+			
+			if &DataVencimento <= &SerItmDtaFim or &SerItmDtaFim.IsEmpty()
+				For each order EmpCod, FilCod, CreCliCod, CreSerItmCod, CreRecPag, CreCod
+					where EmpCod = &EmpCod
+					where FilCod = &FilCod
+					where CreCliCod = &SerCliCod
+					where CreSerItmCod = &SerItmCod
+					where CreRecPag = &SerItmRecPag
+					where CreDtaVct.Month() = &DataVencimento.Month() and CreDtaVct.Year() = &DataVencimento.Year() //verificar, inicio mes 12 e dup mes 01
+					&SerDupNro = CreDupNro
+					&SerDtaEms = CreDtaEms
+					&SerDtaVct = CreDtaVct
+					&CreVlrDup = CreVlrDup
+					&CreVlrSdo = CreVlrSdo
+					&CreCbrCod = CreCbrCod			
+					&CrePlanCod = CrePlanCod
+					&CreCod = CreCod
+					&CreBloNro = CreBloNro
+					&CreSts = CreSts
+					&CreRecPag = CreRecPag
+					Do 'GravaTmp'
+				When none
+					&SerDupNro = 'P.' +&SerItmAbv + /* + trim(str(&SerCliCod)) + */ ' - ' + trim(str(&DataVencimento.Year())) + '/' + trim(str(&DataVencimento.Month()))
+					&SerDtaEms = serverdate()
+					&SerDtaVct = &DataVencimento
+					&CreCbrCod = &SerItmCbrCod
+					&CrePlanCod = &SerItmPlanCod
+					&CreCod = 0
+					&CreVlrDup = &SerItmVlr
+					&CreVlrSdo = &SerItmVlr
+					&CreRecPag = &SerItmRecPag
+					Do 'GravaTmp'
+				EndFor
+				&AuxDataVencimento = &DataVencimento
+				&DataVencimento = &DataVencimento.AddMonths(1)
+				&DataVencimento = YmDToD(&DataVencimento.Year(), &DataVencimento.Month(), &SerItmDiaVct)
+				
+				if &DataVencimento.IsEmpty()
+					&AuxDataVencimento = YmDToD(&AuxDataVencimento.Year(), &AuxDataVencimento.Month(), 1)
+					&AuxDataVencimento = &AuxDataVencimento.AddMonths(1)
+					&AuxData = EoM(&AuxDataVencimento)
+					&UltDiaMes = &AuxData.Day()
+					&DataVencimento = YmDToD(&AuxDataVencimento.Year(), &AuxDataVencimento.Month(), &UltDiaMes)
+				EndIf	
+			EndIf
+		EndFor
+	//---------------------------------------------------------------------------------------------------------------------
+	
+		
+	case &SerItmTip = TipoLancamentoServico.PREVISAO and &SerItmTipPlan = TipoPlano.ANUAL
+		
+			For &Count = 1 to &QtdAnos //step 1
+				
+				if &DataVencimento <= &SerItmDtaFim or &SerItmDtaFim.IsEmpty()
+					For each order EmpCod, FilCod, CreCliCod, CreSerItmCod, CreRecPag, CreCod
+						where EmpCod = &EmpCod
+						where FilCod = &FilCod
+						where CreCliCod = &SerCliCod
+						where CreSerItmCod = &SerItmCod
+						where CreRecPag = &SerItmRecPag
+						where CreDtaVct.Month() = &DataVencimento.Month() and CreDtaVct.Year() = &DataVencimento.Year() 
+						&SerDupNro = CreDupNro
+						&SerDtaEms = CreDtaEms
+						&SerDtaVct = CreDtaVct
+						&CreVlrDup = CreVlrDup
+						&CreVlrSdo = CreVlrSdo
+						&CreCbrCod = CreCbrCod			
+						&CrePlanCod = CrePlanCod
+						&CreCod = CreCod
+						&CreBloNro = CreBloNro
+						&CreSts = CreSts
+						&CreRecPag = CreRecPag
+						Do 'GravaTmp'
+					When none		
+						&SerDupNro = 'P.' + &SerItmAbv + /*trim(str(&SerCliCod)) + */ ' - ' + trim(str(&DataVencimento.Year())) //+ '/' + trim(str(&Count))
+						&SerDtaEms = serverdate()
+						&SerDtaVct = &DataVencimento
+						&CreCbrCod = &SerItmCbrCod
+						&CrePlanCod = &SerItmPlanCod
+						&CreCod = 0
+						&CreVlrDup = &SerItmVlr
+						&CreVlrSdo = &SerItmVlr
+						&CreRecPag = &SerItmRecPag
+						Do 'GravaTmp'
+					EndFor
+					&AuxDataVencimento = &DataVencimento
+					&DataVencimento = &DataVencimento.AddYears(1)
+					&DataVencimento = YmDToD(&DataVencimento.Year(), &DataVencimento.Month(), &SerItmDiaVct)
+					
+					if &DataVencimento.IsEmpty()
+						&AuxDataVencimento = YmDToD(&AuxDataVencimento.Year() + 1, &AuxDataVencimento.Month(), 1)
+						&AuxData = EoM(&AuxDataVencimento)
+						&UltDiaMes = &AuxData.Day()
+						&DataVencimento = YmDToD(&AuxDataVencimento.Year() + 1, &AuxDataVencimento.Month(), &UltDiaMes)
+					EndIf	
+				EndIf
+			EndFor
+	
+EndCase
+
+Commit	
+
+Sub 'GravaTmp'
+	New
+		DupTmpEmpCod = &EmpCod
+		DupTmpFilCod = &FilCod
+		DupTmpCreCod = &Count
+		DupTmpPesCod = &PesCod
+		DupTmpCreNovCliRaz = &SerCliNom
+		DupTmpCreVenCod = &SerItmCod  // USANDO ESTA CAMPO PARA SerItmCod
+		DupTmpCreDupNro = &SerDupNro
+		DupTmpCreDtaEms = &SerDtaEms
+		DupTmpCreDtaVct = &SerDtaVct  
+		DupTmpCreVlrDup = &CreVlrDup //&SerItmVlr 
+		DupTmpCreVlrSdo = &CreVlrSdo //&SerItmVlr
+		DupTmpCreCliCod = &SerCliCod 	
+		DupTmpCreRecPag = &SerItmRecPag // &CreRecPag 
+		DupTmpCreCbrCod = &CreCbrCod
+		DupTmpCreBloNro = &CreBloNro
+		DupTmpCrePlanCod = &CrePlanCod
+		DupTmpCreFilPgt = &SerFilCod
+		DupTmpCreCodAlt = &CreCod
+		
+		do case
+			case &CreVlrDup <> &CreVlrSdo and &CreSts = Status_Duplicata.ATIVO
+				DupTmpCreSts = 'P'
+				
+			case /*&CreVlrDup = &CreVlrSdo and*/ &CreSts = Status_Duplicata.ATIVO
+				DupTmpCreSts = 'A' // &DupTmpCreSts depois alterar pra variavel, se tiver paga no for each etc
+				
+			case &CreSts = Status_Duplicata.CANCELADA
+				DupTmpCreSts = 'C'
+				
+			otherwise 
+				DupTmpCreSts = 'A'
+		EndCase
+	EndNew
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PesCod, inout:&SerItmCod, in:&MesVct);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePlanCod</Value></Property><Property><Name>Description</Name><Value>Plano de Conta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmQtdMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmQtdMes</Value></Property><Property><Name>Description</Name><Value>Ser Itm Qtd Mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmQtdMes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmVlr</Value></Property><Property><Name>Description</Name><Value>Ser Itm Vlr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoAtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoAtual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoBase">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoBase</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCount">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCount</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxDataVencimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxDataVencimento</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMesAtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMesAtual</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property><Property><Name>Length</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreRecPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreRecPag</Value></Property><Property><Name>Description</Name><Value>Duplicata Receber/Pagar</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreRecPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Data">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Data</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataVencimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVencimento</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCodPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCodPgt</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdMes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtAdiantamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtAdiantamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtAdiantamento</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtAdiantamentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtAdiantamentoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtAdiantamento.SdtAdiantamentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerBloNro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerCbrCod</Value></Property><Property><Name>Description</Name><Value>Ser Cbr Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerCbrJurCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerCbrJurCod</Value></Property><Property><Name>Description</Name><Value>Juros Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrJurCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerCliCod</Value></Property><Property><Name>Description</Name><Value>Ser Cli Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerCliRaz</Value></Property><Property><Name>Description</Name><Value>Ser Cli Raz</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerCodBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerCodBar</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCodBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerDtaEms</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerDtaVct</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerDupNro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerDupVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerDupVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerFilCod</Value></Property><Property><Name>Description</Name><Value>Ser Fil Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerFilPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerFilPgt</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreFilPgt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmCod</Value></Property><Property><Name>Description</Name><Value>Ser Itm Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmDesc</Value></Property><Property><Name>Description</Name><Value>Ser Itm Desc</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmDesc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmDiaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmDiaVct</Value></Property><Property><Name>Description</Name><Value>Ser Itm Dia Vct</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmDiaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmDtaFim">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmDtaFim</Value></Property><Property><Name>Description</Name><Value>DataFim</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmDtaFim</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmDtaInicio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmDtaInicio</Value></Property><Property><Name>Description</Name><Value>DataInicio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmDtaInicio</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmTip</Value></Property><Property><Name>Description</Name><Value>TipoLancamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmTipPlan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmTipPlan</Value></Property><Property><Name>Description</Name><Value>SerItmTipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerTipPlan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmUltVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmUltVct</Value></Property><Property><Name>Description</Name><Value>UltimoVctMensalidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmUltVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmVlr_Form">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmVlr_Form</Value></Property><Property><Name>Description</Name><Value>Ser Itm Vlr_Form</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmVlr_Form</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerPlanCod</Value></Property><Property><Name>Description</Name><Value>Ser Plan Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerRecPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerRecPag</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreRecPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoParcela">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoParcela</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UltDiaMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UltDiaMes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlValues</Name><Value>Janeiro:1,Feveiro:2,Março:3,Abril:4,Maio:5,Junho:6,Julho:7,Agosto:8,Setembro:9,Outubro:10,Novembro:11,Dezembro:12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VlrRetroativo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VlrRetroativo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MesVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MesVct</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdAnos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdAnos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmAbv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmAbv</Value></Property><Property><Name>Description</Name><Value>Abv</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmAbv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmPlanCod</Value></Property><Property><Name>Description</Name><Value>PlanoContas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DupTmpCreSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DupTmpCreSts</Value></Property><Property><Name>Description</Name><Value>Dup Tmp Cre Sts</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DupTmpCreSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreSts</Value></Property><Property><Name>Description</Name><Value>Duplicata </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerCliNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerCliNom</Value></Property><Property><Name>Description</Name><Value>Ser Cli Nom</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerCliNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmRecPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmRecPag</Value></Property><Property><Name>Description</Name><Value>Ser Itm Rec Pag</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmRecPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SerItmCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SerItmCbrCod</Value></Property><Property><Name>Description</Name><Value>L.Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SerItmCbrCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaDuplicatasTemporariasContratoPrevisao</Value></Property><Property><Name>Description</Name><Value>Grava Duplicatas Temporarias Contrato Previsao</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

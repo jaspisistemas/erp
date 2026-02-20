@@ -1,0 +1,651 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="SRVORDIG\Administrador" versionDate="2022-10-06T19:59:48.0000000Z" lastUpdate="2022-10-06T12:16:41.0000000Z" checksum="a4b05503941c38b2f46feb7e8f2c05c9" fullyQualifiedName="RELJAS112_002" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c0bff085-a562-4c5e-a910-30d4c820c3bf" name="RELJAS112_002" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="RELJAS112_002 - EXCEL" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+Do 'OpenDocument'
+
+&CellRow = 8 //por causa do cabecalho
+&FirstColumn = 2
+
+Do 'Cabecalho'
+Do 'Data' //Carrega os dados da tabela para o SDT
+Do 'Print' //Ordena e imprime os dados do SDT
+Do 'CloseDocument'
+
+
+Sub 'Titles'
+	
+	&CellRow += 1
+	&AuxColuna.SetEmpty()
+	&DescColuna.SetEmpty() //Desconto qtd colunas
+	&VisibleColumnCount.SetEmpty()
+	
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Posição"
+	&VisibleColumnCount += 1
+	
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Cliente                            ."
+	&VisibleColumnCount += 1
+	
+	If &UfCidade = Status_SimNao.Sim
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "UF-Cidade                         ."
+		&VisibleColumnCount += 1
+	EndIf
+	
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Valor Bruto"
+	&VisibleColumnCount += 1
+	
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Valor Líquido"
+	&VisibleColumnCount += 1
+	
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+	&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Porcentagem ( % )"
+	&DescColuna += 1
+	&VisibleColumnCount += 1
+	
+	If &UltimaCompra = Status_SimNao.Sim
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Ult.Compra  "
+		&VisibleColumnCount += 1
+		&DescColuna += 1
+	EndiF
+	
+	&AuxColuna = (&VisibleColumnCount - 3 - &DescColuna) //Isso vai ser usado para imprimir "Total Geral" + VlrBruto + VlrLiquido
+	
+EndSub
+
+Sub 'Data'
+	
+	&ColGrupCod = RetornaCollGrupoProduto.Udp(&EmpCod,&GrupHie)
+	&TotPedVlrLiq = 0
+	&TotPedVlrBrt = 0
+	&sdtRankingClientes.Clear()
+		
+	For Each Order EmpCod,FilCod, LctAtuEst,LctTip,PedVenCod
+		Where EmpCod = &EmpCod
+	    Where FilCod = &FilCod
+		Where LctAtuEst = &LctAtuEst
+		Where GrupCod in &ColGrupCod when not &GrupHie.IsEmpty()
+		Where LctTip = 'V'
+	    Where PedVenCod = &PedVenCod when not &PedVenCod.IsEmpty()
+	   	Where PedSts = &PedSts when not &PedSts = 'T'
+		Where PedSts <> 'C'    when     &PedSts = 'T'
+		Where ProTipDef = Definicao.SERVICO  when &ProTip = 'S' // Todos SERVIÇO
+		Where ProTipDef <> Definicao.SERVICO  when &ProTip = 'p' // Todos Produtos
+	    Where (PedDtaEms >= &PedDtaFat And PedDtaEms <= &PedDtaFat_to) When &PedSts <> 'F'
+		Where (PedDtaFat >= &PedDtaFat And PedDtaFat <= &PedDtaFat_to) When &PedSts =  'F'
+	    Where LctCod = &Lctcod When not &Lctcod.IsEmpty()
+		Where LctGerFin = &LctGerFin when not &LctGerFin.IsEmpty()
+		Where PesSts = &PesSts when not &PesSts.IsEmpty()
+	    Where PedCliRatCod = &RatCod when not &RatCod.IsEmpty()
+		Where PedVlrBrt <> 0
+		
+		&IsAchou = False
+	    For &sdtRankingClientesItem in &sdtRankingClientes
+	        If &sdtRankingClientesItem.PedVenCod  = PedVenCod and &sdtRankingClientesItem.PedCliCod = PedCliCod
+		        &sdtRankingClientesItem.PedVlrBrt += PedVlrItm 
+		        &sdtRankingClientesItem.PedVlrLiq += PedVlrItmComDsc
+		        &IsAchou = True
+		        Exit
+	        EndIF
+	    EndFor
+	    If &IsAchou = False
+	        &sdtRankingClientesItem = new()
+	        &sdtRankingClientesItem.PedCliCod = PedCliCod
+	       	&sdtRankingClientesItem.PedCliRaz = PedCliCodRaz
+			&sdtRankingClientesItem.PedCliUfCidade = PedCliCidUfeCod +' - ' +PedCliCidNom
+			&sdtRankingClientesItem.PesUltVenDta = PedCliUltVenDta
+	        &sdtRankingClientesItem.PedVlrBrt = PedVlrItm
+	        &sdtRankingClientesItem.PedVlrLiq = PedVlrItmComDsc
+			&sdtRankingClientesItem.PedVenCod = PedVenCod
+			&sdtRankingClientesItem.PedVenRaz = PedVenRaz
+	        &sdtRankingClientes.Add(&sdtRankingClientesItem)
+	    EndIf
+		
+	    &TotPedVlrLiq += PedVlrItmComDsc
+	    &TotPedVlrBrt += PedVlrItm
+//	when none
+//		&ExcelDocument.Cells(&CellRow + 1, &FirstColumn).Bold = True
+//		&ExcelDocument.Cells(&CellRow + 1, &FirstColumn).Text = "NENHUMA VENDA LOCALIZADA. VERIFIQUE OS FILTROS. "
+//		&VisibleColumnCount += 1
+		
+	EndFor
+	
+	&auxPedVlrBrt = 0
+	&AuxPedVlrItmComDsc = 0
+	&PedCliCodRaz = ''
+	&auxPedCliCodRaz = ''
+	&percentual = 0
+	
+EndSub
+
+Sub 'Print'
+	
+	Do Case
+		Case &UltimaCompra = Status_SimNao.Sim and &OrdemCompra = 1 //crescente 
+			&sdtRankingClientes.Sort('PesUltVenDta')
+		Case &UltimaCompra = Status_SimNao.Sim and &OrdemCompra = 2 //crescente 
+			&sdtRankingClientes.Sort('[PesUltVenDta]')
+		Otherwise 
+			&sdtRankingClientes.Sort('[PedVlrLiq]')
+	EndCase
+	
+	
+	If &UltimaCompra = Status_SimNao.Sim
+		Do Case 
+			Case &SeparaVendedor = Status_SimNao.Sim and &OrdemCompra = 1
+				&sdtRankingClientes.Sort('PedVenCod,PesUltVenDta')
+			Case &SeparaVendedor = Status_SimNao.Sim and &OrdemCompra = 2
+				&sdtRankingClientes.Sort('PedVenCod,[PesUltVenDta]')
+			Case &SeparaVendedor = Status_SimNao.Nao and &OrdemCompra = 1
+				&sdtRankingClientes.Sort('PesUltVenDta')
+			Case &SeparaVendedor = Status_SimNao.Nao and &OrdemCompra = 2
+				&sdtRankingClientes.Sort('[PesUltVenDta]')
+		EndCase	
+		&sumPedVlrBrt = 0
+		&SumPedVlrItmComDsc = 0 
+		For &sdtRankingClientesItem in &sdtRankingClientes
+			&CellRow += 1
+			&VisibleColumnCount = 0
+			
+			If &SeparaVendedor = Status_SimNao.Sim
+				If &auxPedVenCod <> &sdtRankingClientesItem.PedVenCod
+					If &sumPedVlrBrt <> 0 or &SumPedVlrItmComDsc <> 0 
+						//TROCOU VENDEDOR
+						&VisibleColumnCount = 0
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Bold = True
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Text = "Total Vendedor:"
+						&VisibleColumnCount += 1
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 1).Text = &SumPedVlrBrt.ToFormattedString()
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 2).Text = &SumPedVlrItmComDsc.ToFormattedString()
+						&VisibleColumnCount += 1
+						
+						&CellRow += 3 //duas linha em branco
+						&VisibleColumnCount = 0
+						&sumPedVlrBrt = 0
+						&SumPedVlrItmComDsc = 0 
+					EndIf
+					
+					&auxPedVenCod = &sdtRankingClientesItem.PedVenCod
+					&auxPedVenRaz = TRIM(STR(&auxPedVenCod))+' - '+&sdtRankingClientesItem.PedVenRaz.Trim()
+					&VisibleColumnCount = 0
+					Do 'Titles'
+					&VisibleColumnCount = 0
+					&CellRow += 2 //uma linha em branco antes do nome do vendedor
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Vendedor:"
+					&VisibleColumnCount += 1
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &auxPedVenRaz
+					&VisibleColumnCount = 0
+					&Posicao = 0
+					&CellRow += 1
+					&VisibleColumnCount = 0
+				EndIf
+			EndIf
+			
+		    &Posicao    += 1
+		    &PedCliCodRaz  = &sdtRankingClientesItem.PedCliRaz
+			If &sdtRankingClientesItem.PedCliRaz.Length() > 45
+				&auxPedCliCodRaz  = substr(&sdtRankingClientesItem.PedCliRaz,1,45)+'...'
+			Else
+				&auxPedCliCodRaz  = &sdtRankingClientesItem.PedCliRaz
+			EndiF
+			
+		    &auxPedVlrBrt  = &sdtRankingClientesItem.PedVlrBrt
+		    &AuxPedVlrItmComDsc = &sdtRankingClientesItem.PedVlrLiq
+			&PedCliCidNom = &sdtRankingClientesItem.PedCliUfCidade
+			&percentual = (( &AuxPedVlrItmComDsc /&TotPedVlrLiq) * 100)
+	        &VarItem = trim(dtoC(&sdtRankingClientesItem.PesUltVenDta))
+			
+			&sumPedVlrBrt += &auxPedVlrBrt
+			&SumPedVlrItmComDsc += &AuxPedVlrItmComDsc
+			
+			//Posição
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &Posicao.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			//Cliente
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &auxPedCliCodRaz
+			&VisibleColumnCount += 1
+			
+			If &UfCidade = Status_SimNao.Sim
+				&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &PedCliCidNom
+				&VisibleColumnCount += 1
+			EndIf
+			
+			//Valor Bruto
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &auxPedVlrBrt.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			//Valor Liquido
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &AuxPedVlrItmComDsc.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			//Percentual
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &percentual.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			if &UltimaCompra = Status_SimNao.Sim
+				&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &VarItem
+				&VisibleColumnCount += 1
+			EndIf
+			
+		EndFor
+	Else
+		Do Case 
+			Case &SeparaVendedor = Status_SimNao.Sim 
+				&sdtRankingClientes.Sort('PedVenCod,[PedVlrBrt]')
+			Case &SeparaVendedor = Status_SimNao.Nao
+				&sdtRankingClientes.Sort('[PedVlrBrt]')
+		EndCase	
+		&sumPedVlrBrt = 0
+		&SumPedVlrItmComDsc = 0 
+		
+		For &sdtRankingClientesItem in &sdtRankingClientes
+			&CellRow += 1
+			&VisibleColumnCount = 0
+			
+			If &SeparaVendedor = Status_SimNao.Sim
+				If &auxPedVenCod <> &sdtRankingClientesItem.PedVenCod
+					If &sumPedVlrBrt <> 0 or &SumPedVlrItmComDsc <> 0 
+						//TROCOU VENDEDOR
+						&VisibleColumnCount = 0
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Bold = True
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Text = "Total Vendedor:"
+						&VisibleColumnCount += 1
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 1).Text = &SumPedVlrBrt.ToFormattedString()
+						&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 2).Text = &SumPedVlrItmComDsc.ToFormattedString()
+						&VisibleColumnCount += 1
+						
+						&CellRow += 3 //duas linha em branco
+						&VisibleColumnCount = 0
+						&sumPedVlrBrt = 0
+						&SumPedVlrItmComDsc = 0 
+					EndIf			
+					
+					&auxPedVenCod = &sdtRankingClientesItem.PedVenCod
+					&auxPedVenRaz = TRIM(STR(&auxPedVenCod))+' - '+&sdtRankingClientesItem.PedVenRaz.Trim()
+					&VisibleColumnCount = 0
+					Do 'Titles'
+					&VisibleColumnCount = 0
+					&CellRow += 2 //uma linha em branco antes do nome do vendedor
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = "Vendedor:"
+					&VisibleColumnCount += 1
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Bold = True
+					&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &auxPedVenRaz
+					&VisibleColumnCount = 0
+					&Posicao = 0
+					&CellRow += 1
+					&VisibleColumnCount = 0
+				EndIf
+			EndIf
+			
+		    &Posicao    += 1
+		    &PedCliCodRaz  = &sdtRankingClientesItem.PedCliRaz
+			If &sdtRankingClientesItem.PedCliRaz.Length() > 45
+				&auxPedCliCodRaz  = substr(&sdtRankingClientesItem.PedCliRaz,1,45)+'...'
+			Else
+				&auxPedCliCodRaz  = &sdtRankingClientesItem.PedCliRaz
+			EndiF
+		    
+			&PedCliCidNom = &sdtRankingClientesItem.PedCliUfCidade
+			&auxPedVlrBrt  = &sdtRankingClientesItem.PedVlrBrt
+		    &AuxPedVlrItmComDsc = &sdtRankingClientesItem.PedVlrLiq
+			&percentual = (( &AuxPedVlrItmComDsc /&TotPedVlrLiq) * 100)
+	       	&sumPedVlrBrt += &auxPedVlrBrt
+			&SumPedVlrItmComDsc += &AuxPedVlrItmComDsc
+			
+			//Posição
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &Posicao.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			//Cliente
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &auxPedCliCodRaz
+			&VisibleColumnCount += 1
+			
+			If &UfCidade = Status_SimNao.Sim
+				&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &PedCliCidNom
+				&VisibleColumnCount += 1
+			EndIf
+			
+			//Valor Bruto
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &auxPedVlrBrt.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			//Valor Liquido
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &AuxPedVlrItmComDsc.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			//Percentual
+			&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &percentual.ToFormattedString()
+			&VisibleColumnCount += 1
+			
+			if &UltimaCompra = Status_SimNao.Sim
+				&ExcelDocument.Cells(&CellRow, &FirstColumn + &VisibleColumnCount).Text = &VarItem
+				&VisibleColumnCount += 1
+			EndIf
+		EndFor
+	EndIF
+	
+	if &sdtRankingClientes.Count > 0
+		//Totais
+		&CellRow += 1
+		&VisibleColumnCount = 0
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Bold = True
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Text = "Total Vendedor:"
+		&VisibleColumnCount += 1
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 1).Text = &SumPedVlrBrt.ToFormattedString()
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 2).Text = &SumPedVlrItmComDsc.ToFormattedString()
+		
+		&CellRow += 3 //ficar 2 linhas de espaço
+		&VisibleColumnCount = 0
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Bold = True
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Text = "Total Geral:"
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 1).Text = &TotPedVlrBrt.ToFormattedString()
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna + 2).Text = &TotPedVlrLiq.ToFormattedString()
+	else
+		&CellRow += 1
+		&VisibleColumnCount = 0
+		&ExcelDocument.Cells(&CellRow, &FirstColumn + &AuxColuna).Bold = True
+		&ExcelDocument.Cells(&CellRow + 1, &FirstColumn).Text = "NENHUMA VENDA LOCALIZADA. VERIFIQUE OS FILTROS. "
+	EndIF
+		
+EndSub
+
+Sub 'OpenDocument'
+
+	&Random = Random() * 10000
+	&Filename = &UrlFisico
+
+	&ExcelDocument.Open(&Filename)
+	Do 'CheckStatus'
+	&ExcelDocument.Clear()
+
+EndSub
+
+Sub 'CloseDocument'
+
+	&ExcelDocument.Save()
+	Do 'CheckStatus'
+	&ExcelDocument.Close()
+
+EndSub
+
+Sub 'CheckStatus'
+
+	If (&ExcelDocument.ErrCode <> 0)
+		&Filename = ""
+		&ErrorMessage = &ExcelDocument.ErrDescription
+		&ExcelDocument.Close()
+		Return
+	EndIf
+
+EndSub
+
+Sub 'GetFilial'
+
+	For each order EmpCod,FilCod
+		where EmpCod = &EmpCod
+		where FilCod = &FilCod
+		&FilFan = substr(FilFan,1,45)
+		exit
+	EndFor
+	
+EndSub
+
+Sub 'Cabecalho'
+	
+	Do 'GetFilial'
+	&VisibleColumnCount.SetEmpty()
+	//&CellRow = 8
+	&ExcelDocument.Cells(&CellRow -6, &FirstColumn + &VisibleColumnCount).Text = &FilFan
+	&ExcelDocument.Cells(&CellRow -5, &FirstColumn + &VisibleColumnCount).Text = 'Período: ' + &PedDtaFat.ToFormattedString() + ' à ' + &PedDtaFat_to.ToFormattedString()
+	&ExcelDocument.Cells(&CellRow -4, &FirstColumn + &VisibleColumnCount).Text = 'Vendedor: ' + &PesCodRaz
+	&ExcelDocument.Cells(&CellRow -3, &FirstColumn + &VisibleColumnCount).Text = 'Lançamento: ' + &lctCodNom
+	&ExcelDocument.Cells(&CellRow -2, &FirstColumn + &VisibleColumnCount).Text = 'Ramo Atividade: ' + &RatCodNom
+	&ExcelDocument.Cells(&CellRow -1, &FirstColumn + &VisibleColumnCount).Text = 'Status Cliente: ' + &PesSts
+	&VisibleColumnCount += 3
+	&ExcelDocument.Cells(&CellRow -1, &FirstColumn + &VisibleColumnCount).Text = 'Status Pedido: ' + &PedSts
+	&VisibleColumnCount.SetEmpty()
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&UrlFisico,out:&Filename,in:&EmpCod, in:&FilCod, in:&PedVenCod, in:&PesCodRaz, in:&PedSts, in:&PedDtaFat, in:&PedDtaFat_to, 
+	in:&LctAtuEst, in:&LctCod, in:&LctCodNom, in:&LctGerFin, in:&RatCod, in:&RatCodNom, in:&PesSts, in:&GrupHie, in:&ProTip,  in:&UltimaCompra,
+	in:&UfCidade, in:&OrdemCompra, in:&SeparaVendedor);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="UrlFisico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UrlFisico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExcelDocument">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExcelDocument</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:ExcelDocument</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Filename">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Filename</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Random">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Random</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CellRow">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CellRow</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VisibleColumnCount">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VisibleColumnCount</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FirstColumn">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FirstColumn</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrorMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrorMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>512</Value></Property><Property><Name>AttMaxLen</Name><Value>512</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RatCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RatCodNom</Value></Property><Property><Name>Description</Name><Value>Ramo Cod.Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RatCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCodRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCodRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCodRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat_to">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat_to</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctAtuEst">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctAtuEst</Value></Property><Property><Name>Description</Name><Value>atualiza Estoque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctAtuEst</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctCodNom</Value></Property><Property><Name>Description</Name><Value>Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctGerFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctGerFin</Value></Property><Property><Name>Description</Name><Value>Lançamento Gera Financeiro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RatCod</Value></Property><Property><Name>Description</Name><Value>Ramo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesSts</Value></Property><Property><Name>Description</Name><Value>Pessoa Ativo/Inativo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UltimaCompra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UltimaCompra</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UfCidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UfCidade</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OrdemCompra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OrdemCompra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SeparaVendedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SeparaVendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColGrupCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColGrupCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotPedVlrLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotPedVlrLiq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotPedVlrBrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotPedVlrBrt</Value></Property><Property><Name>Description</Name><Value>Total Bruto Pedido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrBrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRankingClientesItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRankingClientesItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRankingClientes.SdtRankingClientesItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRankingClientes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRankingClientes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRankingClientes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxPedVlrBrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxPedVlrBrt</Value></Property><Property><Name>Description</Name><Value>Total Bruto Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrBrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPedVlrItmComDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPedVlrItmComDsc</Value></Property><Property><Name>Description</Name><Value>Total com Descontos (LIQUIDO)</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrItmComDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCodRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCodRaz</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCodRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxPedCliCodRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxPedCliCodRaz</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCodRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Posicao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Posicao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxPedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxPedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sumPedVlrBrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sumPedVlrBrt</Value></Property><Property><Name>Description</Name><Value>Total Bruto Pedido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrBrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SumPedVlrItmComDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SumPedVlrItmComDsc</Value></Property><Property><Name>Description</Name><Value>Total com Descontos (LIQUIDO)</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrItmComDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxPedVenRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxPedVenRaz</Value></Property><Property><Name>Description</Name><Value>Vendedor Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCidNom</Value></Property><Property><Name>Description</Name><Value>Cidade Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCidNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VarItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VarItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>12</Value></Property><Property><Name>AttMaxLen</Name><Value>12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxColuna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxColuna</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DescColuna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DescColuna</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Coluna</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpRaz</Value></Property><Property><Name>Description</Name><Value>Empresa Razão Social Matriz</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFan</Value></Property><Property><Name>Description</Name><Value>Filial Nome Fantasia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProTip</Value></Property><Property><Name>Description</Name><Value>Tipo Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RELJAS112_002</Value></Property><Property><Name>Description</Name><Value>RELJAS112_002 - EXCEL</Value></Property><Property><Name>OUTPUT</Name><Value>FIL</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

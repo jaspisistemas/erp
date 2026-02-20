@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9f5af025-e9e6-469a-9837-2ee52db86dc1" user="LUIZ\LuiZ Henrique" versionDate="2024-09-30T12:10:14.0000000Z" lastUpdate="2024-09-30T11:40:04.0000000Z" checksum="2dd3363e8a5bc86cfaae83023f5d8e79" fullyQualifiedName="prcGetAcessToken" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="8ede97f8-6a27-49f7-8885-87acbe71a74d" name="prcGetAcessToken" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Get Acess Token" parent="API_BoletoHibrido_Bradesco" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*
+	Realiza a criação de um JWS;
+	Cria um token de acesso, válido por 1 hora.
+*/
+
+Do 'GetContaBancaria'
+
+&DataHora	= ServerNow()
+&iatVarChar	= Trim(Str(DateTimeToTimestamp.Udp(&DataHora) * -1))
+&expVarChar	= Trim(Str(DateTimeToTimestamp.Udp(&DataHora.AddHours(1)) * -1))
+&jtiVarChar	= &iatVarChar + '000'
+&ExecuteUrl	= IIf(&CbrCtaBanPixApi = 'P', 'https://openapi.bradesco.com.br/auth/server/v1.1/token', 'https://proxy.api.prebanco.com.br/auth/server/v1.1/token')
+
+
+&JWTOptions.AddRegisteredClaim(RegisteredClaim.aud, &ExecuteUrl)
+&JWTOptions.AddRegisteredClaim(RegisteredClaim.sub, &CtaBanPixCliSec.Trim())
+&JWTOptions.AddRegisteredClaim(RegisteredClaim.iat, &iatVarChar)
+&JWTOptions.AddRegisteredClaim(RegisteredClaim.exp, &expVarChar)
+&JWTOptions.AddRegisteredClaim(RegisteredClaim.jti, &jtiVarChar)
+
+&JWTOptions.SetPrivateKey(&PrivateKey)
+&jwTOptions.SetCertificate(&certificate)
+&PrivateClaims.SetClaim("ver","1.1")
+
+&token = &JWTCreator.DoCreate(JWTAlgorithm.RS256, &PrivateClaims, &JWTOptions)
+if &JWTCreator.HasError()
+    msg("Erro na criação do JWT. Código: " + &JWTCreator.GetErrorCode() + " Descrição: " + &JWTCreator.GetErrorDescription())	
+else
+	&verification = &JWTCreator.DoVerify(&token, JWTAlgorithm.RS256, &PrivateClaims, &JWTOptions)
+    if &JWTCreator.HasError()
+    	msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro - " + &JWTCreator.GetErrorCode() ,  "Erro na verificação do JWT. " + &JWTCreator.GetErrorDescription(), DVMessageType.error, "", DVMessageBoolean.True,""))
+	else
+		&Erro	= 0
+		&Body	= 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer'
+		&Body	+= '&assertion=' + Trim(&token)
+				
+		&HttpClient.AddHeader('Content-Type', 'application/x-www-form-urlencoded')
+		&HTTPClient.AddHeader('Accept-Encoding', 'gzip, deflate, br')
+		&HTTPClient.AddHeader('Connection', 'keep-alive')
+		&HTTPClient.AddString(&Body)
+		
+		&HTTPClient.Execute('POST', &ExecuteUrl)
+		If &HttpClient.ErrCode = 0
+			&BradescoAccessToken_Response.FromJson(&HttpClient.ToString())
+			msg(DVMessageGetBasicNotificationMsg.Udp(!"Sucesso!", 'Autenticação realizada.', DVMessageType.success, "", DVMessageBoolean.True,""))
+			Do 'GravaAutenticacaoLocalCobranca'
+		Else
+			padraoUsuario.Call('G', 'BRADESCO_AccessToken_ERRO', 0, &EmpCod, &HttpClient.ToString(), ServerDate())
+			&Erro = 1
+			&Mensagem 		= Trim(Str(&HTTPClient.StatusCode)) +' - '+ &HTTPClient.ErrDescription + newLine() + &HttpClient.ToString()
+			msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro!",  &Mensagem, DVMessageType.error, "", DVMessageBoolean.True,""))
+		EndIf
+    endif
+endif
+
+Sub 'GravaAutenticacaoLocalCobranca'
+	
+	For Each Order EmpCod, CbrCod, CbrTipImp
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		CbrChaTra		= &BradescoAccessToken_Response.access_token
+		&CbrChaTra	= &BradescoAccessToken_Response.access_token
+		CbrChaTraVct	= &DataHora.AddHours(1)
+		
+		Exit
+	EndFor
+	Commit
+	
+EndSub
+
+Sub 'GetContaBancaria'
+	
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		&CtaBanPixCliSec	= CtaBanPixCliSec
+		&CbrCtaBanPixApi	= CbrCtaBanPixApi
+		Exit
+	EndFor
+	
+	RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &sdtConfiguracoesPasta)
+	&CaminhoVarChar	= &SdtConfiguracoesPasta.PastaDiretorioCertificado + &FilCerNom
+	&certificate.LoadPKCS12(&CaminhoVarChar, "", &FilCerPsw)
+	&PrivateKey.LoadPKCS12(&CaminhoVarChar, "", &FilCerPsw)
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&EmpCod, In:&FilCod, In:&FilCerNom, In:&FilCerPsw, In:&CbrCod, Out:&Erro, Out:&CbrChaTra);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Horas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Horas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Minutos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Minutos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Segundos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Segundos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalSegundos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalSegundos</Value></Property><Property><Name>Length</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>13</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JWS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JWS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JWSAssinado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JWSAssinado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaminhoVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoVarChar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="jaspi_AssinaJson">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>jaspi_AssinaJson</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:jaspi_AssinaJsonProgram</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="resultado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>resultado</Value></Property></Properties>
+        </Variable>
+        <Variable Name="comando">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>comando</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JWTOptions">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JWTOptions</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:JWTOptions, GeneXusJWT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrivateClaims">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrivateClaims</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:PrivateClaims, GeneXusJWT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JWTCreator">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JWTCreator</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:JWTCreator, GeneXusJWT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="verification">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>verification</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExpiraSegundos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExpiraSegundos</Value></Property><Property><Name>Length</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>13</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalMilisegundos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalMilisegundos</Value></Property><Property><Name>Length</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>13</Value></Property></Properties>
+        </Variable>
+        <Variable Name="token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="header">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>header</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="payload">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>payload</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrivateKeyPath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrivateKeyPath</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AsymmetricKeyGenerator">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AsymmetricKeyGenerator</Value></Property></Properties>
+        </Variable>
+        <Variable Name="certificate">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>certificate</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:Certificate, SecurityAPICommons</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrivateKey">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrivateKey</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:PrivateKey, SecurityAPICommons</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iatVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iatVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="expVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>expVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="jtiVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>jtiVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hora</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Hora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataHora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Body">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Body</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BradescoAccessToken_Response">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BradescoAccessToken_Response</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:BradescoAccessToken_Response</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XBradSignature">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XBradSignature</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCerPsw">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCerPsw</Value></Property><Property><Name>Description</Name><Value>Senha do Certificado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCerPsw</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanPixCliSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanPixCliSec</Value></Property><Property><Name>Description</Name><Value>Client Secret</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanPixCliSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCerNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCerNom</Value></Property><Property><Name>Description</Name><Value>Nome do Certificado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCerNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanPixApi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanPixApi</Value></Property><Property><Name>Description</Name><Value>Cbr Cta Ban Pix Api</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanPixApi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação | token Beaber</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGetAcessToken</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

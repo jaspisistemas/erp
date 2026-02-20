@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="93e88693-b980-456d-9342-ba73d304cc8b" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2020-09-22T17:01:04.0000000Z" checksum="a150989ae3303ad42e16e31a6d5d8d95" fullyQualifiedName="ExportaProdutosApiLojaIntegrada" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="8ca9ba69-e962-4e90-a3d7-e941ffdff6b4" name="ExportaProdutosApiLojaIntegrada" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Exporta Produtos Api Loja Integrada" parent="lojaintegradasdk" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[LoadWWPContext.Call(&Context)
+&EmpCod = &Context.EmpCod
+&PesCod = &Context.PesCod
+
+For &sdtProdutosLojasVirtuaisItem in &sdtProdutosLojasVirtuais
+	
+	For each Order EmpCod,ProCod
+		Where EmpCod = &sdtProdutosLojasVirtuaisItem.EmpCod
+		Where ProCod = &sdtProdutosLojasVirtuaisItem.ProCod
+		where ProSts <> Status_Produto.EXCLUIDO
+		
+		&sdtProdutoSimplesLojaIntegrada = new()
+		&sdtProdutoSimplesLojaIntegrada.id_externo = ProCod
+		&sdtProdutoSimplesLojaIntegrada.sku  = ProRef
+		&sdtProdutoSimplesLojaIntegrada.mpn = ''
+		If NcmCod <> 99
+			&sdtProdutoSimplesLojaIntegrada.ncm = NcmCod
+		Else
+			&sdtProdutoSimplesLojaIntegrada.ncm = 0
+		EndIf
+
+		&sdtProdutoSimplesLojaIntegrada.nome = ProNom
+		&sdtProdutoSimplesLojaIntegrada.descricao_completa = ProNomGra
+		
+		If ProSts = Status_Produto.ATIVO 
+			&sdtProdutoSimplesLojaIntegrada.ativo = True
+		Else
+			&sdtProdutoSimplesLojaIntegrada.ativo = False
+		EndIf
+		
+		If ProDes = Status_SimNao.Sim
+			&sdtProdutoSimplesLojaIntegrada.destaque = True
+		Else
+			&sdtProdutoSimplesLojaIntegrada.destaque = False
+		EndIf
+	
+		&sdtProdutoSimplesLojaIntegrada.peso = ProPesLiq
+		&sdtProdutoSimplesLojaIntegrada.altura = ProAlt
+		&sdtProdutoSimplesLojaIntegrada.largura = ProLar
+		&sdtProdutoSimplesLojaIntegrada.profundidade = ProPro
+		//atributo Produto Pai
+		//atributo_opcao Produto Filho
+		&sdtProdutoSimplesLojaIntegrada.tipo = 'normal' // Produtos simples são produtos que não possuem variações. Para definir o tipo do produto é preciso inserir o valor normal na chave tipo
+		If ProTip = TipoProduto.Novo
+			&sdtProdutoSimplesLojaIntegrada.usado = True
+		Else
+			&sdtProdutoSimplesLojaIntegrada.usado = False
+		EndIf
+		
+		If GrupLojVirIntUri.Trim().IsEmpty()
+			// Cadastrar Categoria
+			CadastrarCategoriaApiLojaIntegrada.Call(EmpCod,GrupCod,&IsSucesso)
+			If &IsSucesso = true
+				&sdtProdutoSimplesLojaIntegradaCategoria = new()
+				&sdtProdutoSimplesLojaIntegradaCategoria.categorias = GrupLojVirIntUri   ////		categorias = '[/api/v1/categoria/872588/]'
+				&sdtProdutoSimplesLojaIntegrada.categorias.Add(&sdtProdutoSimplesLojaIntegradaCategoria)
+			EndIf			
+		Else
+			&sdtProdutoSimplesLojaIntegradaCategoria = new()
+			&sdtProdutoSimplesLojaIntegradaCategoria.categorias = '/api/v1/marca/'+trim(str(GrupLojVirIntId))+'/'    ////		categorias = '[/api/v1/categoria/872588/]'
+			&sdtProdutoSimplesLojaIntegrada.categorias.Add(&sdtProdutoSimplesLojaIntegradaCategoria)
+		EndIf
+	
+		If MarLojVirIntUri.Trim().IsEmpty() and (MarLojVirIntId = 0 or MarLojVirIntId.IsNull())
+			// Cadastrar Marca
+			CadastrarMarcaApiLojaIntegrada.Call(EmpCod,MarCod,&IsSucesso)
+			If &IsSucesso = true
+				&sdtProdutoSimplesLojaIntegrada.marca = '/api/v1/marca/'+trim(str(MarLojVirIntId))+'/'   //marca = '[/api/v1/marca/872588/]'
+			EndIf
+		Else
+			&sdtProdutoSimplesLojaIntegrada.marca = '/api/v1/marca/'+trim(str(MarLojVirIntId))+'/'    //marca = '[/api/v1/marca/872588/]'
+		EndIf
+	
+		&sdtProdutoSimplesLojaIntegrada.removido = false
+		exit
+	EndFor
+	
+	If &sdtProdutoSimplesLojaIntegrada.id_externo <> 0 // significa que preencheu
+		
+		HostWebServiceLojaIntegrada.Call(&Host, &BaseUrl, &Port,&LojVirUsr,&LojVirSen,&LojVirApiKey,&LojVirToken)
+		
+		&HttpClient.Host = &Host //servidor
+		&HttpClient.Secure = 1
+		&httpclient.AddHeader(!'Content-type',!'application/json')
+		&String = '/v1/produto?&chave_api='+trim(&LojVirApiKey)+'&chave_aplicacao='+trim(&LojVirToken)
+		&httpclient.AddString(&sdtProdutoSimplesLojaIntegrada.toJson())
+		&HttpClient.Execute('POST',&String)
+		
+		padraoUsuario.Call('G', '#LOJAINTEGRADAPRODUTO', &PesCod, &EmpCod, &HttpClient.toString(), &PadDtaMod)  // Grava resultado do Post só como um LOG para Consulta
+		padraoUsuario.Call('G', '#LOJAINTEGRADAPRODUTOPARAMETRO', &PesCod, &EmpCod, &sdtProdutoSimplesLojaIntegrada.toJson(), &PadDtaMod)  // Grava PARAMETRO como um LOG para Consulta
+	 	//################################# sem erro de comunicação ################################################################################
+		
+		Do Case
+			Case &HttpClient.ErrCode = 0  //HTTP_CREATED  Operação realizada com sucesso
+				&sdtProdutoSimplesLojaIntegrada.fromJson(&HttpClient.toString())  // retorna dados de Saida
+				Do 'AtualizaDadosRetorno'
+				&IsSucesso = True
+			Otherwise
+				&IsSucesso = False
+//				msg( DVMessageBasicNotification.Udp(!"Erro!", 'Não foi possível integrar o produto!',DVMessageType.error, "", DVMessageBoolean.True) )
+		EndCase
+	Else
+		msg( DVMessageBasicNotification.Udp(!"Erro!", 'Não foi possível preencher o produto selecionado para integração, comunique o suporte!',DVMessageType.error, "", DVMessageBoolean.True) )
+	EndIf
+EndFor
+
+Sub 'AtualizaDadosRetorno'
+	For Each Order EmpCod,ProCod
+		Where EmpCod = &EmpCod
+		Where ProCod = &sdtProdutoSimplesLojaIntegrada.id_externo
+		where ProSts <> Status_Produto.EXCLUIDO
+		ProLojVirIntId = &sdtProdutoSimplesLojaIntegrada.id
+		ProLojVirIntUri = &sdtProdutoSimplesLojaIntegrada.resource_uri 
+		ProLojVirIntSeo = &sdtProdutoSimplesLojaIntegrada.seo
+		ProLojVirUrlVideoYoutube = &sdtProdutoSimplesLojaIntegrada.url_video_youtube
+		ProLojVirDtaCri = ctod(&sdtProdutoSimplesLojaIntegrada.data_criacao)
+		ProLojVirDtaAlt = ctod(&sdtProdutoSimplesLojaIntegrada.data_modificacao)
+		ProstsLojInt = Status_integrado.Integrado
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&sdtProdutosLojasVirtuais);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoSimplesLojaIntegradaCategoria">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoSimplesLojaIntegradaCategoria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutoSimplesLojaIntegrada.categoria</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoSimplesLojaIntegradaMarcas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoSimplesLojaIntegradaMarcas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:&lt;StructureTypeReference&gt;&lt;Type&gt;a76e9340-bdb9-445d-8f81-cfd4ddd0b0f3&lt;/Type&gt;&lt;Id&gt;1167&lt;/Id&gt;&lt;/StructureTypeReference&gt;</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BaseUrl</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:BaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Host">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Host</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSucesso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LojVirApiKey">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LojVirApiKey</Value></Property><Property><Name>Description</Name><Value>Observações / Key (API)</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LojVirApiKey</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LojVirSen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LojVirSen</Value></Property><Property><Name>Description</Name><Value>Senha</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LojVirSen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LojVirToken">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LojVirToken</Value></Property><Property><Name>Description</Name><Value>Token</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LojVirToken</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LojVirUsr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LojVirUsr</Value></Property><Property><Name>Description</Name><Value>Usuario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LojVirUsr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Port">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Port</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Port</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoSimplesLojaIntegrada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoSimplesLojaIntegrada</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutoSimplesLojaIntegrada</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoSimplesLojaIntegradaItemCategoria">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoSimplesLojaIntegradaItemCategoria</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutoSimplesLojaIntegrada.categoria</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoSimplesLojaIntegradaItemMarcas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoSimplesLojaIntegradaItemMarcas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:&lt;StructureTypeReference&gt;&lt;Type&gt;a76e9340-bdb9-445d-8f81-cfd4ddd0b0f3&lt;/Type&gt;&lt;Id&gt;1167&lt;/Id&gt;&lt;/StructureTypeReference&gt;</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutosLojasVirtuais">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutosLojasVirtuais</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutosLojasVirtuais</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutosLojasVirtuaisItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutosLojasVirtuaisItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutosLojasVirtuais.sdtProdutosLojasVirtuaisItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="String">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>String</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ExportaProdutosApiLojaIntegrada</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

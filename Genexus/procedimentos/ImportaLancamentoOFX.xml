@@ -1,0 +1,444 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="80617bbf-8698-4e11-9870-c159255c810a" user="WINJEAN\jeanfae" versionDate="2025-08-12T19:28:38.0000000Z" lastUpdate="2025-08-11T13:57:21.0000000Z" checksum="90243049806bfe04b1be01e340e1e5cf" fullyQualifiedName="ImportaLancamentoOFX" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="935a89bc-11a1-4d44-99e8-e93fa23305d8" name="ImportaLancamentoOFX" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Conciliacao Read File NEW" parent="ConciliacaoBancaria" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*
+	As tags de leitura podem aparecer <tag>value</tag>
+							  ou      </tag>value
+*/
+&SdtConciliacao.Clear()
+
+&ResultadoAbertura = DFROpen(&selectedURL)  //Tenta abrir o arquivo
+&IsAchou = False
+&sdtMensagens.Clear()
+
+If &ResultadoAbertura = 0
+	// captura dados do banco / conta
+	Do while &ResultadoNext = DFRNext()
+		&ResultadoLeitura = DFRGTxt(&CampoUnico,200)
+		do case
+			case &CampoUnico.Contains('BANKID')
+				&CtaBanBanCod = RetornaValorDaTag(&CampoUnico)
+				
+			case &CampoUnico.Contains('BRANCHID')
+				// alguns podem não ter o campo <BRANCHID>
+			case &CampoUnico.Contains('ACCTID')
+				&CtaBanCrt = RetornaValorDaTag(&CampoUnico)
+				
+				Do CAse
+					CAse &CtaBanBanCod = '748' //SIcredi
+						&CtaBanCrt = &CtaBanCrt.replaceRegEx('([1-9]+)(0+)([1-9]+)','$3')
+						
+					CAse &CtaBanBanCod = '001' //BANCO DO BRASIL	
+						&CtaBanCrt = &CtaBanCrt.replaceRegEx('(-.+)', '')
+				EndCAse
+			
+				//itau 2909 99724
+				
+				Do 'Procura_Conta'
+				exit
+		endcase
+	enddo
+
+	if &IsAchou = true
+		
+		//VerificaUltimadatajaimportada
+		&DataUltima = CtoD('01/01/2020')
+		For Each Order EmpCod, CtabanCod, (LanBanData)
+			Where EmpCod = &EmpCod
+			Where CtabanCod = &CtabanCod			
+			&DataUltima = LanBanData			
+			Exit
+		EndFor
+
+		
+		// captura os lançamentos
+		Do while &ResultadoNext = DFRNext()// and &Sequencia < 5
+			&ResultadoLeitura = DFRGTxt(&CampoUnico,200)
+			&CampoUnico = &CampoUnico.Trim()
+			
+			do case
+				case &CampoUnico = '<STMTTRN>'
+					&id += 1
+					&IsLancamentoPermitido = true
+					&SdtConciliacaoItem = new()
+					&SdtConciliacaoItem.id = &id
+					
+				case &CampoUnico.Contains('TRNTYPE') 
+					//IGNORAR POIS ESTA VINDO UM MONTE DE PALAVRAS ALEM DESSAS COMO CHECK nO SICREDI, SUBSITUIDO PELA VALIDACAO DO VALOR --JDF
+					//	&CampoUnico = RetornaValorDaTag(&CampoUnico)
+					//	
+					//	if &CampoUnico = 'DEBIT' or &CampoUnico = 'PAYMENT'
+					//		&MovCreDeb = 'D'
+					//	else
+					//		if &CampoUnico = 'CREDIT'
+					//			&MovCreDeb = 'C'
+					//		endif
+					//	endif
+					//	
+					//	&SdtConciliacaoItem.lanbancreDeb = &MovCreDeb
+					
+				case &CampoUnico.Contains('DTPOSTED')
+					&StrMovDtaCon = RetornaValorDaTag(&CampoUnico)
+					&StrMovDtaCon = &StrMovDtaCon.Substring(1, 8)
+					&StrMovDtaCon = &StrMovDtaCon.replaceRegEx('^([0-9]{4})([0-9]{2})([0-9]{2})','$3/$2/$1')
+					&DataAux = ctod(&StrMovDtaCon)
+					&SdtConciliacaoItem.LanBanData = &DataAux
+					
+					//LANCAMENTOS JA IMPORTADOS ou LANCAMENTOS FUTUROS. IGNORAR -- JDF
+					&IsDiaJaImportadoTestarValorData = false
+					Do CAse
+						CAse &DataAux <= &DataUltima 
+							&IsLancamentoPermitido = false
+							&IsDiaJaImportadoTestarValorData = true
+							if &IsDiasJaImportados = false
+								&sdtMensagem = new()
+								&sdtMensagem.msgTitulo   = 'Dias já importados.'
+								&sdtMensagem.msgMensagem = 'Lançamentos anteriores à '+trim(toformattedString(&DataUltima))+' já foram importados uma vez e não serão reimportados!'
+								&sdtMensagem.msgType     = DVMessageType.error
+								&sdtMensagens.Add(&sdtMensagem)
+							Endif
+							&IsDiasJaImportados = true
+							
+						Case &DataAux > serverdate()
+							&IsLancamentoPermitido = false
+							if &IsDiasFuturos = false
+								&sdtMensagem = new()
+								&sdtMensagem.msgTitulo   = 'Lançamentos Futuros'
+								&sdtMensagem.msgMensagem = 'Lançamentos Futuros não serão importados!'
+								&sdtMensagem.msgType     = DVMessageType.error
+								&sdtMensagens.Add(&sdtMensagem)
+							Endif
+							&IsDiasFuturos = true
+						Case &DataAux = serverdate()
+							&IsLancamentoPermitido = false
+							if &IsDiasHoje = false
+								&sdtMensagem = new()
+								&sdtMensagem.msgTitulo   = 'Lançamentos de Hoje'
+								&sdtMensagem.msgMensagem = 'Lançamentos do dia atual não serão importados!'
+								&sdtMensagem.msgType     = DVMessageType.error
+								&sdtMensagens.Add(&sdtMensagem)						
+							Endif
+							&IsDiasHoje = true
+					EndCase
+					
+					//Identifica se esta vindo crescente ou decrescente
+					if &DataAux < &DataBase and not &DataBase.IsEmpty()
+						&IsDecrescente = true
+					EndIf
+					&DataBase = &DataAux
+					
+				case &CampoUnico.Contains('TRNAMT')
+					&CampoUnico = RetornaValorDaTag(&CampoUnico)
+					&CampoUnico = &CampoUnico.trim()
+					if &CampoUnico.Contains('.')
+						&BusMovItmVlr = val(&CampoUnico,'.')
+					else
+						&BusMovItmVlr = val(&CampoUnico,',')
+					endif
+					
+					//JDF CREDITO OU DEBITO
+					if &BusMovItmVlr < 0
+						&SdtConciliacaoItem.lanbancreDeb = 'D'
+						&BusMovItmVlr *= -1
+					Else
+						&SdtConciliacaoItem.lanbancreDeb = 'C'
+					endif
+					&SdtConciliacaoItem.LanBanVlr = &BusMovItmVlr
+					
+					//case &CampoUnico.Contains('FITID') 
+					//SUBSTITUIDO PELO GUID NA HORA DE ADD NO SDT. OS BANCOS NAO FORNECEM IDENTIFICADOR UNICO --JDF
+					//	&BusMovDoc = RetornaValorDaTag(&CampoUnico)
+					//	&SdtConciliacaoItem.LanBanDoc = &BusMovDoc
+					
+				case &CampoUnico.Contains('CHECKNUM')
+					
+				case &CampoUnico.Contains('REFNUM')
+					
+				case &CampoUnico.Contains('MEMO')
+					&SdtConciliacaoItem.LanBanDesc = RetornaValorDaTag(&CampoUnico)
+					
+				case &CampoUnico = '</STMTTRN>'
+				
+					if &IsDiaJaImportadoTestarValorData = true
+						prcVerificaLancamentoFeito.Call(&EmpCod, &CtaBanCod, &SdtConciliacaoItem.LanBanData, &SdtConciliacaoItem.LanBanVlr, &SdtConciliacaoItem.LanBanCreDeb, &IsLancamentoPermitido)
+					Endif
+				
+					if &IsLancamentoPermitido = true
+						&SdtConciliacaoItem.EmpCod          = &EmpCod
+					    &SdtConciliacaoItem.CtaBanCodOrigem = &CtabanCod
+												
+						&SdtConciliacao.Add(&SdtConciliacaoItem)
+					Endif
+				
+			endcase
+		enddo
+		
+		if &SdtConciliacao.Count = 0
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'O arquivo estava vazio...'
+			&sdtMensagem.msgMensagem = 'Nenhum lançamento foi encontrado'
+			&sdtMensagem.msgType     = DVMessageType.information
+			&sdtMensagens.Add(&sdtMensagem)
+			return
+		endif
+	else
+		&sdtMensagem = new()
+		&sdtMensagem.msgTitulo   = 'Conta ' + &CtaBanCrt + ' banco: '+&CtaBanBanCod+ ' não encontrada'
+		&sdtMensagem.msgMensagem = 'Nenhuma conta bancária "ATIVA", foi encontrada com este número. Verifique!'
+		&sdtMensagem.msgType     = DVMessageType.error
+		&sdtMensagens.Add(&sdtMensagem)
+		return
+	endif
+	
+	&resultadoNext = DFRClose()
+	Do 'GravaLancamentoBancario'
+	
+	&sdtMensagem = new()
+	&sdtMensagem.msgTitulo   = 'Feito!'
+	&sdtMensagem.msgMensagem = 'Os lançamentos foram importados na conta ' + &CtaBanCrt
+	&sdtMensagem.msgType     = DVMessageType.success
+	&sdtMensagens.Add(&sdtMensagem)
+	
+	&WebSession.Set('Sdt_Conciliacao',&SdtConciliacao.ToXml())
+Else
+	&sdtMensagem = new()
+	&sdtMensagem.msgTitulo   = 'Erro ao abrir o arquivo!'
+	&sdtMensagem.msgMensagem = 'Confira se você selecionou o arquivo corretamente'
+	&sdtMensagem.msgType     = DVMessageType.error
+	&sdtMensagens.Add(&sdtMensagem)
+	return
+EndIF
+
+//&XmlWriter.Open('Conciliacao.xml')
+//&XmlWriter.WriteRawText(&SdtConciliacao.ToXml())
+//&XmlWriter.Close()
+
+//###################################################### LOCALIZA CONTA BANCÁRIA ################################
+Sub 'Procura_Conta'
+	For Each Order EmpCod,CtaBanTip,CtaBanCrt,CtaBanSts
+		Where EmpCod = &EmpCod
+		Where CtaBanTip = TipoConta.BANCO
+		Where CtaBanCrt = &CtaBanCrt
+		Where CtaBanSts = Status_AtivoInativo.ATIVO
+		
+		&CtabanCod = CtabanCod
+		&CtaBanCodNom = CtaBanCodNom
+		&IsAchou = True
+		Exit
+	when none
+		&CtaBanCrt = &CtaBanCrt.Substring(1, &CtaBanCrt.Length() - 1)
+		For Each Order EmpCod,CtaBanTip,CtaBanCrt,CtaBanSts
+			Where EmpCod = &EmpCod
+			Where CtaBanTip = TipoConta.BANCO
+			Where CtaBanCrt = &CtaBanCrt
+			Where CtaBanSts = Status_AtivoInativo.ATIVO
+			
+			&CtabanCod    = CtabanCod
+			&CtaBanCodNom = CtaBanCodNom
+			&CtaBanAgeCod = CtaBanAgeCod
+			&IsAchou = True
+			Exit
+		When none
+			For Each Order EmpCod,CtaBanTip,CtaBanCrt,CtaBanSts
+				Where EmpCod = &EmpCod
+				Where CtaBanTip = TipoConta.BANCO
+				Where (CtaBanAgeCod.Trim()+CtaBanCrt.Trim()) = &CtaBanCrt
+				Where CtaBanSts = Status_AtivoInativo.ATIVO
+				
+				&CtabanCod = CtabanCod
+				&CtaBanCodNom = CtaBanCodNom
+				&IsAchou = True
+				Exit
+			When none
+				For Each Order EmpCod,CtaBanTip,CtaBanCrt,CtaBanSts
+				Where EmpCod = &EmpCod
+				Where CtaBanTip = TipoConta.BANCO
+				Where (CtaBanAgeCod.Trim()+CtaBanCrt.Trim())+'-'+CtaBanCrtDig.Trim() = &CtaBanCrt
+				Where CtaBanSts = Status_AtivoInativo.ATIVO
+				
+				&CtabanCod = CtabanCod
+				&CtaBanCodNom = CtaBanCodNom
+				&IsAchou = True
+				Exit
+			EndFor
+			EndFor
+		EndFor
+	EndFor
+EndSub
+
+Sub 'GravaLancamentoBancario'
+	if &IsDecrescente = true //se esta vindo decrescente ai tem que ordenar para gravar crescente
+		&SdtConciliacao.Sort('[id]')
+	Endif
+
+	For &SdtConciliacaoItem in &SdtConciliacao
+		UltimoCodigoEmpresa.Call(domParCod.LANCAMENTOBAN, &EmpCod, 0, &lanBanCod)
+		
+		New
+			EmpCod       = &SdtConciliacaoItem.EmpCod
+			CtabanCod    = &SdtConciliacaoItem.CtaBanCodOrigem
+			LanBanCod    = &lanBanCod
+			LanBanDoc    = 'CC'+trim(padL(str(&lanBanCod),8, '0'))+'#JSP#' //JDF CRIEI UM NUMERO DE DOC //&SdtConciliacaoItem.LanBanDoc
+			LanBanData   = &SdtConciliacaoItem.LanBanData
+			LanBanVlr    = &SdtConciliacaoItem.LanBanVlr
+			LanBanCreDeb = &SdtConciliacaoItem.LanBanCreDeb
+			LanBanDesc   = &SdtConciliacaoItem.LanBanDesc
+			LanBanStatus = StatusConciliacao.Pendente
+		EndNew
+		
+	EndFor
+
+	Commit
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in: &EmpCod, in:&selectedURL, out:&sdtMensagens);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="BusMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BusMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanAgeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanAgeCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Agência Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanAgeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Banco código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtabanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtabanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanCodNom</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanCrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanCrt</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nro Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanCrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="lanBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>lanBanCod</Value></Property><Property><Name>Description</Name><Value>Lan Ban Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LanBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoLeitura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoLeitura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacaoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacaoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria.SdtConciliacaoBancariaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagem</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens.sdtMensagensItem</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagens</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="selectedURL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>selectedURL</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StrMovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StrMovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WebSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WebSession</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataBase">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataBase</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataAux">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataAux</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataUltima">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataUltima</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsLancamentoPermitido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsLancamentoPermitido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDecrescente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDecrescente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="id">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>id</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDiasJaImportados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDiasJaImportados</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDiasFuturos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDiasFuturos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDiasHoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDiasHoje</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDiaJaImportadoTestarValorData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDiaJaImportadoTestarValorData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ImportaLancamentoOFX</Value></Property><Property><Name>Description</Name><Value>Conciliacao Read File NEW</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

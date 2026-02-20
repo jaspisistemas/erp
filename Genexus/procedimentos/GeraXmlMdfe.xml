@@ -1,0 +1,968 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="SRVORDIG\Administrador" versionDate="2025-10-07T13:30:34.0000000Z" lastUpdate="2025-10-06T15:30:17.0000000Z" checksum="03e8fb7abe618f9b94bd4952574da4f3" fullyQualifiedName="GeraXmlMdfe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="73077046-838d-41af-8fd1-2ff026f6fdd3" name="GeraXmlMdfe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Xml Mdfe" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+	&VersaoNF = RetornaVersaoNotas.Udp(VersaoNota.VersaoMDFe)
+
+	RetornaConfiguracoesPastas.Call(&EmPCod, &FilCod, &SdtConfiguracoesPasta)
+	ValidaNroMdfe.call(&EmpCod, &FilCod, &MDFeCod)
+	For Each Order EmpCod, FilCod, MDFeCod
+		Where EmpCod = &EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod	
+		
+		&tpEmis = FilTipEmsMdfe.ToString() //NORMAL /CONTINGENCIA
+		
+		&soNumero = padL(str(MDFeNum), 9, '0')
+		&cMDF = Substr(&soNumero, 2, 8)
+		
+		&soNumero = udp(RetornaSoNumeros, FilCpj)
+		&Ano = str(year(MDFeDtaEms))
+		
+		&MDfeChv = substr(trim(str(FilCidUfeIbge)),1,2) + substr(trim(&Ano),3,2)
+		+ padl(trim(str(month(MDFeDtaEms),2,0)),2,'0') + PadL(trim(&soNumero), 14, '0') + padL(trim(MDFeModCod), 2, '0') 
+		+ padL(trim(str(MDFeSer)),3, '0') + padL(trim(str(MDFeNum)), 9, '0') + trim(&tpEmis) + padL(&cMDF, 8, '0')
+		
+		&DV = RetornaModulo11.Udp(&MDfeChv)
+		
+		&MDfeChv += trim(&DV)
+		MDFeChv = &MDfeChv
+		
+		&Parte_arquivo = 'MDFe' + &MDfeChv
+		&Nome_Envio  = &SdtConfiguracoesPasta.PastaNFenvio.Trim() + '\' +trim(&Parte_arquivo) +'-mdfe.xml'
+		
+	 	//Abrir o arquivo XML
+	    &Xml.Open(&Nome_Envio)
+	    
+	    // Start no Documento
+	    &Xml.WriteStartDocument('UTF-8')
+		
+	    &Xml.WriteStartElement('MDFe')
+		&Xml.WriteAttribute('xmlns','http://www.portalfiscal.inf.br/mdfe')    
+	    
+	    &Xml.WriteStartElement('infMDFe')
+		&Xml.WriteAttribute('versao',&VersaoNF)
+	    &Xml.WriteAttribute('Id', &Parte_arquivo)	    
+		
+		//IDENTIFICACAO EMITENTE
+		&Xml.WriteStartElement('ide')//  <ide>
+		&soNumero = str(FilCidUfeIbge)
+		&Xml.WriteElement('cUF',Substr(trim(&soNumero), 1, 2))//    <cUF>35</cUF>
+		
+		&tpAmb  = FilAmbEmsMdfe.ToString() //Em que fase do sistema esta 1 - Produção   2 Homologação
+		&Xml.WriteElement('tpAmb',trim(&tpAmb))//    <tpAmb>2</tpAmb>
+		
+		&Xml.WriteElement('tpEmit',trim(MDFeTipEmt))//<tpEmit>2</tpEmit>
+		
+		For Each Order EmpCod, FilCod, MDFeVeiCod
+			&MdfeVeiProTip =  MdfeVeiProTip 
+			
+			If MdfeVeiProTip <> PropriedadeVeiculo.Proprio
+				&soNumero = udp(RetornaSoNumeros, MDFeVeiProCnpj)
+			EndIf			
+			Exit
+		EndFor
+		
+		//		Validações do Tipo de Transportador
+		//# Se modal rodoviário e informado CPF do proprietário do veículo de tração:
+		//A informação do tipo de transportador (tpTransp) deverá ser preenchida com TAC (2).              Obrig. 743 Rej.
+		
+		//Se modal rodoviário e informado CNPJ do proprietário do veículo de tração:
+		//A informação do tipo de transportador (tpTransp) deverá ser preenchida com ETC (1)  ou CTC (3).  Obrig. 744 Rej.
+		
+		//# Se modal rodoviário e não informado o grupo proprietário do veículo de tração:
+		//A informação do tipo de transportador (tpTransp) não deverá ser preenchida.                      Obrig. 745 Rej
+		
+		
+		If &MdfeVeiProTip <> PropriedadeVeiculo.Proprio  // se Proprietario for cpf seta TAC se nao deixa o que o cliente selecionou
+			//Se modal rodoviário e informado proprietário ou possuidor do veículo de tração (CNPJ/CPF) 
+			//este deve ser diferente do emitente do MDF-e Obrig, 740 Rej.
+			
+			//Se modal rodoviário e informado proprietário ou possuidor do veículo de tração (CNPJ/CPF), 
+			//o grupo contratante deverá ser informado com apenas uma ocorrência (infContratante) 
+			//indicando o CNPJ/CPF do emitente do MDF-e    Obrig. 741 Rej
+			
+			MdfeConCnpj = FilCpj
+			MdfeConRaz = FilRaz
+			
+			If &soNumero.Trim().Length() = 11  // 743 Rej
+				MDFeTipTra = Mdfe_TipoTransporte.TAC
+			EndIf
+		EndIF
+		
+		
+		If &MdfeVeiProTip <> PropriedadeVeiculo.Proprio // 745 Rej
+			&Xml.WriteElement('tpTransp',trim(MDFeTipTra))
+		EndIf
+		&Xml.WriteElement('mod',trim(MDFeModCod))//    <mod>58</mod>
+		&Xml.WriteElement('serie',trim(str(MDFeSer)))//    <serie>1</serie>
+		&Xml.WriteElement('nMDF',trim(str(MDFeNum)))//    <nMDF>2</nMDF>
+		&Xml.WriteElement('cMDF',&cMDF)//    <cMDF>49128302</cMDF>
+		&Xml.WriteElement('cDV',trim(&DV))//<cDV>6</cDV>
+		&Xml.WriteElement('modal',trim(MDFeTipMod))//    <modal>1</modal>
+		
+		&soNumero   = str(year(MDFeDtaEms),4,0) +'-'+padl(trim(str(month(MDFeDtaEms),2,0)),2,'0') 
+		+'-'+padl(trim(str(day(MDFeDtaEms),2,0)),2,'0') +'T'+trim(MDFeHorEms)+'-'+ trim(FilFusHor) //    <dhEmi>2012-10-01T15:03:29</dhEmi>
+		&Xml.WriteElement('dhEmi',trim(&soNumero))
+		
+		&Xml.WriteElement('tpEmis',trim(&tpEmis))//    <tpEmis>1</tpEmis>
+		&Xml.WriteElement('procEmi','0')//    <procEmi>0</procEmi>0 - emissão de MDF-e com aplicativo do contribuinte;
+		&Xml.WriteElement('verProc', &VersaoNF)//    <verProc>DLL_MDFe.Util v_1.00</verProc>
+		&Xml.WriteElement('UFIni',trim(MDFeOriUfeCod))//    <UFIni>SP</UFIni>
+		&Xml.WriteElement('UFFim',trim(MDFeDstUfeCod))//    <UFFim>RS</UFFim>
+		&MDFeDstUfeCod = MDFeDstUfeCod
+		&MDFeDesCidCod = MDFeDesCidCod
+		do 'GetNomeCidade'
+		
+		//CARREGAMENTO
+		For Each Order EmpCod, FilCod, MDFeCod, MDFeCarCod
+			&Xml.WriteStartElement('infMunCarrega')//    <infMunCarrega>
+			&CidCod = MDFeCarCidCod
+			do 'getCidade'
+			&Xml.WriteElement('cMunCarrega',trim(str(&CidIBGE)))//      <cMunCarrega>3550308</cMunCarrega>
+			&Xml.WriteElement('xMunCarrega', trim(&CidNom))//      <xMunCarrega>Sao Paulo</xMunCarrega>
+			&Xml.WriteEndElement() //    </infMunCarrega>
+		EndFor
+		If MdfeIndCarregaPosterior = Status_SimNao.Sim
+			&Xml.WriteElement('indCarregaPosterior','1')
+		EndIf
+		
+		For Each Order EmpCod, FilCod, MDFeCod, (MDFePerCod)
+			&UltimoCodigoMDFePerCod = MDFePerCod
+			Exit
+		Endfor
+	
+		//PERCURSO
+		&isPrimeira = true
+		For Each Order EmpCod, FilCod, MDFeCod, MDFePerCod
+			Do Case
+				Case &isPrimeira = true and MDFePerUfeCod = MDFeOriUfeCod
+					&isPrimeira = false
+				Case &UltimoCodigoMDFePerCod = MDFePerCod and MDFePerUfeCod = MDFeDstUfeCod
+				Otherwise
+					&Xml.WriteStartElement('infPercurso')//    <infPercurso>
+					&Xml.WriteElement('UFPer', trim(MDFePerUfeCod))//      <UFPer>PR</UFPer>
+					&Xml.WriteEndElement()//    </infPercurso>
+			EndCase
+		EndFor
+		&Xml.WriteEndElement() //</ide>
+		
+		&Xml.WriteStartElement('emit')//<emit>
+		&soNumero = udp(RetornaSoNumeros,FilCpj)
+		If &soNumero.Trim().Length() > 11
+			&Xml.WriteElement('CNPJ', trim(&soNumero))//    <CNPJ>10142785000190</CNPJ>
+		Else
+			&Xml.WriteElement('CPF', trim(&soNumero))
+		EndIf
+		
+		&soNumero = udp(RetornaSoNumeros, FilInsEst)
+		&Xml.WriteElement('IE', trim(&soNumero))//    <IE>495171423115</IE>
+		&Xml.WriteElement('xNome', trim(FilRaz))//    <xNome>MRM KATO ASAKURA EPP</xNome>
+		&Xml.WriteElement('xFant', trim(FilFan))//    <xFant>FlexDocs Documentos Eletronicos</xFant>
+		&Xml.WriteStartElement('enderEmit')//    <enderEmit>
+		&Xml.WriteElement('xLgr', trim(FilLog))//      <xLgr>Avenida Doutor Altino Arantes</xLgr>
+		&Xml.WriteElement('nro', trim(FilNro))//      <nro>131</nro>
+		
+		//		If not Fil.IsEmpty()
+		//			&Xml.WriteElement('xCpl', &FilCliCpl)//      <xCpl>14 andar - sala 145</xCpl>
+		//		EndIF
+		
+		&Xml.WriteElement('xBairro', trim(FilBai))//      <xBairro>Centro</xBairro>
+		&Xml.WriteElement('cMun', trim(str(FilCidUfeIbge)))//      <cMun>3534708</cMun>
+		&Xml.WriteElement('xMun', trim(FilCidNom))//      <xMun>Ourinhos</xMun>
+		&soNumero = udp(RetornaSoNumeros, FilCep)
+		&Xml.WriteElement('CEP', trim(&soNumero))//      <CEP>19900030</CEP>
+		&Xml.WriteElement('UF', trim(FilCidUfeCod))//      <UF>SP</UF>
+		if not FilFonNum.IsEmpty()
+			&soNumero = udp(RetornaSoNumeros, FilFonNum)
+			&Xml.WriteElement('fone', &soNumero)//      <fone>1433022000</fone>
+		EndIF
+		
+		If not FilEml.IsEmpty()
+			&Xml.WriteElement('email', trim(FilEml))//      <email>contato@flexdocs.com.br</email>
+		EndIf
+		
+		&Xml.WriteEndElement()//    </enderEmit>
+		&Xml.WriteEndElement()//  </emit>
+		
+		&Xml.WriteStartElement('infModal')//  <infModal versaoModal="1.00">
+		&Xml.WriteAttribute('versaoModal', trim(&VersaoNF))
+		&Xml.WriteStartElement('rodo')//    <rodo>
+		&Xml.WriteStartElement('infANTT')
+		If not MDFeRNTRC.IsEmpty() and not MDFeRNTRC.IsNull() and MDFeTipTra <> MDFe_TipoTransporte.TAC
+			&Xml.WriteElement('RNTRC',trim(MDFeRNTRC))//      <RNTRC>22334455</RNTRC>
+		EndIF
+		
+		For Each Order EmpCod, FilCod, MDFeCod, MdfeCiotCod
+			If not MDFeCIOT.IsEmpty() and not MDFeCIOT.IsNull()
+				&Xml.WriteStartElement('infCIOT')
+				&Xml.WriteElement('CIOT', substr(trim(RetornaSoNumeros.Udp(MDFeCIOT)),1,12))//      <CIOT>111222333444</CIOT>
+				If not MDFeCIOTCnpj.Trim().IsEmpty()
+					&MDFeCIOTCnpj = RetornaSoNumeros.Udp(MDFeCIOTCnpj)
+					If &MDFeCIOTCnpj.Length() > 11
+						&Xml.WriteElement('CNPJ',&MDFeCIOTCnpj)
+					Else
+						&Xml.WriteElement('CPF',&MDFeCIOTCnpj)
+					EndIf
+				EndIf
+				&Xml.WriteEndElement()//  </infCIOT>
+			EndIF
+		EndFor	
+		
+		//Informações de Vale Pedagio
+		If MdfePosVale = Status_SimNao.Sim
+			&Xml.WriteStartElement('valePed')
+			&Xml.WriteStartElement('disp')
+			For Each Order EmpCod, FilCod,MDFeCod,MdfePedCod
+				&Xml.WriteElement('CNPJForn', trim(udp(RetornaSoNumeros, MdfePedCnpjFor)))
+				&MdfePedResPag = udp(RetornaSoNumeros, MdfePedResPag)
+				If &MdfePedResPag.Length() > 11
+					&Xml.WriteElement('CNPJPg', trim(&MdfePedResPag))
+				Else
+					&Xml.WriteElement('CPFPg', trim(&MdfePedResPag))
+				EndIf
+				
+				&Xml.WriteElement('nCompra', trim(MdfePedNroCom))
+				&Xml.WriteElement('vValePed',MdfePedVlr)
+				If not MdfePedTip.IsEmpty()
+					&Xml.WriteElement('tpValePed',MdfePedTip)
+				EndIf
+			EndFor
+			&Xml.WriteEndElement()//  </disp>
+			&Xml.WriteElement('categCombVeic',MdfeCatComVei)
+			&Xml.WriteEndElement()//  </valePed>
+		EndIf
+	
+		If not MdfeConCnpj.Trim().IsEmpty()
+			&MdfeConCnpj = retornasoNumeros.Udp(MdfeConCnpj)
+			&Xml.WriteStartElement('infContratante')
+			&Xml.WriteElement('xNome', trim(RetiraCaracteresEspeciais.Udp(MdfeConRaz)))
+			
+			If &MdfeConCnpj.Length() > 11
+				&Xml.WriteElement('CNPJ', trim(&MdfeConCnpj))
+			Else
+				&Xml.WriteElement('CPF', trim(&MdfeConCnpj))
+			EndIf
+			&Xml.WriteEndElement()//  </infContratante
+		EndIf
+		
+		If MDFePgtFrt = Status_SimNao.Sim
+			&Xml.WriteStartElement('infPag')  //  <infPag>
+			
+			If MDFeTomFrt = 1
+				&MdfeConCnpj = retornasoNumeros.Udp(MdfeConCnpj)
+				&Xml.WriteElement('xNome', trim(RetiraCaracteresEspeciais.Udp(MdfeConRaz)))
+				Do Case
+					Case &MdfeConCnpj.Trim().Length() <=11 
+						&Xml.WriteElement('CPF',&MdfeConCnpj)
+					Case &MdfeConCnpj.Trim().Length() <=14 
+						&Xml.WriteElement('CNPJ',&MdfeConCnpj)
+					OtherWise
+						&Xml.WriteElement('idEstrangeiro',&MdfeConCnpj)
+				EndCase
+			Else
+				&MdfeConCnpj = retornasoNumeros.Udp(MdfeInfPagFrtCnpj)
+				&Xml.WriteElement('xNome', trim(RetiraCaracteresEspeciais.Udp(MdfeInfPagFrtRaz)))
+				Do Case
+					Case &MdfeConCnpj.Trim().Length() <=11 
+						&Xml.WriteElement('CPF',&MdfeConCnpj)
+					Case &MdfeConCnpj.Trim().Length() <=14 
+						&Xml.WriteElement('CNPJ',&MdfeConCnpj)
+					OtherWise
+						&Xml.WriteElement('idEstrangeiro',&MdfeConCnpj)
+				EndCase
+			EndIf
+			
+			For Each Order EmpCod,FilCod,MDFeCod,MdfePgtFrtCod
+				&Xml.WriteStartElement('Comp')  //  <Comp>
+				&Xml.WriteElement('tpComp',MdfePgtFrtTip)
+				&Xml.WriteElement('vComp',MdfePgtFrtVlr)
+				If not MdfePgtFrtDes.Trim().IsEmpty() and MdfePgtFrtTip = TipoPagamentoFrete.Outros
+					&Xml.WriteElement('xComp',retiraCaracteresEspeciais.Udp(MdfePgtFrtDes))				
+				EndIf
+				&Xml.WriteEndElement()  //  </Comp
+			EndFor
+			
+			&Xml.WriteElement('vContrato',MdfePgtFrtTot)	
+			&Xml.WriteElement('indPag',MdfePgtFrtForPgt)	
+			
+			If MdfePgtFrtForPgt = 1 //prazo
+				&MdfePgtParNro = 0
+				For Each Order EmpCod,FilCod,MDFeCod,MdfePgtParNro
+					&MdfePgtParNro +=1
+					&Xml.WriteStartElement('infPrazo')  //  <infPrazo>
+					&Xml.WriteElement('nParcela',Padl(str(&MdfePgtParNro),3,'0'))	
+					&soNumero = str(year(MdfePgtParVct),4,0) +'-'+padl(trim(str(month(MdfePgtParVct),2,0)),2,'0') +'-'+padl(trim(str(day(MdfePgtParVct),2,0)),2,'0')
+					&Xml.WriteElement('dVenc',&soNumero)	
+					&Xml.WriteElement('vParcela',MdfePgtParVlr)	
+					&Xml.WriteEndElement()  //  </infPrazo		
+				EndFor
+			EndIf
+			&Xml.WriteStartElement('infBanc')  //  <infBanc>
+			
+			If not MdfePgtFrtBanCnpj.Trim().IsEmpty()
+				&Xml.WriteElement('CNPJIPEF',MdfePgtFrtBanCnpj)	
+			Else
+				If not MdfePgtFrtChvPix.Trim().IsEmpty()
+					&Xml.WriteElement('PIX',MdfePgtFrtChvPix)
+				Else
+					&Xml.WriteElement('codBanco',MdfePgtFrtBanCod)	
+					&Xml.WriteElement('codAgencia',MdfePgtFrtBanAge)
+				EndIf
+			EndIf
+			
+			&Xml.WriteEndElement()  //  </infBanc		
+			
+			&Xml.WriteEndElement()  //  </infPag
+		EndIf
+		
+		&Xml.WriteEndElement()//  </infANTT
+		
+		//VEICULO
+		For Each Order EmpCod, FilCod, MDFeVeiCod
+			&Xml.WriteStartElement('veicTracao')//      <veicPrincipal>		
+			//&Xml.WriteElement('cInt', trim(&soNumero))//        <cInt>3010</cInt>
+			&Xml.WriteElement('placa', trim(UPPER(StrReplace(MDFeVeiPla, "-", ""))))//        <placa>BBB1111</placa>
+			If not MDFeVeiRen.trim().IsEmpty() and MDFeVeiRen.Trim().Length() >= 8
+				&Xml.WriteElement('RENAVAM', Substr(trim(MDFeVeiRen),1,11))//7 RENAVAM 2 RENAVAM do veículo E C 0 - 1 9 - 11 ER33
+			EndIF
+			
+			&Xml.WriteElement('tara', trim(toformattedString(MDFeVeiTar)))//        <tara>15000</tara>
+			&Xml.WriteElement('capKG', trim(toformattedString(MDFeVeiCap)))//9 capKG 2 Capacidade em KG E N 0 - 1 1 - 6 ER53
+			&Xml.WriteElement('capM3', trim(toformattedString(MDFeVeiCapM3)))//10 capM3 2 Capacidade em M3 E N 0 - 1 1 - 3 ER30 
+			
+			
+			If MdfeVeiProTip <> PropriedadeVeiculo.Proprio and (not MDFeVeiProCnpj.IsEmpty() and not MDFeVeiProCnpj.IsNull())
+				&Xml.WriteStartElement('prop') // <prop>
+				
+				&soNumero = udp(RetornaSoNumeros, MDFeVeiProCnpj)
+				If &soNumero.Trim().Length() > 11 
+					&Xml.WriteElement('CNPJ', trim(&soNumero))
+				Else
+					&Xml.WriteElement('CPF', trim(&soNumero))
+				EndIf
+				
+				&Xml.WriteElement('RNTRC', trim(MDFeVeiRNTRC)) //          <f>12344321</RNTRC>
+				&Xml.WriteElement('xNome', trim(MDFeVeiProRaz))
+				&Xml.WriteElement('IE', trim(MDFeVeiProIe))
+				&Xml.WriteElement('UF', trim(MDFeVeiProUf))
+				&Xml.WriteElement('tpProp', trim(MdfeVeiProTip))
+				&Xml.WriteEndElement()//        </prop>
+			EndIF
+			
+			//MOTORISTA
+			For Each Order EmpCod, FilCod, MDFeCod, MDFeMotCod
+				&Xml.WriteStartElement('condutor')//        <condutor>
+				&Xml.WriteElement('xNome', trim(MDFeMotNom))//          <xNome>Fulano de Tal motorista</xNome>
+				&soNumero = udp(RetornaSoNumeros, MDFeMotCpf)
+				&Xml.WriteElement('CPF', trim(&soNumero))//          <CPF>11111111111</CPF>
+				&Xml.WriteEndElement()//        </condutor>
+			EndFor
+			
+			
+			&Xml.WriteElement('tpRod', PadL(MDFeVeiTipRod, 2, '0'))//22 tpRod 2 Tipo de Rodado E N 1 - 1 2 D12 Preencher com:
+			//01 - Truck;
+			//02 - Toco;
+			//03 - Cavalo Mecânico;
+			//04 - VAN;
+			//05 - Utilitário;
+			//06 - Outros.
+			&Xml.WriteElement('tpCar', PadL(MDFeVeiTipCar, 2, '0'))//23 tpCar 2 Tipo de Carroceria E N 1 - 1 2 D13 Preencher com:
+			//00 - não aplicável;
+			//01 - Aberta;
+			//02 - Fechada/Baú;
+			//03 - Granelera;
+			//04 - Porta Container;
+			//05 - Sider
+			&Xml.WriteElement('UF', trim(MDFeVeiUF))//24 UF 2 UF em que veículo está licenciado E C 1 - 1 2 D4 Sigla da UF de licenciamento do veículo
+			&Xml.WriteEndElement()//      </veicPrincipal>
+		EndFor
+		
+		//REBOQUE
+		For Each Order EmpCod, FilCod, MDFeCod, MDFeRebCod
+			
+			&Xml.WriteStartElement('veicReboque')//      <veicReboque>
+			&Xml.WriteElement('cInt', trim(MDFeRebCod))//        <cInt>3011</cInt>
+			&Xml.WriteElement('placa', trim(UPPER(StrReplace(MDFeRebPla, "-", ""))))//        <placa>ABC1000</placa>
+			If not MDfeRebRen.IsEmpty()
+				&Xml.WriteElement('RENAVAM', SubStr(trim(MDfeRebRen),1,11))//28 RENAVAM 2 RENAVAM do veículo E C 0 - 1 9 - 11 ER33
+			EndIF
+			&Xml.WriteElement('tara', trim(toformattedString(MDFeRebTar)))//        <tara>30000</tara>
+			&Xml.WriteElement('capKG', trim(toformattedString(MDFeRebCap)))//        <capKG>20000</capKG>
+//			&Xml.WriteElement('capM3', trim(toformattedString(MDFeRebCapM3)))//        <capM3>60</capM3>
+			
+			if not MdfeRebProTip <> PropriedadeVeiculo.Proprio and not MDFeRebProCnpj.Trim().IsEmpty()
+				&Xml.WriteStartElement('prop')//        <prop>
+				&soNumero = udp(RetornaSoNumeros, MDFeRebProCnpj)
+				If &soNumero.Trim().Length() > 11 
+					&Xml.WriteElement('CNPJ', trim(&soNumero))
+				Else
+					&Xml.WriteElement('CPF', trim(&soNumero))
+				EndIf
+				
+				&Xml.WriteElement('RNTRC', trim(MDFeRebRNTRC))//          <f>12344321</RNTRC>
+				&Xml.WriteElement('xNome', trim(MDFeRebProRaz))
+				&Xml.WriteElement('IE', trim(MDFeRebProIe))
+				&Xml.WriteElement('UF', trim(MDFeRebProUf))
+				&Xml.WriteElement('tpProp', trim(MdfeRebProTip))
+				&Xml.WriteEndElement()//        </prop>
+			EndIF
+			
+			&Xml.WriteElement('tpCar', padL(MDFeRebTipCar, 2, '0'))//tpCar 2 Tipo de Carroceria E N 1 - 1 2 D13 Preencher com:
+			//00 - não aplicável;
+			//01 - Aberta;
+			//02 - Fechada/Baú;
+			//03 - Granelera;
+			//04 - Porta Container;
+			//05 – Sider
+			&Xml.WriteElement('UF', trim(MDFeRebUF))//41 UF 2 UF em que veículo está licenciado E C 1 - 1 2 D4 Sigla da UF de licenciamento do veículo.
+			
+			&Xml.WriteEndElement()//      </veicReboque>
+		EndFor		
+		&Xml.WriteEndElement()//    </rodo>
+		&Xml.WriteEndElement()//  </infModal>
+		
+		&Xml.WriteStartElement('infDoc')//  <infDoc>
+		If MDFeTipEmt = Mdfe_TipoEmitente.NaoPrestador
+			//################################################ NFE ################################### 
+			For Each Order EmpCod, FilCod, MDFeCod//, MDfeNfeCidCod
+				Where MdfeNfeUfeCod <> &MDFeDstUfeCod or MDfeNfeCidCod = &MDfeDesCidIbge
+				
+				&Xml.WriteStartElement('infMunDescarga')//    <infMunDescarga>
+				&Xml.WriteElement('cMunDescarga', trim(str(&MDfeDesCidIbge)))//      <cMunDescarga>4318002</cMunDescarga>
+				&Xml.WriteElement('xMunDescarga', trim(&MDFeDesCidNom))//      <xMunDescarga>Sao Borja</xMunDescarga>
+				
+				For Each Order EmpCod, FilCod, MDFeCod, MDfeNfeCidCod, MDFeNFeItm
+					Where MdfeNfeUfeCod <> &MDFeDstUfeCod or MDfeNfeCidCod = &MDfeDesCidIbge
+					
+					&Xml.WriteStartElement('infNFe')//      <infNFe>
+					&Xml.WriteElement('chNFe', trim(MDFeNfeChv))//        <chNFe>35120910142785000190552340000000011131229000</chNFe>
+					If not MDFeNfeChv2.Trim().IsEmpty()
+						&Xml.WriteElement('SegCodBarra', trim(MDFeNfeChv2))
+					EndIf
+					&Xml.WriteEndElement()//      </infNFe>
+				EndFor
+				&Xml.WriteEndElement()//    </infMunDescarga>
+			When none
+				If MdfeIndCarregaPosterior = Status_SimNao.Sim
+					&Xml.WriteStartElement('infMunDescarga')//    <infMunDescarga>
+					&Xml.WriteElement('cMunDescarga', trim(str(&MDfeDesCidIbge)))//      <cMunDescarga>4318002</cMunDescarga>
+					&Xml.WriteElement('xMunDescarga', trim(&MDFeDesCidNom))//      <xMunDescarga>Sao Borja</xMunDescarga>
+					&Xml.WriteEndElement()//    </infMunDescarga>
+				EndIf
+			EndFor
+			
+			For Each Order EmpCod, FilCod, MDFeCod, MDfeNfeCidCod
+				Where MdfeNfeUfeCod = &MDFeDstUfeCod and MDfeNfeCidCod <> &MDfeDesCidIbge
+				
+				&Xml.WriteStartElement('infMunDescarga')//    <infMunDescarga>
+				&Xml.WriteElement('cMunDescarga', trim(str(MDfeNfeCidCod)))//      <cMunDescarga>4318002</cMunDescarga>
+				&Xml.WriteElement('xMunDescarga', trim(MDFeNfeCidNom))//      <xMunDescarga>Sao Borja</xMunDescarga>
+				
+				For Each Order EmpCod, FilCod, MDFeCod, MDfeNfeCidCod, MDFeNFeItm
+					Where MdfeNfeUfeCod = &MDFeDstUfeCod and MDfeNfeCidCod <> &MDfeDesCidIbge
+					
+					&Xml.WriteStartElement('infNFe')//      <infNFe>
+					&Xml.WriteElement('chNFe', trim(MDFeNfeChv))//        <chNFe>35120910142785000190552340000000011131229000</chNFe>
+					If not MDFeNfeChv2.Trim().IsEmpty()
+						&Xml.WriteElement('SegCodBarra', trim(MDFeNfeChv2))
+					EndIf
+					&Xml.WriteEndElement()//      </infNFe>
+				EndFor
+				&Xml.WriteEndElement()//    </infMunDescarga>
+			EndFor
+			
+		Else
+			//################################################ CTE ####################################################################
+			For Each Order EmpCod, FilCod, MDFeCod//, MDfeNfeCidCod
+				Where MdfeCteUfeCod <> &MDFeDstUfeCod or MDfeCteCidCod = &MDfeDesCidIbge
+				
+				&Xml.WriteStartElement('infMunDescarga')//    <infMunDescarga>
+				&Xml.WriteElement('cMunDescarga', trim(str(&MDfeDesCidIbge)))//      <cMunDescarga>4318002</cMunDescarga>
+				&Xml.WriteElement('xMunDescarga', trim(&MDFeDesCidNom))//      <xMunDescarga>Sao Borja</xMunDescarga>
+				
+				For Each Order EmpCod, FilCod, MDFeCod, MDfeCteCidCod, MDFeCteItm
+					Where MdfeCteUfeCod <> &MDFeDstUfeCod or MDfeCteCidCod = &MDfeDesCidIbge
+					
+					&Xml.WriteStartElement('infCTe')//      <infCTe>
+					&Xml.WriteElement('chCTe', trim(MDFeCteChv))//        <chCte>35120910142785000190552340000000011131229000</chCte>
+					If not MDFeCteChv2.Trim().IsEmpty()
+						&Xml.WriteElement('SegCodBarra', trim(MDFeCteChv2))
+					EndIf
+					&Xml.WriteEndElement()//      </infCte>
+				EndFor
+				&Xml.WriteEndElement()//    </infMunDescarga>
+			EndFor
+			
+			For Each Order EmpCod, FilCod, MDFeCod, MDfeCteCidCod
+				Where MdfeCteUfeCod = &MDFeDstUfeCod and MDfeCteCidCod <> &MDfeDesCidIbge
+				
+				&Xml.WriteStartElement('infMunDescarga')//    <infMunDescarga>
+				&Xml.WriteElement('cMunDescarga', trim(str(MDfeCteCidCod)))//      <cMunDescarga>4318002</cMunDescarga>
+				&Xml.WriteElement('xMunDescarga', trim(MDFeCteCidNom))//      <xMunDescarga>Sao Borja</xMunDescarga>
+				
+				For Each Order EmpCod, FilCod, MDFeCod, MDfeCteCidCod, MDFeCteItm
+					Where MdfeCteUfeCod = &MDFeDstUfeCod and MDfeCteCidCod <> &MDfeDesCidIbge
+					
+					&Xml.WriteStartElement('infCTe')//      <infCTe>
+					&Xml.WriteElement('chCTe', trim(MDFeCteChv))//        <chCTe>35120910142785000190552340000000011131229000</chCTe>
+					If not MDFeCteChv2.Trim().IsEmpty()
+						&Xml.WriteElement('SegCodBarra', trim(MDFeCteChv2))
+					EndIf
+					&Xml.WriteEndElement()//      </infCTe>
+				EndFor
+				&Xml.WriteEndElement()//    </infMunDescarga>
+			EndFor
+		EndIf
+		
+		&Xml.WriteEndElement()//  </infDoc>		
+		
+		
+		//############################## Seguro ############################################			
+		If MDFeTipEmt <> MDFe_TipoEmitente.NaoPrestador			
+			&Xml.WriteStartElement('seg')//  <seg>
+			For each Order EmpCod,FilCod,MDFeCod,MdfeSegCod
+				
+				&Xml.WriteStartElement('infResp')
+				&Xml.WriteElement('respSeg', trim(MdfeSegRes))
+				If not MdfeSegResCnpj.Trim().IsEmpty()
+					&MdfeSegResCnpj = RetornaSoNumeros.Udp(MdfeSegResCnpj)
+					If &MdfeSegResCnpj.Length() > 12
+						&Xml.WriteElement('CNPJ', trim(&MdfeSegResCnpj))
+					Else
+						&Xml.WriteElement('CPF', trim(&MdfeSegResCnpj))
+					EndIf
+				Else
+					&Xml.WriteElement('CNPJ', '00000000000000')
+				EndIf
+				&Xml.WriteEndElement()//  </infResp>
+				
+				If not MdfeSegNom.Trim().Isempty()
+					&Xml.WriteStartElement('infSeg')
+					If Not MdfeSegNom.Trim().IsEmpty()
+						&Xml.WriteElement('xSeg', trim(MdfeSegNom))
+					Else
+						&Xml.WriteElement('xSeg','')
+					EndIf
+					
+					&MdfeSegCnpj = RetornaSoNumeros.Udp(MdfeSegCnpj)
+					If Not &MdfeSegCnpj.Trim().IsEmpty()
+						&Xml.WriteElement('CNPJ', trim(&MdfeSegCnpj))
+					Else
+						&Xml.WriteElement('CNPJ', '00000000000000')
+					EndIf
+					
+					&Xml.WriteEndElement()//  </infSeg>
+				EndIf
+				If not MdfeSegNroApo.Trim().IsEmpty()
+					&Xml.WriteElement('nApol', trim(MdfeSegNroApo))
+				Else
+					&Xml.WriteElement('nApol','000000000000000')
+				EndIf
+				&isAverba = false
+				For each Order EmpCod,FilCod,MDFeCod,MdfeSegCod,MdfeSegNroAve
+					If not MdfeSegNroAve.Trim().isEmpty()
+						&Xml.WriteElement('nAver', trim(MdfeSegNroAve))
+						&isAverba = True
+					EndIf					
+				EndFor
+				If &isAverba = false
+					&Xml.WriteElement('nAver','000000000000000')
+				EndIf
+			EndFor			
+			
+			&Xml.WriteEndElement()//  </seg>			
+		EndIf
+		
+		//################################## PRODUTO PREDOMINANTE ###############################
+		If MDFeTipEmt = Mdfe_TipoEmitente.Prestador OR MDFeTipEmt = Mdfe_TipoEmitente.Globalizado or &MdfeVeiProTip <> PropriedadeVeiculo.Proprio 
+			&Xml.WriteStartElement('prodPred')//      <prodPred>
+			&Xml.WriteElement('tpCarga',MDFeTipCar)
+			
+			&Xml.WriteElement('xProd',trim(retiraCaracteresEspeciais.Udp(MDFeProPre)))
+			If not MDFeProPreNcm.IsEmpty()
+				&Xml.WriteElement('NCM',PadL(trim(str(MDFeProPreNcm)), 8, '0'))
+			EndIf
+			
+			//################################## LOTACAO ############################################
+			
+			If (MDFeTotCTe) = 1	or (MDFeTipEmt = Mdfe_TipoEmitente.NaoPrestador and (MDFeTotNF) = 1 and &MdfeVeiProTip <> PropriedadeVeiculo.Proprio)   // 726 Rej. 
+				&Xml.WriteStartElement('infLotacao') //      <infLotacao>
+				&Xml.WriteStartElement('infLocalCarrega') //      <infLocalCarrega>
+				&Xml.WriteElement('CEP',RETORNASoNumeros.Udp(MDFeLotCarCep))
+				&Xml.WriteEndElement()//  </infLocalCarrega>
+				
+				&Xml.WriteStartElement('infLocalDescarrega')//      <infLocalDescarrega>
+				&Xml.WriteElement('CEP',RETORNASoNumeros.Udp(MDFeLotDesCep))	
+				&Xml.WriteEndElement()//  </infLocalDescarrega>
+				
+				&Xml.WriteEndElement()//  </infLotacao>	
+			EndIf
+			
+			&Xml.WriteEndElement()//  </prodPred>
+		EndIf
+		
+		
+		&Xml.WriteStartElement('tot')//  <tot>
+		If MDFeTotCTe > 0 
+			&Xml.WriteElement('qCTe', trim(toformattedString(MDFeTotCTe)))//    <qCTe>8</qCTe>	
+		EndIf
+		If MDFeTotNF > 0
+			&Xml.WriteElement('qNFe', trim(toformattedString(MDFeTotNF)))//    <qNFe>8</qNFe>		
+		EndIf
+		&NovoValorQuatroCasas = MDFeVlrTot
+		&soNumero = trim(toformattedString(&NovoValorQuatroCasas))
+		&soNumero = &soNumero.Replace(',','.')
+		&Xml.WriteElement('vCarga', &soNumero.Trim())//    <vCarga>15000.00</vCarga>
+		&Xml.WriteElement('cUnid', PadL(MDfeUnd, 2, '0'))//    <cUnid>01</cUnid>
+		
+		&NovaQuantidade = MDFePsoBrt
+		&soNumero = trim(toformattedString(&NovaQuantidade))
+		&soNumero = &soNumero.Replace(',','.')
+		&Xml.WriteElement('qCarga', &soNumero.Trim())//    <qCarga>12300</qCarga>
+		&Xml.WriteEndElement()//  </tot>
+		
+		//		For Each Order MDFSeq, MdfLacSeq
+		//			&Xml.WriteStartElement('lacres')//  <lacres>
+		//			&Xml.WriteElement('nLacre', trim(MdfNumLac))//    <nLacre>AKUX10019KX</nLacre>
+		//			&Xml.WriteEndElement()//  </lacres>
+		//		EndFor
+		
+		If Not FilCtaCnpj.Trim().IsEmpty() and FilCtaCnpj <> &FilCpj //and FilCtaCnpj <> CteRemCnpj and FilCtaCnpj <> CteDesCnpj
+			
+			&FilCtaCnpj = RetornaSoNumeros.Udp(FilCtaCnpj)
+			&xml.WriteStartElement('autXML')
+			If &FilCtaCnpj.Length() > 11			
+				&xml.WriteElement('CNPJ',&FilCtaCnpj)
+			Else
+				&xml.WriteElement('CPF',&FilCtaCnpj)
+			EndIf
+			&xml.WriteEndElement()//autXML
+		EndIf
+		
+		For each order FilAutXml
+			&xml.WriteStartElement('autXML')
+			&FilAutXml = retornaSoNumeros.Udp(FilAutXml)
+			If &FilAutXml.Length() > 11 
+				&xml.WriteElement('CNPJ',&FilAutXml)
+			else
+				&xml.WriteElement('CPF',&FilAutXml)
+			EndIf
+			&xml.WriteEndElement()//autXML
+		EndFor
+		
+		If not MDFeAdc.IsEmpty() and not MDFeAdc.IsNull()
+			&Xml.WriteStartElement('infAdic')//  <infAdic>
+			
+			&TotLin  =  GxMlines(MDFeAdc, 100)
+			&NumLin  =  1
+			Do While &NumLin <= &TotLin
+				&MDFeAdc = &MDFeAdc.Trim() + ' ' + GxGetMLi(MDFeAdc, &NumLin, 100)
+				&NumLin += 1
+			EndDo
+			&Xml.WriteElement('infCpl', &MDFeAdc.Trim())//<infCpl>Informacoes de Adicionais do Fisco. Operacao nao tributada.</infAdFisco>
+			
+			&Xml.WriteEndElement()//  </infAdic>
+		EndIF
+		
+		
+		ResponsavelTecnico.Call(&MDfeChv, &EmpCnpj,&EmpRaz,&EmpEml,&EmpFon, &idCSRT, &hashCSRT)
+		&Xml.WriteStartElement('infRespTec')
+		&Xml.WriteElement('CNPJ',trim(&EmpCnpj))
+		&Xml.WriteElement('xContato',trim(&EmpRaz))
+		&Xml.WriteElement('email',trim(&EmpEml))
+		&Xml.WriteElement('fone',trim(&EmpFon))
+//		&Xml.WriteElement('idCSRT',trim(&idCSRT))
+//		&Xml.WriteElement('hashCSRT',trim(&hashCSRT))
+		&Xml.WriteEndElement()//infRespTec
+		
+		&Xml.WriteEndElement() //Fecha infMDFe
+		
+		If &tpEmis = Nf_TipoEmissao.Normal  /// se for em contingencia o uninfe vai gerar automatico
+			&Xml.WriteStartElement('infMDFeSupl')
+			
+			&qrCodMDFe = 'https://dfe-portal.svrs.rs.gov.br/mdfe/qrCode?chMDFe='+&MDfeChv+'&tpAmb='+&tpAmb
+			//1ª parte: URL  - https://dfe-portal.svrs.rs.gov.br/mdfe/qrCode?
+			//2ª parte : parâmetros  - chMDFe=43181207312871000190580010000334041421310776&tpAmb=1
+			//3ª parte: assinatura - &sign=ZZSKiypy7fkg22MUv6TUh71EI+wLYWr/fUHJy3PyWnL7d5mzEqtxu6bVbhE7AeNiDTirh1u9gVfC2Hw+Lsno2XNL5FRUc5NcuMTT2hA6E9HYC9gryvtWAIgiCZUNG5cWWLCh0G62QdnNe8iSrlSooQu9Z5g1vbGaTFMxaugzzvo= 
+			//3ª parte: sign assinatura digital no padrão RSA SHA-1 (Base64)
+			&Xml.WriteElement('qrCodMDFe',&qrCodMDFe)
+			&Xml.WriteEndElement()
+		EndIf
+		
+	    &Xml.WriteEndElement() //Fecha MDFe
+	    &Xml.Close()
+		Exit
+	EndFor
+
+
+
+	commit
+	
+RetornaExisteSolicitacaoPendente.Call(&EmpCod, &FilCod, &MDFeCod, 0, TipoSolicitacao.Autorizar_MDFe, &IsPendente, &SolCod)
+if &SolCod.IsEmpty()
+	GravaSolicitacao.Call(&EmpCod, &FilCod, &MDFeCod, 0, TipoSolicitacao.Autorizar_MDFe, &PesCod, &SolCod)
+Endif
+
+
+sub 'getCidade'
+	&CidIBGE= 0
+	&CidNom = ''
+	For Each Order EmpCod, CidCod
+		Where EmpCod = &EmPCod
+		Where CidCod = &CidCod
+		&CidIBGE = CidIBGE
+		&CidNom = CidNom
+		Exit
+	EndFor			
+EndSub
+
+sub 'GetNomeCidade'
+	For Each Order EmpCod, CidCod
+		Where EmpCod = &EmPCod
+		Where CidCod = &MDFeDesCidCod
+		&MDFeDesCidNom = CidNom
+		&MDfeDesCidIbge = CidIBGE
+		Exit
+	EndFor
+EndSUb
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmPCod, in:&FilCod, in:&MDFeCod, in:&PesCod, out:&SolCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmPCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmPCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VersaoNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VersaoNF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="soNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>soNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cMDF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cMDF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeChv</Value></Property><Property><Name>Description</Name><Value>Chave MDFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tpEmis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tpEmis</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DV">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DV</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Xml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Xml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_Envio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_Envio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Parte_arquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Parte_arquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tpAmb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tpAmb</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovaQuantidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovaQuantidade</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>4</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="CidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidIBGE</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidNom</Value></Property><Property><Name>Description</Name><Value>Cidade Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovoValorQuatroCasas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovoValorQuatroCasas</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumLin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumLin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotLin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotLin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeAdc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeAdc</Value></Property><Property><Name>Description</Name><Value>Dados Adicionais</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeAdc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeDstUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeDstUfeCod</Value></Property><Property><Name>Description</Name><Value>UF Destino</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeDstUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeDesCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeDesCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade Descarga</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeDesCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeDesCidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeDesCidNom</Value></Property><Property><Name>Description</Name><Value>Cidade Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDfeDesCidIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeDesCidIbge</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfePedResPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfePedResPag</Value></Property><Property><Name>Description</Name><Value>responsável pelo pagamento do Vale-Pedágio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfePedResPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegResCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegResCnpj</Value></Property><Property><Name>Description</Name><Value>CPF/CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegResCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegCnpj</Value></Property><Property><Name>Description</Name><Value>Cnpj Seguradora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCIOTCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCIOTCnpj</Value></Property><Property><Name>Description</Name><Value>responsável pela geração do CIOT</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCIOTCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeConCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeConCnpj</Value></Property><Property><Name>Description</Name><Value>Mdfe Contratante</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeConCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isAverba">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isAverba</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPendente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPendente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpRaz</Value></Property><Property><Name>Description</Name><Value>Empresa Razão Social Matriz</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEml</Value></Property><Property><Name>Description</Name><Value>Email</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpFon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpFon</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qrCodMDFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qrCodMDFe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SplittedGeolocation">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SplittedGeolocation</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfePgtParNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfePgtParNro</Value></Property><Property><Name>Description</Name><Value>Número da parcela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfePgtParNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeVeiProTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeVeiProTip</Value></Property><Property><Name>Description</Name><Value>Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeVeiProTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hashCSRT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hashCSRT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="idCSRT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>idCSRT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCtaCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCtaCnpj</Value></Property><Property><Name>Description</Name><Value>Cnpj Contador</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCtaCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAutXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAutXml</Value></Property><Property><Name>Description</Name><Value>Fil Aut Xml</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAutXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isPrimeira">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isPrimeira</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UltimoCodigoMDFePerCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UltimoCodigoMDFePerCod</Value></Property><Property><Name>Description</Name><Value>Percurso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFePerCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraXmlMdfe</Value></Property><Property><Name>Description</Name><Value>Gera Xml Mdfe</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

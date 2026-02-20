@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="WIN-ITALO\Italo" versionDate="2026-01-21T14:28:46.0000000Z" lastUpdate="2026-01-20T13:06:29.0000000Z" checksum="7d77fb0ee090ad6ef4591f8d97ffcc4e" fullyQualifiedName="prcEnviaWhatsBoletos" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c59fbf70-b1ef-40a6-a099-b23ff4f5456e" name="prcEnviaWhatsBoletos" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Envia Whats Boletos" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&LogGUID = GUID.NewGuid()
+&index   = 0
+&indes   = trim(str(&index))
+&isValid = true
+
+
+/*
+	BUSCA AS MENSAGENS A SEREM ENVIADAS
+*/
+msg(&Pgmname + ': iniciando busca por itens a serem enviados: PENDENTE, ENVIADO_PARCIAL ou FALHOU', status)
+For Each order EmpCod, FilaWhatsGUID
+	where EmpCod           = &EmpCod
+	Where FilaWhatsGUID = &FilaWhatsGUID
+//	where FilaWhatsDtaLim >= &Today
+//	where FilaWhatsTip     = TipoFilaEnvioWhats.BOLETO
+//	where FilaWhatsSts     = Status_FilaWhats.PENDENTE
+//	   or FilaWhatsSts     = Status_FilaWhats.ENVIADO_PARCIAL
+//	   or FilaWhatsSts     = Status_FilaWhats.FALHOU
+//	where FilaWhatsQtdTen  < 3
+//	where FilaWhatsDtaUltTen.IsEmpty() or FilaWhatsDtaUltTen.IsNull()
+//	if DateTimeDifference(now(), FilaWhatsDtaUltTen) >= 300 // 1min = 60s
+		
+		&index += 1
+		&indes = trim(str(&index))
+		&isEnviou = false
+		&FilaWhatsGUIDs = trim(FilaWhatsGUID.ToString())
+		msg(&indes + 'º ' + &FilaWhatsGUIDs + ': iniciando [' + FilaWhatsSts + ']', status)
+				
+			&FilaWhatsFilCod = FilaWhatsFilCod
+			
+			for each order EmpCod,FilaWhatsMsgOrd,FilaWhatsGUID,FilaWhatsMsgGUID
+				where FilaWhatsMsgSts = Status_FilaWhats.PENDENTE
+				or FilaWhatsMsgSts = Status_FilaWhats.FALHOU
+				
+				if FilaWhatsMsgTip = TipoMensagemWhats.DOCUMENTO
+					&FilaWhatsMsgGUID = FilaWhatsMsgGUID
+					&FilaWhatsMsgArqDirFis = FilaWhatsMsgarqDirFis
+//					do 'CriaBoletoSeNaoExiste'
+					
+//					if FilaWhatsMsgarqDirFis.IsEmpty()
+//						if not &DirFisVir.IsEmpty()
+//							FilaWhatsMsgArqNom       = &ArqNom
+//							FilaWhatsMsgarqDirFis    = &DirFis
+//							FilaWhatsMsgArqDirFisVir = &DirFisVir
+//						else
+//							exit
+//						endif
+//					endif
+				endif
+				
+				do case
+					case TipoMensagemWhats.TEXTO = FilaWhatsMsgTip
+						&UserMessage = JabotiAPI_EnviaTexto(EmpCod,&LogGUID,FilaWhatsDestPesFonNum,FilaWhatsMsgTxt)
+						
+					case TipoMensagemWhats.DOCUMENTO = FilaWhatsMsgTip
+						&UserMessage = JabotiAPI_EnviaDocumento(EmpCod,&LogGUID,FilaWhatsDestPesFonNum,FilaWhatsMsgArqDirFisVir,'',FilaWhatsMsgArqNom,FilaWhatsMsgTxt)
+						
+					otherwise
+						&UserMessage = new()
+						exit
+				endcase
+				
+				if &UserMessage.isSucess
+					FilaWhatsMsgSts = Status_FilaWhats.ENVIADO
+					&isEnviou = true
+					
+					if TipoMensagemWhats.DOCUMENTO = FilaWhatsMsgTip and FilaWhatsTip = TipoFilaEnvioWhats.BOLETOAVISO
+						for each order EmpCod, CreCod
+							where FilCod = FilaWhatsFilCod
+							where CreCod = FilaWhatsMsgCreCod
+							CreStsFilaEnv = Status_FilaWhats.ENVIADO
+							if CreDtaVct = &Today
+								 CreStsFilaEnvHoj = Status_FilaWhats.ENVIADO //JDF ASSUMO A CULPA
+							 Endif
+						 
+							exit
+						endfor
+					endif
+				else
+					
+					msg(&indes + 'º ' + &FilaWhatsGUIDs + ': falha ao enviar para o servidor > ' + newline() + &UserMessage.ToJson(), status)
+					FilaWhatsMsgSts = Status_FilaWhats.FALHOU
+					
+					&isValid = false
+					exit
+				endif
+			endfor
+			
+			FilaWhatsQtdTen += 1
+			FilaWhatsDtaUltTen = now()
+			if &isValid
+				FilaWhatsSts = Status_FilaWhats.ENVIADO
+				FilaWhatsDtaEnv = now()
+				FilaWhatsLog.SetEmpty()
+				
+				if not FilaWaGuid.IsEmpty() and not FilaWaGuid.IsNull()
+					prcAtualizaStatusConsumoWhats.call(EmpCod, FilaWaGuid, true)
+				EndIf
+			
+			else
+				if &isEnviou
+					FilaWhatsSts = Status_FilaWhats.ENVIADO_PARCIAL
+				else
+					FilaWhatsSts = Status_FilaWhats.FALHOU
+					
+					if not FilaWaGuid.IsEmpty() and not FilaWaGuid.IsNull()
+						prcAtualizaStatusConsumoWhats.call(EmpCod, FilaWaGuid, false)
+					EndIf
+				endif
+				
+				FilaWhatsLog = &LogGUID.ToString().Trim() + '. ' + &UserMessage.ToJson()
+				exit
+			endif
+		
+			// notifica o sistema de ajuda para inconsistências no telefone
+		
+		msg(&indes + 'º ' + &FilaWhatsGUIDs + ': finalizado', status)
+		
+		if &index >= 100
+			return
+		endif
+//	endif
+when none
+	msg(&indes + 'º: nenhum item foi encontado', status)
+	msg(&indes + 'º: finalizado', status)
+EndFor
+commit 
+
+//Sub 'CriaBoletoSeNaoExiste'
+//	msg(&indes + 'º ' + &FilaWhatsGUIDs + '['+trim(&FilaWhatsMsgGUID.ToString())+']: validando se existe o boleto fisicamente: iniciando', status)
+//	
+//	&File.Source = &FilaWhatsMsgArqDirFis
+//	if not &File.Exists()
+//		msg(&indes + 'º ' + &FilaWhatsGUIDs + '['+trim(&FilaWhatsMsgGUID.ToString())+']: validando se existe o boleto fisicamente: não existe, criando', status)
+//		&ArqNom.SetEmpty()
+//		&CreCodBar.SetEmpty()
+//		&DirFis.SetEmpty()
+//		&DirFisVir.SetEmpty()
+//		&CreDupNro = find(CreDupNro,EmpCod = &EmpCod and FilCod = &FilaWhatsFilCod and CreCod = &FilaWhatsMsgCreCod,'')
+//		
+//		criarquivoBoletoWhats(&LogGUID,&EmpCod,&FilaWhatsFilCod,&FilaWhatsMsgCreCod,&CreDupNro,&ArqNom,&CreCodBar,&DirFis,&DirFisVir)
+//		
+//		If not &DirFisVir.IsEmpty()
+//			msg(&indes + 'º ' + &FilaWhatsGUIDs + '['+trim(&FilaWhatsMsgGUID.ToString())+']: validando se existe o boleto fisicamente: criado', status)
+//		Else
+//			msg(&indes + 'º ' + &FilaWhatsGUIDs + '['+trim(&FilaWhatsMsgGUID.ToString())+']: validando se existe o boleto fisicamente: erro ao criar', status)
+//		EndIf
+//	else
+//		msg(&indes + 'º ' + &FilaWhatsGUIDs + '['+trim(&FilaWhatsMsgGUID.ToString())+']: validando se existe o boleto fisicamente: existe', status)
+//	endif
+//	
+//	msg(&indes + 'º ' + &FilaWhatsGUIDs + '['+trim(&FilaWhatsMsgGUID.ToString())+']: validando se existe o boleto fisicamente: finalizado', status)
+//EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilaWhatsGUID, out:&isValid);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ArqNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArqNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ArqNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCodBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCodBar</Value></Property><Property><Name>Description</Name><Value>Duplicata Codigo de barras</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCodBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDupNro</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DirFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DirFis</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DirFis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DirFisVir">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DirFisVir</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DirFisVir</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsFilCod</Value></Property><Property><Name>Description</Name><Value>Código da filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilaWhatsFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsGUIDs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsGUIDs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsMsgArqDirFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsMsgArqDirFis</Value></Property><Property><Name>Description</Name><Value>Diretório físico</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilaWhatsMsgarqDirFis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsMsgCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsMsgCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilaWhatsMsgCreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsMsgGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsMsgGUID</Value></Property><Property><Name>Description</Name><Value>GUID da mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilaWhatsMsgGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="indes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>indes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>index</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isEnviou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isEnviou</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isValid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isValid</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonCod</Value></Property><Property><Name>Description</Name><Value>Fone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:UserMessage</Value></Property></Properties>
+        </Variable>
+        <Variable Name="now">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>now</Value></Property></Properties>
+        </Variable>
+        <Variable Name="seconds">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>seconds</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsGUID</Value></Property><Property><Name>Description</Name><Value>GUID da fila</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilaWhatsGUID</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcEnviaWhatsBoletos</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="eeb8fa38-ac20-433d-b76a-b9bb9eca03d8" user="LUIZ\LuiZ Henrique" versionDate="2024-10-10T19:12:35.0000000Z" lastUpdate="2024-10-10T14:04:25.0000000Z" checksum="c965555bb16cd19a3175f388c464bb7e" fullyQualifiedName="CancelaStatusFinanceiroPedido" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="5bf44883-2625-48c1-96ba-76802f2e141d" name="CancelaStatusFinanceiroPedido" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Cancela Status Financeiro Pedido" parent="CompraPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&IsAchou = false
+
+if &PedCod <> 0
+	//	&PedTmpCreCod = 0
+	//	For each Order EmpCod, FilCod, PedCod,PedTmpDupCod
+	//		Where EmpCod = &EmpCod
+	//		Where FilCod = &FilCod
+	//		Where PedCod = &PedCod	
+	//		&PedTmpCreCod = PedTmpCreCod
+	//		do 'deletaduplicata'
+	//		delete
+	//	When none
+	//		&PedTmpCreCod = 0
+	//		Do 'deletaduplicata'
+	//	EndFor
+	//
+	//EndIf
+	//
+	//Sub 'deletaduplicata'
+	//DUPLICATAS
+  
+	For Each Order EmpCod, FilCod, CrePedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where CrePedCod = &PedCod
+		Where CreSts <> Status_Duplicata.CANCELADA
+		&IsAchou = True
+		//PAGAMENTOS normais 
+		For Each Order EmpCod, FilCod, CreCod, CrePagCod
+			Where CrePagSts <> Status_Caixa.Cancelado or CrePagSts.IsNull()
+			
+			RemoveFinanceiroDuplicata.Call(EmpCod, FilCod, CreCod, CreMovCod, CreMovItmCod, CrePagCod, &IsAchouPagamentos)
+			
+			CrePagSts = Status_Caixa.Cancelado
+		EndFor
+		
+		//RENEGOCIACOES
+		For Each Order EmpCod, FilCod, CreCod, CreRenCod
+			delete
+		EndFor
+
+		prcDeletaDuplicatareferenciada.Call(EmpCod, FilCod, CreCod)
+		
+		//OBSERVACOES //JDF NAO DELETAR AS OBS.
+		//	For Each Order EmpCod, FilCod, CreCobCod
+		//		delete
+		//	EndFor
+		
+		If Not CreFunCodVal.IsEmpty()
+			prcCancelaAdiantamentoPedido.Call(EmpCod, FilCod, CreCod)
+		EndIf
+		
+		if CreRecPag = ReceberPagar.Receber //TERCEIROS
+			if not CreCheCod.IsEmpty() //DELETA CHEQUE LANCADO
+				RemoveChequeTerceiros.Call(EmpCod, CreCheCod)
+			Endif
+		Else //PROPRIO
+			Do CAse
+				CAse CreFrpPgtoTip = TipoDuplicata.CHEQUEP and CreCheCod > 0 //REMOVE O CHEQUE PROPRIO
+					RemoveChequeProprio.Call(EmpCod, CreCheCod)
+					
+				Case CreFrpPgtoTip = TipoDuplicata.CHEQUET //REMOVE O CHEQUE REPASSADO.
+					
+					&CreCod = CreCod
+					do 'AtualizaCheque'
+			EndCase
+			
+		EndiF
+		
+		//CANCELA BOLETO HIBRIDO
+		If CreCbrTipBol = TipoBoleto.Hibrido And Not CreBloNro.IsEmpty() And Not CreDtaRet.IsEmpty()
+			&PesRaz	= 'USUÁRIO: ' + Trim(Str(&ContextPesCod))
+			Do Case
+				Case CreCbrCtaBanBanCod = '748'
+					prcCancelarCobranca_Sicredi.Call(EmpCod, FilCod, &ContextPesCod, &PesRaz, CreCod, CreCbrCod, CreBloNro, &IsBaixaOk, &BaixaMensagem)
+					
+				Case CreCbrCtaBanBanCod = '077'
+					&CreCbrCod	= CreCbrCod
+					Do 'GetLocalCobranca'
+					
+					If &IsErro	= False
+						prcCancelarCobranca_Inter.Call(EmpCod, FilCod, &ContextPesCod, &PesRaz, CreCod, CreCbrCod, &CbrChaTra, &contacorrente, CreCodSol, &Mensagem, &BaixaMensagem)
+					EndIf
+			EndCase
+		EndIf
+		
+		CreSts = Status_Duplicata.CANCELADA
+	EndFor
+	
+	Commit
+	
+	//Remove as pgto de creditos utilizados no pedido.
+	DeletaPgtodeCredito.call(&EmpCod,&FilCod,&PedCod)
+	
+	
+	//altera Financeiro pedido
+	For Each Order EmpCod, FilCod, PedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PedCod = &PedCod //when not &PedCod = 0
+		
+		PedStsFin 		= Status_Financeiro.ABERTO
+		PedStsFinIsPar 	= false
+		
+		DeletaPgtoItenPedido.Call(EmpCod,FilCod,PedCod)
+	EndFor
+	
+	commit
+	
+	If &IsAchou = True
+		
+		//GRAVA HISTORICO
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.CanceladoFinanceiro, &ContextPesCod)
+		For Each Order EmpCod, FilCod, PedCod, (HisItmCod)
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod //when not &PedCod = 0
+			&HisItmCod = HisItmCod
+			Exit
+		EndFor
+		
+		if not &Mensagem.IsEmpty()
+			&PedStsCod = RetornaCodigoStatusPedido.Udp(&EmpCod, 'CANCELADO')
+			//GRAVA HISTORICO
+			&HisItmCod += 1
+			New
+				EmpCod = &EmpCod
+				FilCod = &FilCod
+				PedCod = &PedCod
+				HisItmCod = &HisItmCod
+				HisStsCod = &PedStsCod
+				HisStsObs = format('Financeiro usuario %1: %2', trim(str(&ContextPesCod)), &Mensagem)
+			EndNew
+			
+			Commit
+		Endif
+	EndIf
+EndIf
+
+sub 'AtualizaCheque'
+	For Each Order EmpCod, CheRepFilCreCod, CheRepCreCod
+		Where EmpCod 			= &EmpCod
+		Where CheRepFilCreCod 	= &FilCod
+		Where CheRepCreCod 		= &CreCod
+		
+		CheRepIs 		= false
+		CheRepFilCreCod = 0
+		CheRepCreCod 	= 0
+		
+		ChequeTerceiros_AlteraStatus.Call(EmpCod, CheCod, MotivoCheque.EMITIDO)
+	EndFor
+
+	Commit
+EndSub	
+
+Sub 'GetLocalCobranca'
+	
+	&IsErro 		= False
+	For each Order EmpCod, CbrCod, CrbRegAut
+		Where EmpCod 	= &EmpCod
+		Where CbrCod 	= &CreCbrCod
+		Where CrbRegAut = Status_SimNao.Sim
+		
+		&contacorrente	= CbrNroCon.Trim() + CbrNroConDig.Trim()
+		If not CbrChaTra.Trim().IsEmpty() and not CbrChaTraVct.IsEmpty() and  CbrChaTraVct > ServerNow()
+			&CbrChaTra 			= CbrChaTra
+		Else
+			prcOAuth_Inter.Call(&EmpCod, &FilCod, &PesCod, CbrCod, &CbrChaTra, &Mensagem)
+			If Not &Mensagem.IsEmpty()
+				&IsErro			= True
+			EndIf
+		EndIf
+		
+		Exit
+	When None
+		&IsErro	= True
+	EndFor
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod, In:&Mensagem, in:&ContextPesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchouPagamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchouPagamentos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsCod</Value></Property><Property><Name>Description</Name><Value>Ped Sts Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ContextPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ContextPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HisItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HisItmCod</Value></Property><Property><Name>Description</Name><Value>His Itm Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:HisItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SHA256Bytes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SHA256Bytes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CryptoSHA">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CryptoSHA</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:CryptoCertificate</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTmpCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTmpCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTmpCreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdoCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdoCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="contacorrente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>contacorrente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação | token Beaber</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBaixaOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBaixaOk</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BaixaMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BaixaMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>CancelaStatusFinanceiroPedido</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

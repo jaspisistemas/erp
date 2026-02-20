@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="eeb8fa38-ac20-433d-b76a-b9bb9eca03d8" user="WINJEAN\jeanfae" versionDate="2025-02-04T13:20:59.0000000Z" lastUpdate="2025-01-29T13:10:19.0000000Z" checksum="c9bbcb561098e840dd0029d35e537216" fullyQualifiedName="prcProcessoImportacao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="08437f71-6263-4a49-a8a2-d3c8330a3401" name="prcProcessoImportacao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Processo Importacao" parent="CompraPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+Do CAse
+	CAse &FecharPedidoSelecionado = true and &PedCod > 0 
+		For Each Order EmpCod, FilCod, PedCod, PedItmCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&QtdItens += 1
+		EndFor
+		
+		if &QtdItens > 0
+			&QtdItens = &QtdItens*2
+			&Total = round(&QtdItens/10,0)
+		Endif
+		&Total += 15
+		
+	Case &SalvarPedidoCompra = true
+		For Each Order tmpNFeCod, tmpNfeItmCod
+			Where tmpNFeCod = &tmpNfeCod
+			&QtdItens += 1
+		EndFor
+		
+		if &QtdItens > 0
+			&Total = round(&QtdItens/10,0)
+		Endif
+		&Total += 10
+		
+	Otherwise
+		&Total = 10
+EndCase
+
+&Count = 1
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+Do 'VerificaLancamento'
+&PedStsGer	= IIf(&LctTip = TipoLancamento.SaidaMercadoria, Pedido_Gerado.Vendas, Pedido_Gerado.Compras)
+Do Case
+	Case &SalvarPedidoCompra = true
+		//SALVA O PEDIDO DE COMPRA
+		NotaTemporaria_Pedido.Call(&ProgressId, &Total, &Count, &tmpNFeCod, &EmpCod, &FiLCod,&PedVenCod, &PedStsGer, &LctCod, &tmpNfeFatFilCod,&DevPedCodOciRef, &PedCod, &wwpContextUserName)
+	Case &FecharPedidoSelecionado = true and &PedCod > 0 
+	
+		if &PedCod > 0 and &SubstituirItensPedido = true
+			NotaTemporaria_Pedido.Call(&ProgressId, &Total, &Count, &tmpNFeCod, &EmpCod, &FiLCod,&PedVenCod, &PedStsGer, &LctCod, &tmpNfeFatFilCod,&DevPedCodOciRef, &PedCod, &wwpContextUserName)	
+		Endif
+	
+		//ATUALIZA ESTOQUE PEDIDO E FECHA	
+		If &LctTip	= TipoLancamento.SaidaMercadoria
+			AtualizaEstoqueGerencialVenda_submit.Call(&ProgressId, &EmpCod, &FilCod, &PedCod, &PedDtaFat, &UsuarioPesCod, Status_Pedido.FECHADO, False)
+		Else
+			AtualizaEstoqueGerencialCompra_submit.Call(&ProgressId, &Total, &Count, &EmpCod, &FiLCod, &PedCod, &PedDtaFat, &UsuarioPesCod, Status_Pedido.FECHADO, false)
+		EndIf
+EndCase
+
+&Count += 1
+If &Count > 0
+	&Percentual = round((&Count / &Total) * 100, 0)
+EndIF
+If &Percentual >= 100
+	&Percentual = 99
+EndIf
+do 'Atualiza'
+
+If &SalvarNotaCompra = true
+	For Each Order tmpNFeCod
+		Where tmpNFeCod = &tmpNFeCod
+		VerificaNotaJahLancada.Call(&EmpCod, tmpNfeFatFilCod, tmpNfeProTer, tmpEmixCod, tmpNfeNum, tmpNfeSer, tmpModCod, tmpPedCod, &auxNfeCod)
+		Exit
+	EndFor
+	//GRAVA ATUALIZA NOTA FISCAL
+	NotaTemporaria_NotaFiscal.Call(&tmpNFeCod, &EmpCod, &FiLCod, &PedCod, &auxNfeCod)
+	
+	&Count += 1
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+EndiF
+
+&Count += 1
+If &Count > 0
+	&Percentual = round((&Count / &Total) * 100, 0)
+EndIF
+If &Percentual >= 100
+	&Percentual = 99
+EndIf
+do 'Atualiza'
+
+//ATUALIZA ICMS RETIDO NOS PRODUTOS
+prcAtualizaBaseImcsRetido.call(&tmpNFeCod,  &EmpCod, &FiLCod, &PedCod)
+
+&Count += 1
+If &Count > 0
+	&Percentual = round((&Count / &Total) * 100, 0)
+EndIF
+If &Percentual >= 100
+	&Percentual = 99
+EndIf
+do 'Atualiza'
+
+//GRAVA ORDEM COSTURA
+If &SalvarOrdemCostura = true and &auxNfeCod > 0
+	GravaOrdemCostura_NotaFiscal.Call(&EmpCod, &FiLCod, &auxNfeCod, &tmpNFeCod)
+Endif
+
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+		ProgressLogXml = &ProgressLogXml
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+			ProgressLogXml = &ProgressLogXml
+		Endnew
+	endfor
+	
+	commit	
+EndSub
+
+Sub 'VerificaLancamento'
+	
+	For Each Order EmpCod, LctCod
+		Where EmpCod	= &EmpCod
+		Where LctCod	= &LctCod
+		
+		&LctTip	= LctTip
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&tmpNFeCod, in:&EmpCod, in:&FilCod, in:&PedVenCod, in:&LctCod, in:&tmpNfeFatFilCod, in:&DevPedCodOciRef, in:&PedCod, in:&PedDtaFat, in:&SalvarPedidoCompra, in:&FecharPedidoSelecionado, in:&SalvarNotaCompra, in:&SalvarOrdemCostura, in:&SubstituirItensPedido, in:&UsuarioPesCod, in:&wwpContextUserName);
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SalvarPedidoCompra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SalvarPedidoCompra</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpNFeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpNFeCod</Value></Property><Property><Name>Description</Name><Value>Chave Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpNFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevPedCodOciRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevPedCodOciRef</Value></Property><Property><Name>Description</Name><Value>Pedido Referenciado na Ordem Carregamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCodOciRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpNfeFatFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpNfeFatFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Faturamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpNfeFatFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FecharPedidoSelecionado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FecharPedidoSelecionado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SalvarNotaCompra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SalvarNotaCompra</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxNfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SalvarOrdemCostura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SalvarOrdemCostura</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdItens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdItens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UsuarioPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UsuarioPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContextUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContextUserName</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:wwpContextUserName</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctTip</Value></Property><Property><Name>Description</Name><Value>Lançamento Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsGer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsGer</Value></Property><Property><Name>Description</Name><Value>Onde foi Gerado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsGer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SubstituirItensPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SubstituirItensPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcProcessoImportacao</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

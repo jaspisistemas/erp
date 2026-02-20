@@ -1,0 +1,610 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2f25795c-fff6-4ba9-a5b2-0e65a915a4ed" user="WIN-JEAN\jean.fae" versionDate="2023-06-02T13:08:39.0000000Z" lastUpdate="2023-05-29T19:00:11.0000000Z" checksum="d505a398cfbad464e1085589dd383e3b" fullyQualifiedName="ImportaLancamentosMaquininha" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="3c6e7410-f602-44fe-8500-9e873d376896" name="ImportaLancamentosMaquininha" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Importa Lancamentos Maquininha" parent="LancamentoMaquininha" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&Line = 1
+//&LogGuid = GUID.NewGuid()
+&sdtMensagens.Clear()
+
+&sdtLayoutCSVCielo = RetornaLayoutPorCodigo(&EmpCod,0,Tipo_Layout.MAQUININHA_A,&LayCod)
+
+do case
+	case &extensao.ToLower() = 'csv'
+		do 'PegaMaiorColuna'
+		do 'LeCSV'
+	case &extensao = 'xlsx'
+		do 'LeXLSX'
+	otherwise
+		&sdtMensagemItem = new()
+		&sdtMensagemItem.msgTitulo   = 'Oops!'
+		&sdtMensagemItem.msgMensagem = 'Extensão inválida para o arquivo!'
+		&sdtMensagemItem.msgType     = DVMessageType.error
+		do 'AddMensagem'
+		
+		&sdtMensagemItem = new()
+		&sdtMensagemItem.msgTitulo   = 'Apenas .XLSX ou .CSV'
+		&sdtMensagemItem.msgMensagem = 'Verifique se é uma planilha do excel (.xlsx) ou um arquivo CSV (.csv)'
+		&sdtMensagemItem.msgType     = DVMessageType.information
+		do 'AddMensagem'
+		
+endcase
+
+// csv
+Sub 'LeCSV'
+	// ===     Abre Arquivo recebido como parâmetro     ===
+	// 		dfrOpen seleciona o arquivo e abre ele, passando o caractere delimitador de cada campo e a codificação dos caracteres
+	&retorno = dfrOpen(&selectedURL,,';',,'ANSI')
+	
+	// ===     "gasta linhas" do arquivo até chega na linha informada pelo usuário
+	Do While &Line < &sdtLayoutCSVCielo.Campo.PrimeiraLinha 
+		&aux= dfrNext()
+		&Line += 1
+	enddo
+	
+	Do While dfrNext() = 0
+		&sdtLancamentoItem = new()
+		
+		For &col = 1 to &maiorColuna step 1
+			
+			// lê uma coluna
+			&retorno = dfrgtxt(&valorLido)
+			// faz uma limpeza geral no campo
+			do 'ArrumaValorLido'
+			
+			do case
+				case &retorno = 0
+					do case
+						case &col = &sdtLayoutCSVCielo.Campo.DataDaVenda
+							do 'EncapsulaDataDaVenda'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.Bandeira
+							do 'EncapsulaBandeira'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.FormaDePagamento
+							do 'EncapsulaFormaDePagamento'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.ValorDaVenda
+							do 'EncapsulaValorDaVenda'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.ValorLiquido
+							do 'EncapsulaValorLiquido'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.DataDoPagamento
+							do 'EncapsulaDataDoPagamento'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.CodigoDeAutorizacao
+							do 'EncapsulaCodigoDeAutorizacao'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.NSU
+							do 'EncapsulaNSU'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.NumeroDoCartao						
+							do 'EncapsulaNumeroDoCartao'
+							
+						case &col = &sdtLayoutCSVCielo.Campo.NomeDoCartao						
+							do 'EncapsulaNomeDoCartao'
+					endcase
+				otherwise
+					&sdtMensagemItem = new()
+					&sdtMensagemItem.msgTitulo   = 'Oops!'
+					&sdtMensagemItem.msgMensagem = 'Houve um problema na leitura da coluna ' + str(&col)
+					&sdtMensagemItem.msgType     = DVMessageType.error
+					do 'AddMensagem'
+					return
+					exit
+			endcase
+		Endfor
+		
+		do 'CalculaDescontoComissao'
+		&sdtLancamentos.Add(&sdtLancamentoItem)
+	EndDo
+	
+	&retorno = dfrClose()
+	
+	do 'GravaLancamentos'
+EndSub
+
+// xls
+Sub 'LeXLSX'
+	&Excel.Open(&selectedURL)
+	
+	If &Excel.ErrCode <> 0
+		&sdtMensagemItem = new()
+		&sdtMensagemItem.msgTitulo   = 'Oops!'
+		&sdtMensagemItem.msgMensagem = 'O ocorreu o seguinte erro: [' + &Excel.ErrDescription + ']'
+		&sdtMensagemItem.msgType     = DVMessageType.error
+		do 'AddMensagem'
+	Else
+		&Line = &sdtLayoutCSVCielo.Campo.PrimeiraLinha
+		
+		/*
+			O ExcelDocument não tem um método que diz "último registro". VoCê precisa gerenciar para que quando comece a vir dados
+			em branco este ponto seja o término da leitura do arquivo. Aqui foi definido como sendo o término quando a coluna 1
+			linha X for vazio
+		*/
+		Do While not &Excel.Cells(&Line,1).Text.IsEmpty()
+			&sdtLancamentoItem = new()
+			
+			if not &sdtLayoutCSVCielo.Campo.NSU.IsEmpty()
+				&sdtLancamentoItem.LanMaqNSU = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.NSU).Text
+			endif
+			
+			if not &sdtLayoutCSVCielo.Campo.CodigoDeAutorizacao.IsEmpty()
+				&sdtLancamentoItem.LanMaqNroAut = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.CodigoDeAutorizacao).Text
+			endif
+			
+			do 'ValidaCodigoVazio'
+			
+			if not &sdtLayoutCSVCielo.Campo.DataDaVenda.IsEmpty()
+				&valorLido = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.DataDaVenda).Text
+				do 'EncapsulaDataDaVenda'
+			endif
+			
+			if not &sdtLayoutCSVCielo.Campo.Bandeira.IsEmpty()
+				&sdtLancamentoItem.LanMaqBandeira = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.Bandeira).Text
+			endif
+			
+			if not &sdtLayoutCSVCielo.Campo.FormaDePagamento.IsEmpty()
+				&sdtLancamentoItem.LanMaqFrp = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.FormaDePagamento).Text
+			endif
+			
+			if not &sdtLayoutCSVCielo.Campo.ValorLiquido.IsEmpty()
+				&valorLido = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.ValorLiquido).Text
+				do 'EncapsulaValorLiquido'
+			endif
+			
+			if not &sdtLayoutCSVCielo.Campo.DataDoPagamento.IsEmpty()
+				&valorLido = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.DataDoPagamento).Text
+				do 'EncapsulaDataDoPagamento'
+			endif
+			
+			if not &sdtLayoutCSVCielo.Campo.ValorDaVenda.IsEmpty()
+				&sdtLancamentoItem.LanMaqVlrVenda = &Excel.Cells(&Line,&sdtLayoutCSVCielo.Campo.ValorDaVenda).Number
+			endif
+			
+			do 'CalculaDescontoComissao'
+			&sdtLancamentos.Add(&sdtLancamentoItem)
+			&Line += 1
+		EndDo
+		
+		do 'GravaLancamentos'
+	EndIf
+EndSub
+
+Sub 'ArrumaValorLido'
+	&valorLido = &valorLido.Replace('"','')
+	&valorLido = &valorLido.trim()
+EndSub
+
+Sub 'ArrumaData'
+	&valorLido = &valorLido.Substring(1,10)
+	
+	if &valorLido.ismatch('[0-9]{2}\/[0-9]{2}\/[0-9]{4}')
+		&dDataDaVenda = ctod(&valorLido)
+		
+		if &dDataDaVenda.IsEmpty()
+			&sdtMensagemItem             = new()
+			&sdtMensagemItem.msgTitulo   = 'Oops!'
+			&sdtMensagemItem.msgMensagem = 'A data está vazia na coluna'
+			&sdtMensagemItem.msgType     = DVMessageType.error
+			do 'AddMensagem'
+			
+			return
+		endif
+	
+	else
+		&sdtMensagemItem             = new()
+		&sdtMensagemItem.msgTitulo   = 'Oops!'
+		&sdtMensagemItem.msgMensagem = 'Erro ao importar a data. O padrão é dd/mm/aaaa, mas veio [' + &valorLido + ']'
+		&sdtMensagemItem.msgType     = DVMessageType.error
+		do 'AddMensagem'
+	endif
+EndSub
+
+Sub 'ArrumaDinheiro'
+	&valorLido = &valorLido.Replace('-','').Replace('R','').Replace('$','').Replace('.','').Trim()
+	if &valorLido.IsMatch('^\d+,\d+$')
+		&moedaArrumada = val(&valorLido, ',')
+		
+		if &moedaArrumada < 0
+			&moedaArrumada *= -1
+		endif
+	else
+		&sdtMensagemItem             = new()
+		&sdtMensagemItem.msgTitulo   = 'Oops!'
+		&sdtMensagemItem.msgMensagem = 'Campo incompatível com o tipo Moeda na coluna ' + str(&col) + ' [' + &valorLido + ']'
+		&sdtMensagemItem.msgType     = DVMessageType.error
+		do 'AddMensagem'
+		return
+	endif
+EndSub
+
+// sempre que alterar o layout sdt, tem que alterar manualmente aqui também
+Sub 'PegaMaiorColuna'
+	&maiorColuna = &sdtLayoutCSVCielo.Campo.Bandeira
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.CodigoDeAutorizacao
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.CodigoDeAutorizacao
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.DataDaVenda
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.DataDaVenda
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.DataDoPagamento
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.DataDoPagamento
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.FormaDePagamento
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.FormaDePagamento
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.NomeDoCartao
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.NomeDoCartao
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.NSU
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.NSU
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.NumeroDoCartao
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.NumeroDoCartao
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.ValorDaVenda
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.ValorDaVenda
+	endif
+	
+	if &maiorColuna < &sdtLayoutCSVCielo.Campo.ValorLiquido
+		&maiorColuna = &sdtLayoutCSVCielo.Campo.ValorLiquido
+	endif
+
+EndSub
+
+Sub 'EncapsulaDataDaVenda'
+	
+	do 'ArrumaData'
+	&sdtLancamentoItem.LanMaqDtaVenda = &dDataDaVenda
+	
+EndSub
+
+Sub 'EncapsulaBandeira'
+	&sdtLancamentoItem.LanMaqBandeira = &valorLido
+EndSub
+
+Sub 'EncapsulaFormaDePagamento'
+	&valorLido = &valorLido.RemoveDiacritics()
+	&valorLido = &valorLido.Trim().ToLower()
+	if &valorLido.Contains('credit')
+		&sdtLancamentoItem.LanMaqFrp = 'C'
+	else
+		&sdtLancamentoItem.LanMaqFrp = 'D'
+	endif
+EndSub
+
+Sub 'EncapsulaValorDaVenda'
+	do 'ArrumaDinheiro'
+	&sdtLancamentoItem.LanMaqVlrVenda = &moedaArrumada
+EndSub
+
+Sub 'EncapsulaValorLiquido'
+	do 'ArrumaDinheiro'
+	&sdtLancamentoItem.LanMaqVlrLiquido = &moedaArrumada
+EndSub
+
+Sub 'EncapsulaDataDoPagamento'
+	do 'ArrumaData'
+	&sdtLancamentoItem.LanMaqDtaPgto = ctoD(&valorLido)
+EndSub
+
+Sub 'EncapsulaCodigoDeAutorizacao'
+	&sdtLancamentoItem.LanMaqNroAut = &valorLido
+EndSub
+
+Sub 'EncapsulaNSU'
+	&sdtLancamentoItem.LanMaqNSU = &valorLido
+EndSub
+
+Sub 'EncapsulaNumeroDocartao'
+	&sdtLancamentoItem.LanMaqCartaoNro = &valorLido
+EndSub
+
+Sub 'EncapsulaNomeDocartao'
+	&sdtLancamentoItem.LanMaqCartaoNom = &valorLido
+EndSub
+
+Sub 'CalculaDescontoComissao'
+	if &sdtLancamentoItem.LanMaqVlrVenda = 0 and &sdtLancamentoItem.LanMaqVlrLiquido = 0
+		&sdtMensagemItem = new()
+		&sdtMensagemItem.msgTitulo   = 'Oops!'
+		&sdtMensagemItem.msgMensagem = 'Valor de venda ou líquido veio zerado. Confira a ordem das colunas'
+		&sdtMensagemItem.msgType     = DVMessageType.error
+		do 'AddMensagem'
+		return
+	else
+		&sdtLancamentoItem.LanMaqVlrDescontado = &sdtLancamentoItem.LanMaqVlrVenda - &sdtLancamentoItem.LanMaqVlrLiquido
+		&sdtLancamentoItem.LanMaqComissao      = &sdtLancamentoItem.LanMaqVlrDescontado * 100 / &sdtLancamentoItem.LanMaqVlrVenda
+	endif
+EndSub
+
+Sub 'ValidaCodigoVazio'
+	if &sdtLancamentoItem.LanMaqNroAut.IsEmpty() and &sdtLancamentoItem.LanMaqNSU.IsEmpty()
+		&sdtMensagemItem = new()
+		&sdtMensagemItem.msgTitulo   = 'Oops!'
+		&sdtMensagemItem.msgMensagem = 'Código de Autorização e NSU estão vazios'
+		&sdtMensagemItem.msgType     = DVMessageType.error
+		do 'AddMensagem'
+		return
+	endif
+EndSub
+
+Sub 'AddMensagem'
+	if &sdtMensagens.Count = 4
+		return
+	else	
+		&sdtMensagens.Add(&sdtMensagemItem)
+	endif
+EndSub
+
+Sub 'GravaLancamentos'
+	&qtdLancamentosGravados = 0
+	for &sdtLancamentoItem in &sdtLancamentos
+		for each
+			order EmpCod, BanCarCod, LanMaqNroAut, LanMaqNSU, LanMaqCod
+			where EmpCod       = &EmpCod
+			where BanCarCod    = &BanCarCod
+			where LanMaqNroAut = &sdtLancamentoItem.LanMaqNroAut when not &sdtLancamentoItem.LanMaqNroAut.IsEmpty()
+			where LanMaqNSU    = &sdtLancamentoItem.LanMaqNSU when not &sdtLancamentoItem.LanMaqNSU.IsEmpty()
+			exit
+		when none
+			&qtdLancamentosGravados += 1
+			UltimoCodigoEmpresa.Call(domParCod.LANCAMENTOMAQ, &EmpCod, 0, &sdtLancamentoItem.LanMaqCod)
+			new
+				EmpCod               = &EmpCod
+				BanCarCod            = &BanCarCod
+				LanMaqCod            = &sdtLancamentoItem.LanMaqCod
+				LanMaqBandeira       = &sdtLancamentoItem.LanMaqBandeira
+				LanMaqDtaVenda       = &sdtLancamentoItem.LanMaqDtaVenda
+				LanMaqFrp            = &sdtLancamentoItem.LanMaqFrp
+				LanMaqComissao       = &sdtLancamentoItem.LanMaqComissao
+				LanMaqVlrVenda       = &sdtLancamentoItem.LanMaqVlrVenda
+				LanMaqVlrDescontado  = &sdtLancamentoItem.LanMaqVlrDescontado
+				LanMaqVlrLiquido     = &sdtLancamentoItem.LanMaqVlrLiquido
+				LanMaqDtaPgto        = &sdtLancamentoItem.LanMaqDtaPgto
+				LanMaqNroAut         = &sdtLancamentoItem.LanMaqNroAut
+				LanMaqNSU            = &sdtLancamentoItem.LanMaqNSU
+				LanMaqCartaoNom      = &sdtLancamentoItem.LanMaqCartaoNom
+				LanMaqCartaoNro      = &sdtLancamentoItem.LanMaqCartaoNro
+				LanMaqDataImportacao = now()
+				LanMaqStatus         = StatusConciliacao.Pendente
+			endnew
+		endfor
+	endfor
+
+	commit
+	
+	&sdtMensagemItem = new()
+	&sdtMensagemItem.msgTitulo   = &qtdLancamentosGravados.ToString() + ' lançamentos importados'
+	
+	if &sdtLancamentos.Count = &qtdLancamentosGravados
+		&sdtMensagemItem.msgMensagem = 'Agora você conciliá-los com base nas datas ao lado'
+	else
+		&sdtMensagemItem.msgMensagem = 'Alguns registros encontrados no arquivo já estavam cadastrados'
+	endif
+
+	&sdtMensagemItem.msgType     = DVMessageType.success
+	do 'AddMensagem'
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Layout>
+          <Bands>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute2</Value></Property><Property><Name>RPT_ID</Name><Value>4</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;selectedURL</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>742</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel1</Value></Property><Property><Name>RPT_ID</Name><Value>5</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>URL:</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel4</Value></Property><Property><Name>RPT_ID</Name><Value>14</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Forma pagamento</Value></Property><Property><Name>RPT_X</Name><Value>250</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel8</Value></Property><Property><Name>RPT_ID</Name><Value>18</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Autorização</Value></Property><Property><Name>RPT_X</Name><Value>525</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel7</Value></Property><Property><Name>RPT_ID</Name><Value>17</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>NSU</Value></Property><Property><Name>RPT_X</Name><Value>600</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel6</Value></Property><Property><Name>RPT_ID</Name><Value>16</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Comissão (%)</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel5</Value></Property><Property><Name>RPT_ID</Name><Value>15</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Valor venda</Value></Property><Property><Name>RPT_X</Name><Value>350</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel3</Value></Property><Property><Name>RPT_ID</Name><Value>13</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Bandeira</Value></Property><Property><Name>RPT_X</Name><Value>158</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel2</Value></Property><Property><Name>RPT_ID</Name><Value>12</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Data da venda</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine1</Value></Property><Property><Name>RPT_ID</Name><Value>26</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>50</Value></Property><Property><Name>RPT_WIDTH</Name><Value>583</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>menu</Value></Property><Property><Name>RPT_ID</Name><Value>3</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>51</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute1</Value></Property><Property><Name>RPT_ID</Name><Value>19</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;DataDaVenda</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>67</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute3</Value></Property><Property><Name>RPT_ID</Name><Value>20</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Bandeira</Value></Property><Property><Name>RPT_X</Name><Value>158</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute7</Value></Property><Property><Name>RPT_ID</Name><Value>24</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Autorizacao</Value></Property><Property><Name>RPT_X</Name><Value>525</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute5</Value></Property><Property><Name>RPT_ID</Name><Value>22</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;ValorVenda</Value></Property><Property><Name>RPT_X</Name><Value>350</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>67</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute6</Value></Property><Property><Name>RPT_ID</Name><Value>23</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Comissao</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>67</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute8</Value></Property><Property><Name>RPT_ID</Name><Value>25</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;NSU</Value></Property><Property><Name>RPT_X</Name><Value>600</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>42</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute4</Value></Property><Property><Name>RPT_ID</Name><Value>21</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;FormaPagamento</Value></Property><Property><Name>RPT_X</Name><Value>250</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>83</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>printBlock1</Value></Property><Property><Name>RPT_ID</Name><Value>1</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>21</Value></Property></Properties>
+            </PrintBlock>
+          </Bands>
+          <Properties><Property><Name>RPT_PAPER_SIZE</Name><Value>A4</Value></Property></Properties>
+        </Layout>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(
+	in:&EmpCod,
+	in:&FilCod,
+	in:&selectedURL,
+	in:&extensao,
+	in:&LayCod,
+	in:&BanCarCod,
+	out:&sdtMensagens
+);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Autorizacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Autorizacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="aux">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>aux</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCarCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCarCod</Value></Property><Property><Name>Description</Name><Value>Bandeira Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCarCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Bandeira">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Bandeira</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="col">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>col</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Comissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Comissao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataDaVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataDaVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dDataDaVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dDataDaVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Excel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Excel</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:ExcelDocument</Value></Property></Properties>
+        </Variable>
+        <Variable Name="extensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>extensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>20</Value></Property><Property><Name>AttMaxLen</Name><Value>20</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FormaPagamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FormaPagamento</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>40</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>40</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property></Properties>
+        </Variable>
+        <Variable Name="maiorColuna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>maiorColuna</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlValues</Name><Value>0 ---:0,1ª COLUNA:1,2ª COLUNA:2,3ª COLUNA:3,4ª COLUNA:4,5ª COLUNA:5,6ª COLUNA:6,7ª COLUNA:7,8ª COLUNA:8,9ª COLUNA:9</Value></Property></Properties>
+        </Variable>
+        <Variable Name="moedaArrumada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>moedaArrumada</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NSU</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtLancamentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtLancamentoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtLancamentoMaquininha.sdtLancamentoMaquininhaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtLancamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtLancamentos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtLancamentoMaquininha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtLayoutCSVCielo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtLayoutCSVCielo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtLayoutConciliaMaquininha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagemItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagemItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens.sdtMensagensItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagens</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="selectedURL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>selectedURL</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="valorLido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>valorLido</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomeGrande100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCod</Value></Property><Property><Name>Description</Name><Value>Codigo da tabela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LayCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdLancamentosGravados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdLancamentosGravados</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ImportaLancamentosMaquininha</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

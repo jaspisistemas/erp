@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="289aa680-579b-4b7e-986e-6f923edcd581" user="WINJEAN\jeanfae" versionDate="2025-08-04T11:11:37.0000000Z" lastUpdate="2025-08-01T13:29:04.0000000Z" checksum="67574fd4c3a5ab3b85b7f71ba5857bca" fullyQualifiedName="PedNovStsCod_FORMULA" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="17ee888d-7be6-433f-a52d-bafe19c7f7e1" name="PedNovStsCod_FORMULA" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Ped Nov Sts Ped_FORMULA" parent="Lancamentos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon010_LiberarCreditoPedido, &AutorizarCreditoPedido)
+
+//DIGITANDO - (Opcao televendas informa termino)
+//SMART.ANALISE - Aplicativo Smart Offline
+//'MARKETPLACE' - APlicativo Marketplace
+//CONDICIONAL
+//orcamento /aberto 
+//ENTR.FUTURA / VF.ENTREGADO'
+//Analise /analisado /autoriado /nao autorizado (Autorizacao de credito/Analise em duas etapas)
+//em producao /produzido (se tiver selecionado pedido para producao)
+//emabalando /embalado 
+//faturado /despachado
+
+For each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	
+	&PedSts = PedSts
+	
+	Do Case
+		Case PedSts = Status_Pedido.CANCELADO
+			&Status = 'CANCELADO'
+			&StsOrd = 90
+			
+		Case PedSts = Status_Pedido.FECHADO
+			
+			if PedStsDsp = Status_Despacho.Despachado
+				&Status = 'DESPACHADO'
+				&StsOrd = 70
+			Else
+				&Status = 'FATURADO'
+				&StsOrd = 60
+			EndIF
+			
+		Case PedSts = Status_Pedido.SEPARANDO
+			&Status = 'SEPARAÇÃO'
+			&StsOrd = 45
+			
+			Do Case				
+				Case PedStsEmb = Status_Embalo.Embalado //IF not PedDtaEmb.isempty() and not PedDtaEmb.isnull(); 
+					&Status = 'S.EMBALADO'
+					&StsOrd = 54
+					
+				Case PedStsEmb = Status_Embalo.Embalando //IF not PedDtaEmb.isempty() and not PedDtaEmb.isnull(); 
+					&Status = 'S.EMBALANDO'
+					&StsOrd = 54
+			EndCase
+		
+		Case LctTip = TipoLancamento.OrcamentoVenda
+			if PedStsDigBlk = true
+				&Status = 'DIGITAÇÃO'
+				&StsOrd = 0
+			Else
+				&Status = 'ORÇAMENTO'
+				&StsOrd = 10
+			EndIF
+			
+		Case PedSts = Status_Pedido.ABERTO
+			&IsAutorizado = true
+			&Status = 'ABERTO'
+			&StsOrd = 20
+			
+			Do Case				
+				Case PedStsEmb = Status_Embalo.Embalado //IF not PedDtaEmb.isempty() and not PedDtaEmb.isnull(); 
+					&Status = 'EMBALADO'
+					&StsOrd = 54
+					
+				Case PedStsEmb = Status_Embalo.Embalando //IF not PedDtaEmb.isempty() and not PedDtaEmb.isnull(); 
+					&Status = 'EMBALANDO'
+					&StsOrd = 54
+					
+				Case PedStsPrd = Status_Producao.Produzido
+					&Status = 'PRODUZIDO'
+					&StsOrd = 55
+					
+				Case PedStsPrd = Status_Producao.EmProducao
+					&Status = 'PRODUZINDO'
+					&StsOrd = 50
+					//embalando/embalado
+					
+				Case PedStsFut = VendaFutura.BloqueiaVendaFutura //and PedStsFin <> Status_Financeiro.FECHADO
+					&Status = 'ENTR.FUTURA'
+					&StsOrd = 49
+					
+					RetornaSaldoEntregaFutura.call(EmpCod, FilCod, PedCod, PedVlrLiq, &IsSaldo)
+					if &IsSaldo = false  // caso não tenha mais saldo finaliza
+						&Status = 'VF.ENTREGUE'
+						&StsOrd = 49
+					Endif
+					
+					//Ao abrir uma ordem de carregamento, se não tiver mais nehuma referencia, volta o pedido principal para aberto.
+					&IsUmReferenciado = RetornaUmPedidoReferencia.Udp(EmpCod, FilCod, PedCod)
+					If &IsUmReferenciado = false
+						&Status = 'ABERTO'
+						&StsOrd = 20
+					EndIf
+					
+				Case PedStsGer = Pedido_Gerado.MarketPlace
+					&Status = 'MARKETPLACE'
+					&StsOrd = 49
+					
+				Case PedStsGer = Pedido_Gerado.SMART
+					&Status = 'SMART.ANALISE'
+					&StsOrd = 49
+			EndCase
+	EndCAse
+	
+	do 'getStatus'
+	
+	&PedStsCod = LctStsCod
+	Do 'GetStatusManual'	
+	
+	&PedStsCod = PedStsCod
+	Do 'GetStatusManual'
+	
+	PedNovStsCod = &StsCod
+	
+	Exit
+EndFor
+
+Commit
+
+PedNovStsFinCod_FORMULA.Call(&EmpCod, &FilCod, &PedCod)
+
+sub 'getStatus'
+	For Each Order EmpCod, StsNom
+		Where EmpCod = &EmpCod
+		Where StsNom = &Status
+		Where StsPed = &PedSts
+		
+		if StsWs = Status_WsUsu.Usuario
+			StsWs = Status_WsUsu.WebService
+			
+			commit
+		EndiF
+		
+		if StsEst <> true or StsEst.IsNull() or StsEst.IsEmpty()
+			StsEst = true
+			
+			commit
+		EndiF
+		
+		&StsCod = StsCod
+		Exit
+	When none
+		UltimoCodigoEmpresa.Call(domParCod.STATUSPEDIDO, &EmpCod, 0, &StsCod)
+		
+		new
+			EmpCod = &EmpCod
+			StsCod = &StsCod
+			StsNom = &Status
+			StsWs = Status_WsUsu.WebService
+			StsPed = &PedSts
+			StsOrd = &StsOrd
+			StsEst = true
+			StsPaiCod = &StsCod
+		EndNEw
+		
+		Commit
+	EndFor
+EndSUb
+
+Sub 'GetStatusManual'
+	For Each Order EmpCod, StsCod
+		Where EmpCod = &EmpCod
+		Where StsCod = &PedStsCod
+		Where StsWs <> Status_WsUsu.WebService
+		Where StsPed = &PedSts
+		Where StsPaiCod = &StsCod
+		Where StsEst = true
+		&StsCod = &PedStsCod
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutorizarCreditoPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutorizarCreditoPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutorizado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutorizado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StsCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:StsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StsOrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StsOrd</Value></Property><Property><Name>Description</Name><Value>Ordem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:StsOrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsCod</Value></Property><Property><Name>Description</Name><Value>Ped Sts Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSaldo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSaldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsUmReferenciado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsUmReferenciado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>PedNovStsCod_FORMULA</Value></Property><Property><Name>Description</Name><Value>Ped Nov Sts Ped_FORMULA</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

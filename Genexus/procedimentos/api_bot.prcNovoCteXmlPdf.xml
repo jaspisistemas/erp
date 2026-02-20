@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="002cdcae-9d8f-4dc4-be6e-67a204ea2083" user="WIN-ITALO\Italo" versionDate="0001-01-01T00:00:00.0000000" lastUpdate="2025-11-13T21:00:19.0000000Z" checksum="af8b69508750fd673c022faf75332d7f" fullyQualifiedName="api_bot.prcNovoCteXmlPdf" moduleGuid="781017e1-0c07-41d7-8697-bf2c70c67ec8" guid="8f6fdca5-f0dc-45c3-8cac-46772817da94" name="prcNovoCteXmlPdf" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Novo Cte Xml Pdf" parent="api_bot.cte" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&EmpCodSec = &sdtReceivedCte.EmpCodSec
+
+do 'validaEntrada'
+do 'buscaPessoa'
+do 'downloadArquivos'
+
+if not (&EmpCodSec.IsEmpty() or &EmpCod.IsEmpty() or &FilCod.IsEmpty())
+	for &path in &paths
+		GravaCteComPdf(&EmpCod, &FilCod, &CteCod, &path, false, 0, &IsSucess, &erroMensagem)
+		
+		if &CteCod > 0
+			//Fazer um update para X para poder ficar como pendente e depois apagar automaticamente caso nao tenha.
+			for each order EmpCod, FilCod, CteCod
+				where EmpCod = &EmpCod
+				where FilCod = &FilCod
+				where CteCod = &CteCod
+				
+				CteSts = Status_NFe.Importada
+				
+				exit
+			endfor
+			
+			if not &IsSucess
+				&RestCode = 400
+				&sdtResponseCte.message = format('Erro CTe[%1] %2',trim(&CteCod.ToString()),trim(&erroMensagem))
+			endif
+		else
+			&RestCode = 400
+			&sdtResponseCte.message = format('Erro CTe %1',trim(&erroMensagem))
+		endif
+	endfor
+else
+	&RestCode = 404
+	&sdtResponseCte = new()
+	&sdtResponseCte.message = 'Cadastro não localizado'
+endif
+
+sub 'validaEntrada'
+	do case
+		case &sdtReceivedCte.EmpCodSec.IsEmpty()
+			&RestCode = 400
+			&sdtResponseCte = new()
+			&sdtResponseCte.message = 'Informe a empresa'
+			return
+			
+		case &sdtReceivedCte.ctes.IsEmpty()
+			&RestCode = 400
+			&sdtResponseCte = new()
+			&sdtResponseCte.message = 'CT-e não informado'
+			return
+	endcase
+	
+	&pathsToDownload = &sdtReceivedCte.ctes.SplitRegEx('\n')
+	
+	if &pathsToDownload.Count = 0
+		&RestCode = 400
+		&sdtResponseCte = new()
+		&sdtResponseCte.message = 'CT-e informado é inválido'
+		return
+	endif
+	
+EndSub
+
+Sub 'buscaPessoa'
+	for each Empresa order EmpCod
+		where EmpCodSec = &EmpCodSec
+		
+		&EmpCod = EmpCod
+		&FilCod = 1
+		
+		exit
+	when none
+		&EmpCod.SetEmpty()
+	endfor
+EndSub
+
+Sub 'downloadArquivos'
+	&sdtConfiguracoesPasta = retornaConfiguracoesPastas(&EmpCod,&FilCod)
+	
+	gravalogDev(&EmpCod,&FilCod,&logguid,'','&pathsToDownload',&pathsToDownload.toJson())
+	
+	for &forPath in &pathsToDownload
+		&HttpClient.Execute(HttpMethod.Get,&forPath)
+		
+		if &HttpClient.ErrCode = 0 and &HttpClient.GetHeader('Content-Type') = 'application/pdf'
+			&path = &sdtConfiguracoesPasta.PastaDiretorioTempFis + GUID.newGuid().ToString().Trim() + '.pdf'
+			&HttpClient.ToFile(&path)
+			gravalogDev(&EmpCod,&FilCod,&logguid,'','downloadArquivos',&path)
+			
+			&paths.Add(&path)
+		else
+			&RestCode = 400
+			&sdtResponseCte = new()
+			&sdtResponseCte.message = 'Falha ao fazer download de ' + &forPath
+			return
+		endif
+		
+		gravalogDev(&EmpCod,&FilCod,&logguid,'','&HttpClient.ErrDescription',&HttpClient.ErrDescription)
+	endfor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&sdtReceivedCte,out:&sdtResponseCte,out:&RestCode);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCodSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCodSec</Value></Property><Property><Name>Description</Name><Value>Código Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCodSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="erroMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>erroMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="forPath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>forPath</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSucess">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSucess</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="logguid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>logguid</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="paths">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>paths</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pathsToDownload">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pathsToDownload</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtReceivedCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtReceivedCte</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtReceivedCte, api_bot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtResponseCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtResponseCte</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtResponseCte, api_bot</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcNovoCteXmlPdf</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

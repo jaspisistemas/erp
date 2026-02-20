@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0eedb32-1a76-46f9-90b3-8fc8dd206328" user="LUIZ\LuiZ Henrique" versionDate="2022-10-04T15:04:04.0000000Z" lastUpdate="2020-11-16T11:59:57.0000000Z" checksum="37ca1c9c6c660fcb70e10cf5e60b92e2" fullyQualifiedName="WWPBaseObjects.Mail.WWP_SendMail" moduleGuid="1b4506a5-2715-45ee-a09a-8dc6fb250fdf" guid="62034399-9559-4e03-99ef-bb890b2b6d2b" name="WWP_SendMail" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Send Mail" parent="WWPBaseObjects.Mail.Procedures" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&SendStatus = -1
+&Mail.Load(&MailId)
+
+If &Mail.Fail()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Mail not found with id: " + &MailId.ToString())
+	return
+EndIf
+
+If &Mail.WWPMailSenderAddress.IsEmpty() or &Mail.WWPMailSenderName.IsEmpty()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Sender address/name cannot be empty: " + &MailId.ToString())
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Sender address/name cannot be empty")
+	return
+EndIf
+
+If &Mail.WWPMailSubject.IsEmpty() or &Mail.WWPMailBody.IsEmpty()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Mail subject/body cannot be empty: " + &MailId.ToString())
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Mail subject/body cannot be empty")
+	return
+EndIf
+
+If &Mail.WWPMailTo.IsEmpty() and &Mail.WWPMailCC.IsEmpty() and &Mail.WWPMailBCC.IsEmpty()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Mail recipient cannot be empty: " + &MailId.ToString())
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Mail recipient cannot be empty")
+	return
+EndIf
+
+&ToAddressList = WWPBaseObjects.Mail.WWP_ParseMailAddressList(&Mail.WWPMailTo)
+If not &Mail.WWPMailTo.IsEmpty() and &ToAddressList.Count = 0
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Mail recipient is not valid address list: " + &MailId.ToString())
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Mail To is invalid")
+	return
+EndIf
+
+&CCAddressList = WWPBaseObjects.Mail.WWP_ParseMailAddressList(&Mail.WWPMailCC)
+If not &Mail.WWPMailCC.IsEmpty() and &CCAddressList.Count = 0
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Mail recipient is not valid address list: " + &MailId.ToString())
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Mail CC is invalid")
+	return
+EndIf
+
+&BCCAddressList = WWPBaseObjects.Mail.WWP_ParseMailAddressList(&Mail.WWPMailBCC)
+If not &Mail.WWPMailBCC.IsEmpty() and &BCCAddressList.Count = 0
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Mail recipient is not valid address list: " + &MailId.ToString())
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Mail BCC is invalid")
+	return
+EndIf
+
+For &Attachment in &Mail.Attachments
+	&FileExists = (FileExist(&Attachment.WWPMailAttachmentFile) = 1)
+	If not &FileExists
+		WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"Attachment is not a valid file: " + &Attachment.WWPMailAttachmentFile)
+		WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, !"Attachment invalid")
+		return
+	EndIf
+EndFor
+
+&MailMessage = new()
+&MailMessage.From.Address = &Mail.WWPMailSenderAddress
+&MailMessage.From.Name = &Mail.WWPMailSenderName
+&MailMessage.Subject = &Mail.WWPMailSubject
+&MailMessage.HTMLText = &Mail.WWPMailBody
+
+&MailRecipient = new()
+&MailRecipient.Address = &Mail.WWPMailSenderAddress
+&MailRecipient.Name = &Mail.WWPMailSenderName
+&SMTPSession.Sender = &MailRecipient
+
+For &Address in &ToAddressList
+	&MailRecipient = new()
+	&MailRecipient.Address = &Address
+	&MailMessage.To.Add(&MailRecipient)
+EndFor
+
+For &Address in &CCAddressList
+	&MailRecipient = new()
+	&MailRecipient.Address = &Address
+	&MailMessage.CC.Add(&MailRecipient)
+EndFor
+
+For &Address in &BCCAddressList
+	&MailRecipient = new()
+	&MailRecipient.Address = &Address
+	&MailMessage.BCC.Add(&MailRecipient)
+EndFor
+
+For &Attachment in &Mail.Attachments
+	&MailMessage.Attachments.Add(&Attachment.WWPMailAttachmentFile)
+EndFor
+
+&SendStatus = &SmtpSession.Send(&MailMessage)
+&StatusMessage = WWPBaseObjects.Mail.WWP_GetStatusCodeMessage(&SendStatus)
+
+If &SendStatus <> 0
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, Format(!"Error sending mail with id: %1 - Code: %2 - %3", &MailId.ToString(), &SendStatus.ToString().Trim(), &StatusMessage))
+	WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Error, Format(!"Code: %1 - Message: %2", &SendStatus.ToString().Trim(), &StatusMessage))
+	return
+EndIf
+
+WWPBaseObjects.Mail.WWP_UpdateMailStatus(&MailId, WWPBaseObjects.Mail.WWP_StatusMail.Sent, !"OK")
+commit
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&MailId, in:&SMTPSession, out:&SendStatus);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Address">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Address</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Attachment">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Attachment</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bc:WWP_Mail.Attachments, WWPBaseObjects.Mail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BCCAddressList">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BCCAddressList</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CCAddressList">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CCAddressList</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FileExists">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FileExists</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mail</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bc:WWP_Mail, WWPBaseObjects.Mail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MailId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MailId</Value></Property><Property><Name>Description</Name><Value>Mail Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WWPMailId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MailMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MailMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:MailMessage</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MailRecipient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MailRecipient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:MailRecipient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SendStatus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SendStatus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SMTPSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SMTPSession</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:SMTPSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusMessage</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ToAddressList">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ToAddressList</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>WWP_SendMail</Value></Property><Property><Name>Description</Name><Value>Send Mail</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

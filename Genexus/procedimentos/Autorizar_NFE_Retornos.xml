@@ -1,0 +1,756 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="WINJEAN\jeanfae" versionDate="2025-12-24T13:50:47.0000000Z" lastUpdate="2025-12-22T12:38:42.0000000Z" checksum="ce654ce99c70f52550ed78d48c825fb7" fullyQualifiedName="Autorizar_NFE_Retornos" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="bf85f7de-fefe-4676-b09d-52fdd3566076" name="Autorizar_NFE_Retornos" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Autorizar_NFE_Retornos" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//AUTORIZA NFE
+For Each Order EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &NfeCod	
+	
+	&Ano = year(NfeDtaEms)
+	&mes = month(NfeDtaEms)
+	&PastaDanfeData = str(&Ano,4,0)+padl(trim(str(&mes,2,0)),2,'0')	
+	&Nome_arquivo_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ trim(NfeChv) + '-nfe.err'
+
+	&NfeChv = NfeChv
+	&NewTentativa = 0
+	&SolSts = Status_Solicitacao.Pendente
+	
+	Do while &NewTentativa < 10 and &SolSts = Status_Solicitacao.Pendente
+		&NfeAutNumLot = ''
+		&NfeAutNumRec = ''
+		&NewTentativa += 1
+		
+		&mensagem = 'Tentativa ' + trim(str(&NewTentativa))
+		do 'Mensagem'
+		
+		&dorme = sleep(1)
+		do 'Procedimentos_AUTORIZA'
+		
+//		if &SolSts = Status_Solicitacao.Pendente
+//			&dorme = sleep(1)
+//		EndIF
+	EndDo
+	
+	Exit
+EndFor
+&FILE.Close()
+&XMLReader.Close()
+
+if &SolSts <> Status_Solicitacao.Pendente
+	if not &Arquivo_lote_correto.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&Arquivo_lote_correto)
+		do 'mensagem'
+		&FILE.Source = &Arquivo_lote_correto.Trim()
+		iF &File.Exists()
+			&File.Delete()
+		EndIf
+	EndIF
+	
+	if not &arquivo_lote_erro.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&arquivo_lote_erro)
+		do 'mensagem'
+		&File.Source = &arquivo_lote_erro.Trim()
+		If &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+	
+	if not &Nome_arquivo_erro.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&Nome_arquivo_erro)
+		do 'mensagem'
+		&File.Source = &Nome_arquivo_erro.Trim()
+		If &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+	
+	if not &Arquivo_rec_correto.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&Arquivo_rec_correto)
+		do 'mensagem'
+		&File.Source = &Arquivo_rec_correto.Trim()
+		If &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+	
+	if not &arquivo_rec_erro.IsEmpty()
+		&mensagem = 'Deletar: ' + trim(&arquivo_rec_erro)
+		do 'mensagem'
+		&File.Source = &arquivo_rec_erro.Trim()    
+		if &File.Exists()
+			&File.Delete()
+		EndIF
+	EndIF
+EndIF
+
+Sub 'Mensagem'
+	msg(&mensagem  + ' Hora: ' + serverTime(), status)
+EndSub
+
+Sub 'Procedimentos_AUTORIZA'
+	&SolMsg = ''
+	msg(&Nome_arquivo_erro, status)
+	&File.Source = &Nome_arquivo_erro //XML REJEITADO
+	If &File.Exists()		
+		&SolSts = Status_Solicitacao.Falha
+		&NewTentativa = 99
+		
+		&SolMsg = 'Xml Rejeitado: '
+		&ResultadoAbertura = DFROpen(&Nome_arquivo_erro)
+		&ResultadoNext = 0
+		Do while &ResultadoNext = 0
+			&Ret =  DFRGTxt(&CampoUnico, 500)	
+			&SolMsg += &CampoUnico	
+			&ResultadoNext =  DFRNext()
+		EndDo
+		&resultadoNext = DFRClose()
+		
+		&mensagem = &SolMsg
+		do 'mensagem'
+	Else	
+		do 'pegar_numero_lote'
+		
+		if &NfeAutNumLot <> ''
+			&NfeAutDigVal = ''
+//			&dorme = sleep(1)
+			do 'pegar_recibo'
+		EndIF
+	
+		If &NfeAutDigVal = '' // propreenche se for sincrono e nfc-e
+			If &NfeAutNumLot <> '' and &NfeAutNumRec <> '' and &SolSts <> Status_Solicitacao.Falha
+//				&dorme = sleep(1)
+				do 'pegar_numero_do_protocolo'
+			Else
+				Do Case
+					CAse &cStat = 108 //SERVICO PARALIZADO MOMENTANEAMENTE
+						&NfeAutSts = trim(str(&cStat))
+					Case &cStat = 109 //Serviço Paralisado sem Previsão
+				EndCAse
+			EndIF
+		EndIf
+		
+		If &NfeAutSts <> '' and &SolSts <> Status_Solicitacao.Falha
+			Do Case
+				Case &NfeAutSts = '100' or &NfeAutSts = '150'  //100-uso autorizado,
+					
+					AtualizaNumeroProtocoloNFe.Call('AUTORIZA_NFE', &EmpCod, &FilCod, &NfeCod, &NfeAutSts, &NfeAutNumLot, &NfeAutNumRec, &NfeAutDatHorRec, &NfeAutMsg, &NfeAutNumPro, &NfeAutDigVal, Status_NFe.Autorizada, &SolPesCod)
+					
+					&SolSts = Status_Solicitacao.Finalizada
+			        
+		            do 'ArquivoXML'
+			        
+				Case &NfeAutSts in ('205', '302', '301') //DENEGADA
+					AtualizaNumeroProtocoloNFe.Call('AUTORIZA_NFE', &EmpCod, &FilCod, &NfeCod, &NfeAutSts, &NfeAutNumLot, &NfeAutNumRec, &NfeAutDatHorRec, &NfeAutMsg, &NfeAutNumPro, &NfeAutDigVal, Status_NFe.Denegada, &SolPesCod)
+					
+					&SolSts = Status_Solicitacao.Finalizada
+					
+					do 'ArquivoXMLDenegado'
+					
+					
+				Case &NfeAutSts = '703' //703 - Data-Hora de Emissao posterior ao horario de recebimento Tolerância de até 5 minutos. 
+//					TrocarFusoHorario.Call(FusoHorario.HorarioVerao) //MUDAR PARA O HORARIO DE VERAO
+					
+					&SolSts = Status_Solicitacao.Finalizada
+										
+				//Case &NfeAutSts = '703' //703 - Data-Hora de Emissao posterior ao horario de recebimento Tolerância de até 5 minutos. 
+					//TrocarFusoHorario.Call(FusoHorario.HorarioNormal) //MUDAR PARA O HORARIO NORMAL
+					
+				Otherwise
+					&SolSts = Status_Solicitacao.Falha
+					
+					do 'ArquivoXML'
+			EndCase
+		EndIF
+	Endif
+	
+EndSUb
+
+Sub 'pegar_numero_lote'
+	&Arquivo_lote_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &NfeChv.Trim() + '-num-lot.xml'
+	&arquivo_lote_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &NfeChv.Trim() + '-nfe.err'
+	
+	msg(&Arquivo_lote_correto, status)
+	msg(&arquivo_lote_erro, status)
+	&File.Source = &Arquivo_lote_correto
+	if &File.Exists()
+		&XMLReader.Open(&Arquivo_lote_correto)
+		&XMLReader.ReadType(1,'NumeroLoteGerado')
+		&NfeAutNumLot = &XMLReader.Value
+		&XMLReader.Close()
+		
+		&mensagem = 'Numero do LoteGerado: ' + &NfeAutNumLot.Trim()
+		&SolMsg = &mensagem
+		do 'Mensagem'
+		
+	Else
+		&File.Source = &arquivo_lote_erro
+		if &File.Exists()
+			
+			&NewTentativa = 99
+			&SolSts = Status_Solicitacao.Falha
+			
+			&SolMsg = 'Lote Erro: '
+			&ResultadoAbertura = DFROpen(&arquivo_lote_erro)
+			&ResultadoNext = 0
+			Do while &ResultadoNext = 0
+				&Ret =  DFRGTxt(&CampoUnico, 500)	
+				&SolMsg += trim(&CampoUnico	)
+				&ResultadoNext =  DFRNext()
+			EndDo
+			&resultadoNext = DFRClose()
+			
+			&mensagem = &SolMsg
+			do 'Mensagem'
+		EndIf
+	EndIF
+EndSub
+
+Sub 'pegar_recibo'
+	&Arquivo_rec_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&NfeAutNumLot.Trim(), 15, '0') + '-rec.xml'
+	&Arquivo_rec_correto2 = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&NfeAutNumLot.Trim(), 15, '0') + '-pro-rec.xml'
+	&arquivo_rec_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&NfeAutNumLot.Trim(), 15, '0') + '-rec.err'
+	&arquivo_rec_erro2    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + padL(&NfeAutNumLot.Trim(), 15, '0') + '-pro-rec.err'
+	
+	msg(&Arquivo_rec_correto, status)
+	msg(&arquivo_rec_erro, status)
+	
+	&File.Source = &Arquivo_rec_correto	
+	if &File.Exists()		
+		&XMLReader.Open(&Arquivo_rec_correto)
+
+		&XMLReader.ReadType(1,'cStat')
+		&cStat = val(&XMLReader.Value)
+		&XMLReader.ReadType(1,'xMotivo')
+		&xMotivo = &XMLReader.Value
+		
+		&ret = &XmlReader.ReadType(1, 'infRec') 
+		if &ret <> 0
+			&XmlReader.Read()
+			
+			Do while &XmlReader.Name <> 'infRec'				
+				Do Case
+					Case &XMLReader.Name = 'nRec'
+						&NfeAutNumRec = &XMLReader.Value
+						
+					Case &XMLReader.Name = 'dhRecbto'
+						&NfeAutDatHorRec = trim(&XMLReader.Value)
+				Endcase
+				
+				&XmlReader.Read()
+				if &XmlReader.EOF = true
+					Exit
+				endif
+			EndDo
+		EndIF
+	
+		&XMLReader.Close()
+	
+		Do Case
+			CAse &cStat = 452
+				&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&NfeAutNumRec) + ' dhRecbto:' + trim(&NfeAutDatHorRec)
+				&NewTentativa = 99
+				&SolSts = Status_Solicitacao.Falha
+				&SolMsg = &mensagem
+				do 'Mensagem'
+			
+			CAse &cStat = 225
+				&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&NfeAutNumRec) + ' dhRecbto:' + trim(&NfeAutDatHorRec)
+				&NewTentativa = 99
+				&SolSts = Status_Solicitacao.Falha
+				&SolMsg = &mensagem
+				do 'Mensagem'
+			
+			otherwise
+				&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&NfeAutNumRec) + ' dhRecbto:' + trim(&NfeAutDatHorRec)
+				&SolMsg = &mensagem
+				do 'Mensagem'
+		Endcase
+		
+	Else
+		&File.Source = &Arquivo_rec_correto2 // arquivo de retorno quando nfc-e e sincrono do vai pular a sub 'pegar_numero_do_protocolo'
+		msg(&Arquivo_rec_correto2, status)
+		if &File.Exists()
+			&NfeAutSts = ''
+			&NfeAutNumPro = ''
+			&NfeAutDigVal = ''
+			&NfeAutMsg = ''
+			
+			&XMLReader.Open(&Arquivo_rec_correto2)
+	
+			&XMLReader.ReadType(1,'cStat')
+			&cStat = val(&XMLReader.Value)
+			&XMLReader.ReadType(1,'xMotivo')
+			&xMotivo = &XMLReader.Value
+			
+			&ret = &XmlReader.ReadType(1, 'protNFe') 
+			if &ret <> 0 and &cStat <> 101
+				&XmlReader.Read()			
+				Do While &XMLReader.Name <> 'protNFe'
+					Do Case
+						Case &XMLReader.Name = 'infProt'
+							&XMLReader.Read()
+							
+							Do while &XmlReader.Name <> 'infProt'
+								Do Case
+									Case &XMLReader.Name = 'nProt'
+										&NfeAutNumPro = &XMLReader.Value
+										
+									Case &XMLReader.Name = 'digVal'
+										&NfeAutDigVal = &XMLReader.Value
+										
+									Case &XMLReader.Name = 'cStat'
+										&NfeAutSts = &XMLReader.Value
+										
+									Case &XMLReader.Name = 'xMotivo'
+										&NfeAutMsg = trim(&XMLReader.Value)			
+										
+									case &XMLReader.Name = 'dhRecbto'
+										&NfeAutDatHorRec = trim(&XMLReader.Value)
+								Endcase
+								
+								&XmlReader.Read()							
+								If &XmlReader.EOF = true
+									Exit
+								endif
+							EndDo
+					EndCase
+					
+					&XmlReader.Read()
+					
+					if &XmlReader.EOF = true
+						Exit
+					endif
+				EndDo
+			Endif
+		
+			&XMLReader.Close()
+			
+			Do Case //104 lote processado
+				CAse &cStat <> 100 and &cStat <> 150 and &cStat <> 101 and &cStat <> 102 and &cStat <> 205 and &cStat <> 302 and &cStat <> 301 and &cStat <> 104
+					&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&NfeAutNumRec) + ' dhRecbto:' + trim(&NfeAutDatHorRec)
+					&NewTentativa = 99
+					&SolSts = Status_Solicitacao.Falha
+					&SolMsg = &mensagem
+					do 'Mensagem'
+					
+				otherwise
+					
+					if &cStat = 104 //LOTE PROCESSADO
+						&mensagem =  &NfeAutSts + ' ' + &NfeAutMsg + ' Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&NfeAutNumRec) + ' dhRecbto:' + trim(&NfeAutDatHorRec)
+						&SolMsg  = &mensagem
+					Else
+						&mensagem = 'Status Lote: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo) + ' nRec:' + trim(&NfeAutNumRec) + ' dhRecbto:' + trim(&NfeAutDatHorRec)
+						&SolMsg = &mensagem
+						
+					Endif
+				
+					do 'Mensagem'
+			Endcase		
+		Else		
+			
+			&File.Source = &arquivo_rec_erro2
+			if &File.Exists()
+				
+				&NewTentativa = 99
+				&SolSts = Status_Solicitacao.Falha
+				
+				&SolMsg = 'Recibo Erro: '
+				&ResultadoAbertura = DFROpen(&arquivo_rec_erro2)
+				&ResultadoNext = 0
+				Do while &ResultadoNext = 0
+					&Ret =  DFRGTxt(&CampoUnico, 500)	
+					&SolMsg += &CampoUnico	
+					&ResultadoNext =  DFRNext()
+				EndDo
+				&resultadoNext = DFRClose()
+				
+				&mensagem = &SolMsg
+				do 'Mensagem'
+			EndIf
+		EndIF
+	EndIF
+EndSub
+
+
+
+Sub 'pegar_numero_do_protocolo'
+	&NfeAutSts = ''
+	&NfeAutNumPro = ''
+	&NfeAutDigVal = ''
+	&NfeAutMsg = ''
+	
+	&Arquivo_protocolo_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &NfeAutNumRec.Trim() + '-pro-rec.xml'
+	&arquivo_protocolo_erro = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + &NfeAutNumRec.Trim() + '-pro-rec.err'    
+	msg(&Arquivo_protocolo_correto, status)
+	msg(&arquivo_protocolo_erro, status)
+	&File.Source = &Arquivo_protocolo_correto 
+	If &File.Exists()
+		&XMLReader.Open(&Arquivo_protocolo_correto)
+		
+		&ret = &XmlReader.ReadType(1, 'protNFe') 
+		if &ret <> 0
+			&XmlReader.Read()			
+			Do While &XMLReader.Name <> 'protNFe'
+				Do Case
+					Case &XMLReader.Name = 'infProt'
+						&XMLReader.Read()
+						
+						Do while &XmlReader.Name <> 'infProt'
+							Do Case
+								Case &XMLReader.Name = 'nProt'
+									&NfeAutNumPro = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'digVal'
+									&NfeAutDigVal = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'cStat'
+									&NfeAutSts = &XMLReader.Value
+									
+								Case &XMLReader.Name = 'xMotivo'
+									&NfeAutMsg = trim(&XMLReader.Value)
+							Endcase
+							
+							&XmlReader.Read()							
+							If &XmlReader.EOF = true
+								Exit
+							endif
+						EndDo
+				EndCase
+				
+				&XmlReader.Read()
+				
+				if &XmlReader.EOF = true
+					Exit
+				endif
+			EndDo
+			
+		EndIF
+		&XMLReader.Close()
+		
+		&mensagem = 'Protocolo Status: ' + trim(&NfeAutSts) + ' - ' + trim(&NfeAutMsg)
+		&SolMsg = &mensagem
+		do 'Mensagem'
+	Else
+		&File.Source = &arquivo_protocolo_erro
+		if &File.Exists()
+			
+			&NewTentativa = 99	
+			&SolSts = Status_Solicitacao.Falha
+			
+			&SolMsg = 'Protocolo Erro: '
+			&ResultadoAbertura =   DFROpen(&arquivo_protocolo_erro)    
+		    &ResultadoNext = 0
+			Do while &ResultadoNext = 0
+				&Ret =  DFRGTxt(&CampoUnico, 500)
+				
+				&SolMsg += &CampoUnico
+				
+				&ResultadoNext =  DFRNext()
+			EndDo
+			&resultadoNext = DFRClose()
+			
+			&mensagem = &SolMsg
+			do 'Mensagem'
+		EndIf
+	EndIF
+EndSub
+
+Sub 'ArquivoXML'
+	&PastaDanfeData = str(&Ano,4,0)+padl(trim(str(&mes,2,0)),2,'0')	
+	&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeData) +'/'+&NfeChv.trim()+'-procNFe.xml'
+	
+	&file.Source = &ArquivoPronto
+	if &file.Exists()
+		GravaArquivoXmlNF.Call(&EmpCod, &FilCod, &NfeCod, &ArquivoPronto)
+	Else
+		&mes1 = &mes
+		&Ano1 = &Ano
+		if &mes1 = 1
+			&mes1 = 12
+			&Ano1 -= 1
+			&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+		Else
+			&mes1 -= 1
+			&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+		Endif
+		
+		&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeData1) +'/'+&NfeChv.trim()+'-procNFe.xml'
+		
+		&file.Source = &ArquivoPronto
+		if &file.Exists()
+			GravaArquivoXmlNF.Call(&EmpCod, &FilCod, &NfeCod, &ArquivoPronto)
+		Else
+			&mes1 = &mes
+			&Ano1 = &Ano
+			if &mes1 = 12
+				&mes1 = 1
+				&Ano1 += 1
+				&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+			Else
+				&mes1 += 1
+				&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+			Endif
+			
+			&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeData1) +'/'+&NfeChv.trim()+'-procNFe.xml'
+			
+			&file.Source = &ArquivoPronto
+			if &file.Exists()
+				GravaArquivoXmlNF.Call(&EmpCod, &FilCod, &NfeCod, &ArquivoPronto)
+			Endif
+			
+		EndIf
+	EndIf
+EndSub
+
+
+Sub 'ArquivoXMLDenegado'
+	&PastaDanfeData = str(&Ano,4,0)+padl(trim(str(&mes,2,0)),2,'0')	
+	&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Denegados/' + trim(&PastaDanfeData) +'/'+&NfeChv.trim()+'-procNFe.xml'
+	
+	&file.Source = &ArquivoPronto
+	if &file.Exists()
+		GravaArquivoXmlNF.Call(&EmpCod, &FilCod, &NfeCod, &ArquivoPronto)
+	Else
+		&mes1 = &mes
+		&Ano1 = &Ano
+		if &mes1 = 1
+			&mes1 = 12
+			&Ano1 -= 1
+			&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+		Else
+			&mes1 -= 1
+			&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+		Endif
+	
+		&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Denegados/' + trim(&PastaDanfeData1) +'/'+&NfeChv.trim()+'-procNFe.xml'
+		
+		&file.Source = &ArquivoPronto
+		if &file.Exists()
+			GravaArquivoXmlNF.Call(&EmpCod, &FilCod, &NfeCod, &ArquivoPronto)
+		Else
+			&mes1 = &mes
+			&Ano1 = &Ano
+			if &mes1 = 12
+				&mes1 = 1
+				&Ano1 += 1
+				&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+			Else
+				&mes1 += 1
+				&PastaDanfeData1 = str(&Ano1,4,0)+padl(trim(str(&mes1,2,0)),2,'0')
+			Endif
+			
+			&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Denegados/' + trim(&PastaDanfeData1) +'/'+&NfeChv.trim()+'-procNFe.xml'
+			
+			&file.Source = &ArquivoPronto
+			if &file.Exists()
+				GravaArquivoXmlNF.Call(&EmpCod, &FilCod, &NfeCod, &ArquivoPronto)
+			Endif
+			
+		EndIf
+	EndIf
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&NfeCod, &sdtConfiguracoesPasta, inout:&NewTentativa, inout:&SolSts, inout:&SolMsg, in:&SolPesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewTentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewTentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_arquivo_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_arquivo_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeData</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChv</Value></Property><Property><Name>Description</Name><Value>Chave NFE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumLot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumLot</Value></Property><Property><Name>Description</Name><Value>Numero do Lote</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumLot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumRec</Value></Property><Property><Name>Description</Name><Value>Recibo da NFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FILE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FILE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLReader</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_lote_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_lote_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_lote_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_lote_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_rec_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_rec_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_rec_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_rec_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cStat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cStat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutDatHorRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutDatHorRec</Value></Property><Property><Name>Description</Name><Value>Data Hora Recibo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutDatHorRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xMotivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xMotivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutMsg</Value></Property><Property><Name>Description</Name><Value>msg</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutDigVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutDigVal</Value></Property><Property><Name>Description</Name><Value>Nfe Aut Dig Val</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutDigVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumPro</Value></Property><Property><Name>Description</Name><Value>Protocolo Autorizacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumPro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPronto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPronto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_protocolo_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_protocolo_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_protocolo_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_protocolo_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_rec_correto2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_rec_correto2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeData1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeData1</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_rec_erro2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_rec_erro2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Autorizar_NFE_Retornos</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

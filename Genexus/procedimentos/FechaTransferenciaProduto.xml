@@ -1,0 +1,769 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="8679d782-6e3a-4a89-886c-f7ec09c84d5e" user="WINJEAN\jeanfae" versionDate="2025-07-14T14:27:14.0000000Z" lastUpdate="2025-07-08T11:26:41.0000000Z" checksum="fa3f780c467909a326bd4c113aae60dd" fullyQualifiedName="FechaTransferenciaProduto" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="d06f3863-51c7-4b36-a23f-6c0ee44195f6" name="FechaTransferenciaProduto" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Fecha Transferencia Produto" parent="TransferenciaProdutos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&Total = 50
+&Count = 0
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+		
+For Each Order EmpCod, TrsCod
+	Where EmpCod = &EmpCod
+	Where TrsCod = &trsCod
+	
+	&TrsSaiFilCod = TrsSaiFilCod 
+	&TrsEntFilCod = TrsEntFiLCod
+	&TrsTip = TrsTip
+	&TrsDtaEms = TrsDtaEms
+	
+	Do CAse
+		Case TrsTip = 'I' or TrsTip.IsEmpty() or TrsTip.IsNull()
+			retornaConfSistema.Call(&EmpCod, &TrsSaiFilCod, domConfSistema.TCon047_TransOrigemProduto, &Varchar)
+			&SaidaLctCod.FromString(&Varchar)
+			retornaConfSistema.Call(&EmpCod, &TrsEntFilCod, domConfSistema.TCon048_TransDestinoProduto, &Varchar)
+			&EntradaLctCod.FromString(&Varchar)
+			
+		Case TrsTip = 'D' //REMESSA
+			retornaConfSistema.Call(&EmpCod, &TrsSaiFilCod, domConfSistema.TCon197_TransOrigemRemessa, &Varchar)
+			&SaidaLctCod.FromString(&Varchar)
+			retornaConfSistema.Call(&EmpCod, &TrsEntFilCod, domConfSistema.TCon198_TransDestinoRemessa, &Varchar)
+			&EntradaLctCod.FromString(&Varchar)
+			
+		Case TrsTip = 'R' //RETORNO
+			retornaConfSistema.Call(&EmpCod, &TrsSaiFilCod, domConfSistema.TCon199_TransOrigemRetorno, &Varchar)
+			&SaidaLctCod.FromString(&Varchar)
+			retornaConfSistema.Call(&EmpCod, &TrsEntFilCod, domConfSistema.TCon200_TransDestinoRetorno, &Varchar)
+			&EntradaLctCod.FromString(&Varchar)
+	EndCase
+
+	TrsSaiTipLct = &SaidaLctCod
+	TrsEntTipLct = &EntradaLctCod
+		
+	&OrigemPedCod = TrsSaiPedCod
+	do 'insertPedidoCapaOrigem'
+	
+	&TrsSaiPedCod = TrsSaiPedCod
+	If &TrsSaiPedCod.IsEmpty()
+		TrsSaiPedCod = &OrigemPedCod
+		&TrsSaiPedCod = &OrigemPedCod
+	EndiF
+	
+	Commit
+	
+	&Count = 50
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	&DestinoPedCod = TrsEntPedCod
+	do 'insertPedidoCapaDestino'
+	
+	If TrsEntPedCod.IsEmpty() or TrsEntPedCod.IsNull()
+		TrsEntPedCod = &DestinoPedCod	
+	EndIF
+
+	&TrsSaiNfeCod = TrsSaiNfeCod
+	&TrsEntNfeCod = TrsEntNfeCod
+	
+	commit
+	
+	TrsSts = Status_Pedido.FECHADO
+	Exit
+EndFor
+
+Commit
+
+
+//GRAVA NOTA TEMPORARIA
+if &TrsTip = 'R' or &TrsTip = 'D' //RETORNO ou REMESSA
+	&tmpNFeCod = trim(str(&EmpCod)) + trim(Str(&TrsSaiFilCod)) + trim(str(&TrsSaiPedCod))
+	GravaNotaTemporariaVenda.Call(&EmpCod, &TrsSaiFilCod, &TrsSaiPedCod, '55')
+	GravaNotaFiscalModelo55.Call('RETURN', &EmpCod, &TrsSaiFilCod, &TrsSaiPedCod, &tmpNFeCod, &PesCod, 'E')
+	
+	PadraoUsuarioHora.Call('L', 'EMITIRNFE', &PesCod, &EmpCod, &PadObs, &PAdDtaMod, &PAdDtaHorMod, 'T')
+	&SdtNotaTransmissao.FromJson(&PadObs)
+	&TrsSaiNfeCod = &SdtNotaTransmissao.NfeCod
+	
+	if &TrsEntNfeCod.IsEmpty()
+		&NfeCod = UltimoCodigoEmpresa.Udp(domParCod.NOTAFISCAL, &EmpCod, &TrsEntFilCod)
+		&TrsEntNfeCod = &NfeCod
+	Else
+		
+		For Each Order EmpCod, FilCod, NfeCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &TrsEntFilCod 
+			Where NfeCod = &TrsEntNfeCod
+			
+			For Each Order EmpCod, FilCod, NfeCod, NfeItmCod
+				delete
+			EndFor
+			
+			Delete
+		EndFor
+	Endif
+
+	//ATAULIZA TRANSFERENCIA
+	For Each ORder EmpCod, TrsCod
+		WherE EmpCod = &EmpCod
+		Where TrsCod = &trsCod
+		
+		TrsSaiNfeCod = &TrsSaiNfeCod 
+		TrsEntNfeCod = &TrsEntNfeCod 
+		
+		Exit
+	EndFor
+
+	Commit
+
+	
+	//PEGA O CLIENTE DA FILIAL DA NOTA
+	For Each Order EmpCod, PesCod
+		Where EmpCod =&EmpCod
+		Where PesCod = &EntrFilPesCod
+		&NfeCliBai = PesBai
+		&NfeCliCep = PesCep
+		&NfeCliCidCod = PesCidCod
+		&NfeCliCidIbge = PesCidIBGE
+		&NfeCliCidNom = PesCidNom
+		&NfeCliCidUF = PesCidUfeCod
+		&NfeCliCnpj = PesCnpj
+		&NfeCliCod = PesCod
+		
+		&NfeCliCpf = PesCpf
+		&NfeCliCpl = PesCpl
+		&NfeCliEml = PesPrmEml
+		&NfeCliEnd = PesLog
+		&NfeCliEndNro = PesNro
+		
+		&NfeCliFon = PesPrmFon
+		&NfeCliIns = PesInsEst
+		&NfeCliRaz = PesRaz
+		&NfeCliSuf = PesSuf
+		&NfeCliTipPes = PesTip
+		Exit
+	EndFor
+	
+	//GRAVA NOTA ENTRADA
+	For EAch Order EmpCod, FilCod, NfeCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &SdtNotaTransmissao.NfeFilCod
+		Where NfeCod = &SdtNotaTransmissao.NfeCod
+		&NfeDtaEms  = NfeDtaEms
+		
+		new
+			FilCod = &TrsEntFilCod
+			NfeCod = &TrsEntNfeCod
+			NfePedCod = &DestinoPedCod
+			
+			NfeProTer = NOTa_ProPriaTerceira.TERCEIROS
+			NfeLctCod = &EntradaLctCod
+			NfeEntSai = Status_EntradaSaida.Entrada
+			
+			//ATUALIZA DATAS DE FATURAMENTO
+			RetornaDataFaturamento.Call(&EmpCod, &TrsEntFilCod, &DestinoPedCod, &NfeDtaEms, &NfeDtaFat)
+			NfeDtaFat = &NfeDtaFat
+			if &NfeDtaFat.IsEmpty()
+				NfeDtaFat_Mes = 0
+				NfeDtaFat_Ano = 0
+			Else
+				NfeDtaFat_Mes = &NfeDtaFat.Month()
+				NfeDtaFat_Ano = &NfeDtaFat.Year()
+			Endif
+		
+			//Cliente 
+			NfeCliBai = &NfeCliBai 
+			NfeCliCep = &NfeCliCep 
+			NfeCliCidCod = &NfeCliCidCod 
+			NfeCliCidIbge = &NfeCliCidIbge 
+			NfeCliCidNom = &NfeCliCidNom 
+			NfeCliCidUF = &NfeCliCidUF 
+			NfeCliCnpj = &NfeCliCnpj 
+			NfeCliCod = &NfeCliCod 
+			
+			NfeCliCpf = &NfeCliCpf 
+			NfeCliCpl = &NfeCliCpl 
+			NfeCliEml = &NfeCliEml 
+			NfeCliEnd = &NfeCliEnd 
+			NfeCliEndNro = &NfeCliEndNro 
+			
+			NfeCliFon = &NfeCliFon 
+			NfeCliIns = &NfeCliIns 
+			NfeCliRaz = &NfeCliRaz 
+			NfeCliSuf = &NfeCliSuf 
+			NfeCliTipPes = &NfeCliTipPes 
+			
+		EndNew
+	EndFor
+	
+	Commit
+	
+	For EAch Order EmpCod, FilCod, NfeCod, NfeItmCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &SdtNotaTransmissao.NfeFilCod
+		Where NfeCod = &SdtNotaTransmissao.NfeCod
+		
+		new
+			EmpCod = &EmpCod
+			FilCod = &TrsEntFilCod
+			NfeCod = &TrsEntNfeCod
+			
+			
+			if len(NfeCfoCod) >= 4
+				RetornaCfopEntrada.call(&EmpCod, &EntradaLctCod, NfeCfoCod, &CfoEmpAprvCredIcmsPer, &tmpEntCFOP)	//AINDA NAO SABEMOS O TIPO LANCAMENTO - JDF
+				NfeCfoCod = &tmpEntCFOP
+			Endif
+		
+		EndNEw
+		
+	EndFor
+	
+	Commit
+	
+Endif
+
+
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit
+	
+	if &ProgressId = 'cmdRecalculo'
+		msg('Produto:' + trim(str(&AuxProCod)) + ' Percentual: ' + trim(str(&Percentual)))
+	EndIF
+EndSub
+
+sub 'insertPedidoCapaDestino'
+	&Count += 5
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &TrsSaiFilCod //CLIENTE DA FILIAL SAIDA
+		&EntrFilPesCod = FilPesCod
+		&FilTabCod = FilTabCod
+	EndFor
+	
+	
+	For Each Order EmpCod, FilCod, PedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &TrsEntFilCod
+		Where PedCod = &DestinoPedCod
+		
+		PedSts = Status_Pedido.FECHADO
+		PedDtaEms = &TrsDtaEms
+		PedHorEms = serverTime()
+		PedCliCod = &EntrFilPesCod
+		LctCod = &EntradaLctCod
+		PedDtaFat = &TrsDtaEms
+		PedHorFat = serverNow()
+		PedDtaFic = &TrsDtaEms //DATA FATURAMENTO
+		TabCod = &FilTabCod
+		
+		For Each Order EmpCod, FilCod, PedCod, PedItmCod
+			delete
+		EndFor
+		Exit
+	When none
+		prcInsereCapaTransferencia.Call(&EmpCod, &TrsEntFilCod, &TrsDtaEms, &EntradaLctCod, &EntrFilPesCod, &FilTabCod, &DestinoPedCod)
+	EndFor
+
+	commit
+	
+	&Count += 5
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	For Each Order EmpCod, TrsCod, TrsItmCod
+		Where EmpCod = &EmpCod
+		Where TrsCod = &trsCod
+		
+		&ProCod = TrsEntProCod
+		&ProGraCod = TrsEntProGraCod
+		if &ProGraCod.IsEmpty()
+			TrsEntProGraCod = 1
+			&ProGraCod = 1
+		EndIF
+	
+		do 'getCusto'
+		
+		retornaProdutoEstoque.Call(EmpCod, TrsEntProCod, &ProEstProCod)
+		
+		New
+			EmpCod = &EmpCod
+			FilCod = &TrsEntFilCod
+			PedCod = &DestinoPedCod
+			
+			PedItmCod = TrsItmCod
+			ProCod = TrsEntProCod
+			ProGraCod = &ProGraCod
+			
+			PedQtdCan = 0
+			PedQtdEmb = TrsEntPedQtd
+			PedQtd    = TrsEntPedQtd
+			PedVlrUnt = &ProVlrCus			
+			
+			PedProEstProCod = &ProEstProCod
+			PedProEstProGraCod = &ProGraCod
+		EndNew	
+	EndFor
+	
+	commit
+	
+	&Count += 10
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	AtualizaTotaisPedido.Call(&EmpCod, &TrsEntFilCod, &DestinoPedCod, 0, 'C')
+		
+	&Count += 5
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	AtualizaEstoqueEntradaSaida.Call(&EmpCod, &TrsEntFilCod, &DestinoPedCod, Status_Pedido.FECHADO)
+	
+EndSUb
+
+sub 'insertPedidoCapaOrigem'
+	
+	&Count += 5
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &TrsentFilCod //CLIENTE DO DESTINO
+		&SaiFilPesCod = FilPesCod
+		&FilTabCod = FilTabCod
+	EndFor
+	
+	For Each Order EmpCod, FilCod, PedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &TrsSaiFilCod
+		Where PedCod = &OrigemPedCod
+		
+			PedSts = Status_Pedido.FECHADO
+			PedDtaEms = &TrsDtaEms
+			PedHorEms = serverTime()
+			PedHorFat = serverNow()
+			PedCliCod = &SaiFilPesCod
+			LctCod = &SaidaLctCod
+			PedDtaFat = &TrsDtaEms
+			PedDtaFic = &TrsDtaEms //DATA FATURAMENTO
+			TabCod = &FilTabCod
+			
+			For Each Order EmpCod, FilCod, PedCod, PedItmCod
+				delete
+			EndFor
+		Exit
+	When none
+		prcInsereCapaTransferencia.Call(&EmpCod, &TrsSaiFilCod, &TrsDtaEms, &SaidaLctCod, &SaiFilPesCod, &FilTabCod, &OrigemPedCod)
+	EndFor
+
+	commit
+
+	&Count += 5
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	For Each Order EmpCod, TrsCod, TrsItmCod
+		Where EmpCod = &EmpCod
+		Where TrsCod = &trsCod
+		
+		&ProCod = TrsSaiProCod
+		&ProGraCod = TrsSaiProGraCod
+		if &ProGraCod.IsEmpty()
+			&ProGraCod = 1
+			TrsSaiProGraCod = 1
+		EndIf
+	
+		do 'getCusto'
+		
+		retornaProdutoEstoque.Call(EmpCod, TrsSaiProCod, &ProEstProCod)
+		
+		New
+			EmpCod = &EmpCod
+			FilCod = &TrsSaiFilCod
+			PedCod = &OrigemPedCod
+			
+			PedItmCod = TrsItmCod
+			ProCod = TrsSaiProCod
+			ProGraCod = &ProGraCod
+			
+			PedQtdCan = 0
+			PedQtdEmb = TrsSaiPedQtd
+			PedQtd    = TrsSaiPedQtd
+			PedVlrUnt = &ProVlrCus
+			
+			PedProEstProCod = &ProEstProCod
+			PedProEstProGraCod = &ProGraCod
+		EndNew	
+	EndFor
+	
+	commit
+	
+	&Count += 10
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	AtualizaTotaisPedido.Call(&EmpCod, &TrsSaiFilCod, &OrigemPedCod, 0, 'C')
+	
+	&Count += 5
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+	AtualizaEstoqueEntradaSaida.Call(&EmpCod, &TrsSaiFilCod, &OrigemPedCod, Status_Pedido.FECHADO)
+
+EndSUb
+
+
+sub 'getCusto'
+	&ProVlrCus = 0
+	For Each Order EmpCod, ProCod
+		Where EmpCod = &EmpCod
+		Where ProCod = &ProCod
+		
+		&ProVlrCus = ProVlrCus
+		
+		Exit
+	EndFor
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod, in:&PesCod, in:&trsCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="trsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>trsCod</Value></Property><Property><Name>Description</Name><Value>Transferencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsSaiFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsSaiFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Origem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsSaiFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OrigemPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OrigemPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorConfiguracao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorConfiguracao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa da Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilTabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilTabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilTabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProVlrCus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProVlrCus</Value></Property><Property><Name>Description</Name><Value>Valor Custo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProVlrCus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsEntFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsEntFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Destino</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsEntFiLCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsTip</Value></Property><Property><Name>Description</Name><Value>Trs Tip</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsSaiPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsSaiPedCod</Value></Property><Property><Name>Description</Name><Value>Fililal Saida</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsSaiPedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpNFeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpNFeCod</Value></Property><Property><Name>Description</Name><Value>Chave Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpNFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsSaiNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsSaiNfeCod</Value></Property><Property><Name>Description</Name><Value>Trs Sai Nfe Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsSaiNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsEntNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsEntNfeCod</Value></Property><Property><Name>Description</Name><Value>Trs Ent Nfe Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsEntNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtNotaTransmissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtNotaTransmissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtNotaTransmissao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadObs</Value></Property><Property><Name>Description</Name><Value>Obs com o Padrao Tela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SaiFilPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SaiFilPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa da Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EntrFilPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EntrFilPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa da Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliBai">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliBai</Value></Property><Property><Name>Description</Name><Value>Bairro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliBai</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCep</Value></Property><Property><Name>Description</Name><Value>CEP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCidNom</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCidNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCidUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCidUF</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCidUF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCnpj</Value></Property><Property><Name>Description</Name><Value>CNPJ Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEml</Value></Property><Property><Name>Description</Name><Value>Email Envio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCpf</Value></Property><Property><Name>Description</Name><Value>CPF Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEnd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEnd</Value></Property><Property><Name>Description</Name><Value>Logradouro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliEnd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliEndNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliEndNro</Value></Property><Property><Name>Description</Name><Value>Numero</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliEndNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EntradaLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EntradaLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PAdDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PAdDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PAdDtaHorMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PAdDtaHorMod</Value></Property><Property><Name>Description</Name><Value>Data Hora Modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaHorMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCidIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCidIbge</Value></Property><Property><Name>Description</Name><Value>IBGE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCidIbge</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCpl</Value></Property><Property><Name>Description</Name><Value>Complemento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliFon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliFon</Value></Property><Property><Name>Description</Name><Value>Telefone Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliFon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliIns">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliIns</Value></Property><Property><Name>Description</Name><Value>Insc.Est.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliIns</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliRaz</Value></Property><Property><Name>Description</Name><Value>Razão/Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliSuf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliSuf</Value></Property><Property><Name>Description</Name><Value>Suframa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliSuf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliTipPes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliTipPes</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliTipPes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpEntCFOP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpEntCFOP</Value></Property><Property><Name>Description</Name><Value>Cfop Entrada</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpEntCFOP</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SaidaLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SaidaLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaFat</Value></Property><Property><Name>Description</Name><Value>Fat.Pedido/Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CfoEmpAprvCredIcmsPer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CfoEmpAprvCredIcmsPer</Value></Property><Property><Name>Description</Name><Value>% Créd ICMS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfoEmpAprvCredIcmsPer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEstProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEstProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProEstProCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>FechaTransferenciaProduto</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

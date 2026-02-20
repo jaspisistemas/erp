@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="69276173-76cd-45fd-9f52-1af9cde0578d" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2020-08-28T13:16:16.0000000Z" checksum="71432b0b6a995cbddf448a5c3e7d0c0b" fullyQualifiedName="prcMontaGrade" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="50531f9b-acfa-4fee-84cc-7a797a936343" name="prcMontaGrade" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Monta Grade" parent="ProPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&MdpCodUm.SetEmpty()
+&MdpCodCinco.SetEmpty()
+&MdpCodQuatro.SetEmpty()
+&MdpCodTres.SetEmpty()
+&MdpCodDois.SetEmpty()
+
+&Count = 1
+
+For &sdtModalidadesItem in &sdtModalidades
+	
+	Do Case
+		Case &MdpCodUm.IsEmpty()
+			&MdpCodUm = &sdtModalidadesItem.MdpCod
+		Case &MdpCodDois.IsEmpty()
+			&MdpCodDois = &sdtModalidadesItem.MdpCod
+		Case &MdpCodTres.IsEmpty()
+			&MdpCodTres = &sdtModalidadesItem.MdpCod
+		Case &MdpCodQuatro.IsEmpty()
+			&MdpCodQuatro = &sdtModalidadesItem.MdpCod
+		Case &MdpCodCinco.IsEmpty()
+			&MdpCodCinco = &sdtModalidadesItem.MdpCod
+	EndCase
+
+EndFor 
+
+//ADD AO NEW SDT
+For Each Order EmpCod, MdpCod, MdpItmCod
+	Where EmpCod = &EmpCod
+	Where MdpCod = &MdpCodUm
+	Where MdpItmSts <> Status_AtivoInativo.INATIVO
+	
+	&MdpCodNom = MdpItmNom.Trim()
+	
+	if MdpItmOrd > 0
+		&MdpItmCod = MdpItmOrd
+	Else
+		&MdpItmCod = MdpItmCod+1
+		MdpItmOrd = MdpItmCod+1
+	Endif
+	
+	if not &MdpCodDois.IsEmpty()
+		do 'GetDois'
+	Else
+		&AddMdpCodNom = &MdpCodNom.Trim()
+		do 'AddNewSdtModalidades'
+	EndIf
+EndFor
+
+for Each Order EmpCod, ProCod
+	Where EmpCod = &EmpCod
+	Where ProCod = &ProCod
+	ProMdpCod = &MdpCod
+	&ProRef = ProRef
+	Exit
+EndFor
+
+Commit
+
+For &NewsdtModalidadesItem in &NewsdtModalidades
+	&ProGraBar =  '3' + padR(trim(str(&ProCod)), 8, '0') + padL(trim(str(&NewsdtModalidadesItem.MdpCod)), 3, '0')
+	digitoEAN13.Call(&ProGraBar, &ProGraBar)
+	ValidaCodigoReferenciaRepetido.Call(&EmpCod, &ProCod, &NewsdtModalidadesItem.MdpCod, &ProGraBar, &RepetidoEanMensagem)
+	do While Not &RepetidoEanMensagem.IsEmpty()
+		&Codigo8 = Random() * 1000
+		&ProGraBar =  '3'+padR(trim(str(&ProCod)), 8, '0') + padL(trim(str(&Codigo8)), 3, '0')
+		digitoEAN13.Call(&ProGraBar, &ProGraBar)
+		ValidaCodigoReferenciaRepetido.Call(&EmpCod, &ProCod, &NewsdtModalidadesItem.MdpCod, &ProGraBar, &RepetidoEanMensagem)
+	EndDo
+
+	&ProGraRef = trim(&ProRef) + PadL(trim(str(&NewsdtModalidadesItem.MdpCod)), 3, '0')
+	ValidaCodigoReferenciaRepetido.Call(&EmpCod, &ProCod,  &NewsdtModalidadesItem.MdpCod, &ProGraRef, &RepetidoReferenciaMensagem) 
+	Do while not &RepetidoReferenciaMensagem.IsEmpty()
+		&Codigo8 = Random() * 1000
+		&ProGraRef = trim(&ProRef) + PadL(trim(str(&Codigo8)), 4, '0')
+		&ProGraRef = trim(substr(&ProGraRef, 1, 18))
+		ValidaCodigoReferenciaRepetido.Call(&EmpCod, &ProCod,  &NewsdtModalidadesItem.MdpCod, &ProGraRef, &RepetidoReferenciaMensagem) 
+	EndDo
+
+	
+	New
+		EmpCod = &EmpCod
+		ProCod = &ProCod
+		ProGraCod = &NewsdtModalidadesItem.MdpCod
+		ProGraBar = &ProGraBar
+		ProGraRef = &ProGraRef
+		ProGraRefPadL = padL(&ProGraRef, 18, '0')
+		ProGraNom = &NewsdtModalidadesItem.MdpCodNom
+		ProGraSts = Status_AtivoInativo.ATIVO
+	EndNEw
+
+	commit
+	
+	GravaCodigoProdutoRefBarras.Call(&EmpCod, &ProCod, &NewsdtModalidadesItem.MdpCod, &ProGraRef, 'R') //REFERENCIA
+	GravaCodigoProdutoRefBarras.Call(&EmpCod, &ProCod, &NewsdtModalidadesItem.MdpCod, &ProGraBar, 'B') //BARRAS
+EndFor
+
+if &NewsdtModalidades.Count > 0
+	For Each Order EmpCod, ProCod
+		Where EmpCod = &EmpCod
+		Where ProCod = &ProCod
+		ProIsGra = true
+		Exit
+	EndFor
+
+	Commit
+EndIF
+
+
+
+Sub 'GetDois'
+	For Each Order EmpCod, MdpCod, MdpItmCod
+		Where EmpCod = &EmpCod
+		Where MdpCod = &MdpCodDois
+		Where MdpItmSts <> Status_AtivoInativo.INATIVO
+		
+		&DoisMdpCodNom = &MdpCodNom.Trim() + ' ' + trim(MdpItmNom)
+		
+		if not &MdpCodTres.IsEmpty()
+			do 'GetTres'
+		Else
+			&AddMdpCodNom = &DoisMdpCodNom.Trim()
+			do 'AddNewSdtModalidades'
+		EndIf
+	EndFor
+EndSub
+
+
+Sub 'GetTres'
+	For Each Order EmpCod, MdpCod, MdpItmCod
+		Where EmpCod = &EmpCod
+		Where MdpCod = &MdpCodTres
+		Where MdpItmSts <> Status_AtivoInativo.INATIVO
+		
+		&TresMdpCodNom = &DoisMdpCodNom.Trim() + ' ' + trim(MdpItmNom)
+		
+		if not &MdpCodQuatro.IsEmpty()
+			do 'GetQuatro'
+		Else
+			&AddMdpCodNom = &TresMdpCodNom.Trim()
+			do 'AddNewSdtModalidades'
+		EndIf
+	EndFor
+EndSub
+
+
+Sub 'GetQuatro'
+	For Each Order EmpCod, MdpCod, MdpItmCod
+		Where EmpCod = &EmpCod
+		Where MdpCod = &MdpCodQuatro
+		Where MdpItmSts <> Status_AtivoInativo.INATIVO
+		
+		&QuatroMdpCodNom = &TresMdpCodNom.Trim() + ' ' + trim(MdpItmNom)
+		
+		if not &MdpCodCinco.IsEmpty()
+			do 'GetCinco'
+		Else
+			&AddMdpCodNom = &QuatroMdpCodNom
+			do 'AddNewSdtModalidades'
+		EndIf
+	EndFor
+EndSub
+
+Sub 'GetCinco'
+	For Each Order EmpCod, MdpCod, MdpItmCod
+		Where EmpCod = &EmpCod
+		Where MdpCod = &MdpCodCinco
+		Where MdpItmSts <> Status_AtivoInativo.INATIVO
+		
+		&CinCoMdpCodNom = &QuatroMdpCodNom.Trim() + ' ' + trim(MdpItmNom)
+		
+		&AddMdpCodNom = &CinCoMdpCodNom.Trim()
+		do 'AddNewSdtModalidades'
+	EndFor
+EndSub
+
+sub 'AddNewSdtModalidades'
+	if &MdpCod.IsEmpty()
+		&Count += 1
+	Else
+		&Count = &MdpItmCod
+	Endif
+
+	&NewsdtModalidadesItem = new()
+	&NewsdtModalidadesItem.MdpCod = &Count
+	&NewsdtModalidadesItem.MdpCodNom = &AddMdpCodNom
+	&NewsdtModalidades.add(&NewsdtModalidadesItem)
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&ProCod, in:&MdpCod, in:&sdtModalidades);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AddMdpCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AddMdpCodNom</Value></Property><Property><Name>Description</Name><Value>Modalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CinCoMdpCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CinCoMdpCodNom</Value></Property><Property><Name>Description</Name><Value>Modalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DoisMdpCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DoisMdpCodNom</Value></Property><Property><Name>Description</Name><Value>Modalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCodCinco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCodCinco</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCodDois">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCodDois</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCodNom</Value></Property><Property><Name>Description</Name><Value>Modalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCodQuatro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCodQuatro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCodTres">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCodTres</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCodUm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCodUm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewsdtModalidades">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewsdtModalidades</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtModalidades</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewsdtModalidadesItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewsdtModalidadesItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtModalidades.sdtModalidadesItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraBar</Value></Property><Property><Name>Description</Name><Value>Produto Cód.Barras</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QuatroMdpCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QuatroMdpCodNom</Value></Property><Property><Name>Description</Name><Value>Modalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtModalidades">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtModalidades</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtModalidades</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtModalidadesItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtModalidadesItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtModalidades.sdtModalidadesItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TresMdpCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TresMdpCodNom</Value></Property><Property><Name>Description</Name><Value>Modalidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RepetidoReferenciaMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RepetidoReferenciaMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Codigo8">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Codigo8</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Codigo8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroEan13Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroEan13Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RepetidoEanMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RepetidoEanMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdpItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdpItmCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdpItmCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcMontaGrade</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

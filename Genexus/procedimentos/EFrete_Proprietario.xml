@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="4f204da9-5690-4def-a131-3a0b13679565" user="LUIZ\LuiZ Henrique" versionDate="2023-06-09T17:19:12.0000000Z" lastUpdate="2023-06-05T11:43:18.0000000Z" checksum="c5007387beea5054c1ce27c96591f2ea" fullyQualifiedName="EFrete_Proprietario" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="820410f0-9bf5-437e-bf81-c206bba8b999" name="EFrete_Proprietario" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="EFrete_Proprietario" parent="FreteVeiculo" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+	//###############################################################   Parametros Para Gravar
+	&ProprietariosServiceGravarRequest.Integrador = Trim(&FilFrtHash)
+	&ProprietariosServiceGravarRequest.Token = trim(&Token)
+	&ProprietariosServiceGravarRequest.Versao = 3
+	Do 'GetProprietario'
+	//#######################################################################################
+	
+	Do 'GravarProprietario'
+
+Sub 'GetProprietario'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		
+		If PesTip = TipoPessoa.FISICA
+			&ProprietariosServiceGravarRequest.CNPJ = val(RetornaSoNumeros.Udp(PesCpf))
+			&ProprietariosServiceGravarRequest.TipoPessoa = ProprietariosServiceTipoPessoa.Fisica
+		Else
+			&ProprietariosServiceGravarRequest.CNPJ = val(RetornaSoNumeros.Udp(PesCnpj))
+			&ProprietariosServiceGravarRequest.TipoPessoa = ProprietariosServiceTipoPessoa.Juridica
+		EndIf
+		
+		&ProprietariosServiceGravarRequest.Endereco.Bairro = trim(PesBai)
+		&ProprietariosServiceGravarRequest.Endereco.CEP = trim(PesCep)
+		&ProprietariosServiceGravarRequest.Endereco.CodigoMunicipio = PesCidIBGE
+		&ProprietariosServiceGravarRequest.Endereco.Rua = trim(PesLog)
+		&ProprietariosServiceGravarRequest.Endereco.Numero = trim(PesNro)
+		&ProprietariosServiceGravarRequest.Endereco.Complemento = trim(PesCpl)
+		&ProprietariosServiceGravarRequest.RazaoSocial = trim(PesRaz)
+		&ProprietariosServiceGravarRequest.RNTRC = val(PesRntrc)
+		
+		For each Order EmpCod,PesCod
+			Do case
+				Case PesFonTpo = TipoTelefone.CELULAR
+					&ProprietariosServiceGravarRequest.Telefones.Celular.DDD = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),1,2))
+					&ProprietariosServiceGravarRequest.Telefones.Celular.Numero = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),3,20))
+				Case PesFonTpo = TipoTelefone.COMERCIAL
+					&ProprietariosServiceGravarRequest.Telefones.Fixo.DDD = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),1,2))
+					&ProprietariosServiceGravarRequest.Telefones.Fixo.Numero = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),3,20)) 
+			EndCase
+		EndFor
+		exit
+	EndFor
+EndSub
+
+
+Sub 'GravarProprietario'
+//	HostWebServiceEfrete.Call(&EmpWebHost, &EmpWebBaseUrl, &EmpWebPor,&IsSecure)
+	&Location = GetLocation('ProprietariosService') //objeto externo onde foi importado o WSDL no GX XEV1 
+	&Location.Host = &EmpWebHost 	     //servidor 
+	&Location.Port = &EmpWebPor 	//porta  
+	&Location.BaseUrl = &EmpWebBaseUrl //diretório virtual do serviço 
+	If &IsSecure = true
+		&Location.Secure = 1
+	ELSE
+		&Location.Secure = 0 //false 
+	EndIf		       //false 
+	&Location.CancelOnError = 2 	   //tratar exceção do WS 	
+	csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+	&ProprietariosServiceGravarResponse = &ProprietariosService.Gravar(&ProprietariosServiceGravarRequest)
+	
+	padraoUsuario.Call('G', '#EFRETEPROPRIETARIO', &Context.PesCod, &Context.EmpCod, &ProprietariosServiceGravarRequest.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+	padraoUsuario.Call('G', '#EFRETEPROPRIETARIORESPOSTA', &Context.PesCod, &Context.EmpCod, &ProprietariosServiceGravarResponse.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+	
+	If GetSOAPErr() = 0 // Resposta do Obter proprietario
+		If &ProprietariosServiceGravarResponse.Sucesso = True
+			&Mensg = 'Gravado com Sucesso '+ &ProprietariosServiceGravarResponse.Excecao.Mensagem
+			Do 'AtualisaProprietario'
+		Else
+			&Mensg = &ProprietariosServiceGravarResponse.Excecao.Mensagem
+		EndIf
+	Else 
+		&Erro = val(str(GetSOAPErr()))
+		&Mensg += 'DESC. ERRO:'+GetSOAPErrMsg() 
+	EndIf
+EndSub
+
+Sub 'AtualisaProprietario'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		PesStsEfr = Status_EFrete.Homologado
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&PesCod,in:&PesTip,&PesCnpj,in:&PesCpf,in:&PesRntrc,&Token,in:&FilFrtHash,out:&Mensg,out:&Erro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PesCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidIBGE</Value></Property><Property><Name>Description</Name><Value>cidade IBGE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosService">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosService</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:ProprietariosService</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="fazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>fazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtHash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtHash</Value></Property><Property><Name>Description</Name><Value>Hash</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtHash</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GetMDFeVeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GetMDFeVeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeVeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Location">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Location</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Location</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeVeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeVeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeVeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensg</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCnpj</Value></Property><Property><Name>Description</Name><Value>Pessoa Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCpf</Value></Property><Property><Name>Description</Name><Value>Pessoa Cpf</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRntrc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRntrc</Value></Property><Property><Name>Description</Name><Value>RNTRC</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRntrc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesTip</Value></Property><Property><Name>Description</Name><Value>Pessoa Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceGravarRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceGravarRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceGravarRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceGravarResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceGravarResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceGravarResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceObterRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceObterRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceObterRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceObterResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceObterResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceObterResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosService">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosService</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:VeiculosService</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosServiceGravarResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosServiceGravarResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:VeiculosServiceGravarResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosServiceObterPorPlacaResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosServiceObterPorPlacaResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:VeiculosServiceObterPorPlacaResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiPesCod</Value></Property><Property><Name>Description</Name><Value>Proprietário</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlWhiter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlWhiter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSecure">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSecure</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LoadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EFrete_Proprietario</Value></Property><Property><Name>Description</Name><Value>EFrete_Proprietario</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

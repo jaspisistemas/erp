@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2022-06-09T14:27:57.0000000Z" checksum="0984dac3c09fe885d159662207873258" fullyQualifiedName="GravaFinanceiroDuplicataCartaocsv" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="70b5aa90-6212-42e2-88b9-9beb0f75dad3" name="GravaFinanceiroDuplicataCartaocsv" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Financeiro Duplicata Cartaocsv" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&sdtPagamentoDuplicata.Sort('CreCarBanCod,CrePagDta')
+For &sdtPagamentoDuplicataItem in &sdtPagamentoDuplicata //nao lança tarifa agora
+	If &sdtPagamentoDuplicataItem.CreCod <> 0 and &sdtPagamentoDuplicataItem.EmpCod <> 0 and &sdtPagamentoDuplicataItem.CreVlrSdo > 0  
+		If &sdtPagamentoDuplicataItem.CreCarBanCod <> &auxCreCarBanCod or &sdtPagamentoDuplicataItem.CrepagDta <> &MovDtaCon
+			If &auxCreCarBanCod <> 0 
+				Do 'AtualizaSaldoConta'
+			EndIf
+			
+			&MovCod = 0
+			&MovTip = TipoMovimento.RecebimentoCartao
+			&BanCarCod = &sdtPagamentoDuplicataItem.CreCarBanCod
+			&MovDtaCon = &sdtPagamentoDuplicataItem.CrePagDta
+			Do 'GetContaCartao'
+			If &BanCarCtaBanCod <> 0
+				Do 'GravaMovimento'
+			Else
+				msg('Conta bancária do cartão não vinculada Verifique!')
+			EndIF
+			
+		EndIf
+		If &BanCarCtaBanCod <> 0
+			&auxCreCarBanCod = &sdtPagamentoDuplicataItem.CreCarBanCod
+			If &sdtPagamentoDuplicataItem.CreVlrPgt <> 0
+				&CreCod = &sdtPagamentoDuplicataItem.CreCod
+				&CreFilCod = &sdtPagamentoDuplicataItem.FilCod
+				&CreVlrPgt = &sdtPagamentoDuplicataItem.CreVlrPgt
+				&CreTipBxa = &sdtPagamentoDuplicataItem.CreTipBxa
+				&CrePagVlrTar = 0
+				&CrePagVlrJur = &sdtPagamentoDuplicataItem.CrePagVlrJur
+				&CrePagVlrDsc = &sdtPagamentoDuplicataItem.CrePagVlrDsc
+				Do 'GetUltimoCodigo'
+				&MovItmCod += 1    //Soma item do caixa
+				&CreMaxPagCod += 1 //soma item do Rcbto da Duplicata
+				&sdtPagamentoDuplicataItem.MovCod = &MovCod
+				&sdtPagamentoDuplicataItem.MovItmCod = &MovItmCod
+				//###################################### GRAVA ITEM DO CAIXA #################################
+			    New
+					EmpCod       = &EmpCod
+					MovCod       = &MovCod
+					MovItmCod    = &MovItmCod
+					If &IsDescontada = False
+						MovItmVlr    = &CreVlrPgt
+					Else
+						MovItmVlr    = 0
+					EndIf				
+					PlanCod      = &sdtPagamentoDuplicataItem.CrePlanCod
+					MovItmCpl    = &sdtPagamentoDuplicataItem.MovCpl
+					MovCreFilCod = &sdtPagamentoDuplicataItem.FilCod
+					MovCreCod    = &sdtPagamentoDuplicataItem.CreCod 
+					MovCrePagCod = &CreMaxPagCod
+			    EndNew
+				
+				Do 'GravaPgtoRcbtoDuplicata'
+				
+				
+				//##################################### GRAVA RECIBO ###############################
+				UltimoCodigoEmpresa.Call(domParCod.RECIBO, &EmpCod, 0,&RcbCod)
+				New	
+					EmpCod = &EmpCod
+					RcbCod = &RcbCod
+					RcbDoc = trim(str(&MovCod))
+					RcbTip = &RcbTip
+					RcbObs = &sdtPagamentoDuplicataItem.MovCpl
+					RcbVlr = &sdtPagamentoDuplicataItem.CreVlrPgt
+					RcbDstCod = &sdtPagamentoDuplicataItem.CreCliCod
+					RcbDstNom = &sdtPagamentoDuplicataItem.CreCliRaz
+					RcbFilCod = &sdtPagamentoDuplicataItem.FilCod
+					RcbMovCod = &MovCod
+					RcbMovItm = &MovItmCod
+					RcbCreCod = &sdtPagamentoDuplicataItem.CreCod
+					RcbCrePagCod = &CreMaxPagCod
+					RcbDta = SerVerDate()
+					RcbHor = ServerNow()
+					RcbCodeVR = 1000 * Random()
+				EndNew
+				Commit
+				AtualizaSaldoDuplicata.Call(&EmpCod,&sdtPagamentoDuplicataItem.CreCod,&sdtPagamentoDuplicataItem.FilCod)
+			EndIF
+		EndIF
+	EndIF
+EndFor
+
+
+&WEBSESSION.Set('Retorno_cartoes', &sdtPagamentoDuplicata.ToJson())
+Commit
+Do 'AtualizaSaldoConta'
+
+//#########################################  Grava tarifa do cartão #################################
+&auxCreCarBanCod = 0
+&MovCod = 0
+For &sdtPagamentoDuplicataItem in &sdtPagamentoDuplicata
+	If &sdtPagamentoDuplicataItem.CreCod <> 0 and &sdtPagamentoDuplicataItem.EmpCod <> 0 and &sdtPagamentoDuplicataItem.CreVlrSdo > 0  
+		If &sdtPagamentoDuplicataItem.CrePagVlrTar <> 0
+			
+			If &sdtPagamentoDuplicataItem.CreCarBanCod <> &auxCreCarBanCod or  &sdtPagamentoDuplicataItem.CrePagDta <> &MovDtaCon
+				If &auxCreCarBanCod <> 0 
+					Do 'AtualizaSaldoConta'
+				EndIf
+				
+				&MovCod = 0
+				&MovTip = TipoMovimento.DespesaCartao
+				&BanCarCod = &sdtPagamentoDuplicataItem.CreCarBanCod
+				&MovDtaCon = &sdtPagamentoDuplicataItem.CrePagDta
+				Do 'GetContaCartao'
+				Do 'GravaMovimento'
+			EndIf
+			&auxCreCarBanCod = &sdtPagamentoDuplicataItem.CreCarBanCod
+			&CreCod = &sdtPagamentoDuplicataItem.CreCod
+			&CreFilCod = &sdtPagamentoDuplicataItem.FilCod
+			&CreVlrPgt = &sdtPagamentoDuplicataItem.CrePagVlrTar
+			&CreTipBxa = &sdtPagamentoDuplicataItem.CreTipBxa
+			&CrePagVlrTar = &sdtPagamentoDuplicataItem.CrePagVlrTar
+			&CrePagVlrJur = &sdtPagamentoDuplicataItem.CrePagVlrJur
+			&CrePagVlrDsc = &sdtPagamentoDuplicataItem.CrePagVlrDsc
+			Do 'GetUltimoCodigo'
+			&MovItmCod += 1    //Soma item do caixa
+			&CreMaxPagCod += 1 //soma item do Rcbto da Duplicata
+			
+			//###################################### GRAVA ITEM DO CAIXA #################################
+		    New
+				EmpCod       = &EmpCod
+				MovCod       = &MovCod
+				MovItmCod    = &MovItmCod
+				If &IsDescontada = False
+					MovItmVlr    = &CreVlrPgt
+				Else
+					MovItmVlr    = 0
+				EndIf				
+				PlanCod     = &BanCarPlanCod
+				MovItmCpl    = &sdtPagamentoDuplicataItem.MovCpl
+				MovCreFilCod = &sdtPagamentoDuplicataItem.FilCod
+				MovCreCod    = &sdtPagamentoDuplicataItem.CreCod 
+				MovCrePagCod = &CreMaxPagCod
+		    EndNew
+			&CreVlrPgt = 0 //zera para nao gravar no pagamento somente no movimento
+			Do 'GravaPgtoRcbtoDuplicata'
+			AtualizaSaldoDuplicata.Call(&EmpCod,&sdtPagamentoDuplicataItem.CreCod,&sdtPagamentoDuplicataItem.FilCod)
+		EndIf
+	EndIf
+EndFor
+
+
+Commit
+if &MovCod <> 0
+	Do 'AtualizaSaldoConta'
+	
+	PrcAtualizaMovimentoFinanceiro.Call(&EmpCod, &MovCod)
+Endif
+
+Sub 'AtualizaSaldoConta'
+	For each Order EmpCod,MovCod,(MovDtaPgt)
+		Where EmpCod = &EmpCod
+		Where MovCod = &MovCod
+		AtualizaSaldoConta.Call(TrnMode.Insert,EmpCod,MovCtaBanCod,MovDtaCon,MovCreDeb,MovVlr,&DataVazia,0,'')
+		
+		Exit
+	EndFor
+EndSub
+
+Sub 'GravaMovimento'
+	
+	New  //Grava Movimento
+		UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &EmpCod, 0,&MovCod)
+		
+		EmpCod = &EmpCod
+		MovCod = &MovCod
+		MovDta = serverDate()
+		MovDtaPgt = &Today
+		MovHor = ServerNow()
+		MovCtaBanCod = &BanCarCtaBanCod
+		MovDoc = trim(str(&MovCod))
+		
+		Do Case
+			Case &MovTip = TipoMovimento.PagamentoDuplicata 
+				MovCreDeb = 'D'
+			Case &MovTip = TipoMovimento.DespesaCartao
+				MovCreDeb = 'D'
+			Case &MovTip = TipoMovimento.DespesaRemessa
+				MovCreDeb = 'D'
+			OtherWise				
+				MovCreDeb = 'C'
+		EndCase
+		
+		MovTip = &MovTip
+		MovDtaCon = &MovDtaCon
+		MovSts = Status_Caixa.Lancado
+	When duplicate
+		msg('ATENÇÃO, A  chave do lançamento já existe, não possível gravar o lançamento! verifique os parâmetros, ou contate a equipe jaspi!')
+		Return
+	EndNew
+EndSub
+
+Sub 'GetContaCartao'
+	For each Order EmpCod
+		Where EmpCod = &EmpCod
+		Where BanCarCod = &BanCarCod 
+		&BanCarPlanCod = BanCarPlanCod
+		&BanCarCtaBanCod = BanCarCtaBanCod
+		Exit
+	EndFor
+EndSub
+
+Sub 'GetUltimoCodigo'
+	//################################### Pega ultimo Código de Recebimento ####################
+	For Each Order EmpCod FilCod,CreCod
+		Where EmpCod  = &EmpCod
+		Where FilCod  = &CreFilCod
+		Where CreCod  = &CreCod		    
+		&CreMaxPagCod = CreMaxPagCod
+		Exit
+	EndFor
+EndSub
+
+Sub 'GravaPgtoRcbtoDuplicata'
+	//###################################### GRAVA PGTO/RCTO DUPLICATA #################################
+	New
+		EmpCod       = &EmpCod
+		FilCod       = &CreFilCod
+		CreCod       = &CreCod		    
+		CrePagCod    = &CreMaxPagCod
+		CrePagDta    = &MovDtaCon			
+		CrePagVlr    = &CreVlrPgt
+		CrePagTip    = &CreTipBxa
+		CrePagVlrJur = &CrePagVlrJur
+		CrePagVlrDsc = &CrePagVlrDsc
+		CrePagVlrTar = &CrePagVlrTar 
+		CreMovCod    = &MovCod
+		CreMovItmCod = &MovItmCod
+	EndNew
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,&SdtPagamentoDuplicata);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="SdtPagamentoDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPagamentoDuplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentoDuplicataItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentoDuplicataItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata.SdtPagamentoDuplicataItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCod</Value></Property><Property><Name>Description</Name><Value>Movimento Item Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreMaxPagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreMaxPagCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Máximo Código Pgto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreMaxPagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDescontada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDescontada</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataVazia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVazia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RcbCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RcbCod</Value></Property><Property><Name>Description</Name><Value>Recibo Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RcbCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTip</Value></Property><Property><Name>Description</Name><Value>Movimento Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RcbTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RcbTip</Value></Property><Property><Name>Description</Name><Value>Recibo Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RcbTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCarBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCarBanCod</Value></Property><Property><Name>Description</Name><Value>Bandeira</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCarBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCarCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCarCod</Value></Property><Property><Name>Description</Name><Value>Bandeira Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCarCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCarCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCarCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCarCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCarPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCarPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano de Tarifas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCarPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrPgt</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreTipBxa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreTipBxa</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:TipoDuplicataBaixa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrTar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrTar</Value></Property><Property><Name>Description</Name><Value>Valor Tarifa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrTar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WEBSESSION">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WEBSESSION</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaFinanceiroDuplicataCartaocsv</Value></Property><Property><Name>Description</Name><Value>Grava Financeiro Duplicata Cartaocsv</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

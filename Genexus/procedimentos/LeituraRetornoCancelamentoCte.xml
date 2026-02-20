@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="SRVORDIG\Administrador" versionDate="2024-04-17T14:05:00.0000000Z" lastUpdate="2024-04-17T13:42:55.0000000Z" checksum="fe653cba0af302909a9b9f1e18342b52" fullyQualifiedName="LeituraRetornoCancelamentoCte" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="1c0fbaa5-2b58-407b-9ce0-645065567a79" name="LeituraRetornoCancelamentoCte" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Leitura Retorno Cancelamento Cte" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&conteudo_arquivo = ''
+
+For Each Order EmpCod, FilCod, CteCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where CteCod = &CteCod
+	&CteChv = CteChv
+	&PastaDanfeData = str(year(CteDtaEms),4,0)+padl(trim(str(month(CteDtaEms),2,0)),2,'0')
+	Exit
+EndFor
+
+	
+&Nome_retorno_erro = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + trim(&CteChv)+'-eve.err' 
+&Nome_retorno_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + trim(&CteChv) + '-eve.xml'
+
+&File.Source = &Nome_retorno_erro
+if &File.Exists() 
+	&ResultadoAbertura =   DFROpen(&Nome_retorno_erro)    
+
+	Do while dfrnext() = 0 
+		&ResultadoAbertura = DFRGTxt(&CampoUnico)
+		&conteudo_arquivo += NewLine() + &CampoUnico.Trim()
+	EndDo
+	&ResultadoAbertura = DFRClose()
+	
+	&File.Delete()
+	
+	&Tentativa = 99
+	&SolSts = Status_Solicitacao.Falha
+	&SolMsg = &conteudo_arquivo
+else
+	&File.Source = &Nome_retorno_correto
+	if &File.Exists()
+
+		&retorno_xml.Open(&Nome_retorno_correto)    
+		&retorno_xml.ReadType(1, 'infEvento')
+		&retorno_xml.Read()  
+		Do While (&retorno_xml.Name <> 'infEvento' and &retorno_xml.Name <> '')
+			Do Case
+				Case &retorno_xml.Name = 'cStat'
+					&CteAutSts = &retorno_xml.Value
+				Case &retorno_xml.Name = 'dhRegEvento'
+					&CteAutDatHorRec = &retorno_xml.Value
+				Case &retorno_xml.Name = 'xMotivo'
+					&CteAutMsg  = &retorno_xml.Value
+				Case &retorno_xml.Name = 'nProt'
+					&CteAutNumPro  = &retorno_xml.Value
+			EndCase
+			&retorno_xml.Read()           
+		EndDo
+		&retorno_xml.close()
+			
+		if not &CteAutSts.IsEmpty()
+			Do Case
+				Case &CteAutSts in ('135', '136')
+					&CteAutSts = '101'					
+					&mensagem = '135 - CANCELAMENTO DE CTE HOMOLOGADO'
+					
+					AtualizaNumeroProtocoloCTe.Call('CANCELA_CTE', &EmpCod, &FilCod, &CteCod, &CteAutSts, '', '', &CteAutDatHorRec, &CteAutMsg, &CteAutNumPro, '', Status_NFe.Cancelada, &SolPesCod)
+					&SolSts = Status_Solicitacao.Finalizada
+					 do 'ArquivoXML'	
+				Case &CteAutSts in ('579', '577', '578')
+					&mensagem = 'Falha na Comunicação, Fuso horário informado diverge dos servidores sefaz.'
+					&SolSts = Status_Solicitacao.Falha
+					
+				Otherwise
+					&mensagem = &CteAutSts.Trim() + ' - ' + trim(&CteAutMsg)
+					&SolSts = Status_Solicitacao.Falha
+			EndCase
+		
+			&Tentativa = 99
+			&SolMsg = &mensagem
+		EndIF
+	EndIf
+EndIf
+
+
+Sub 'ArquivoXML'
+	&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeData) +'/'+&CteChv.trim()+'_110111_001-procEventoCTe.xml'
+	
+	&file.Source = &ArquivoPronto
+	If &file.Exists()
+		GravaArquivoXmlCTECancelado.Call(&EmpCod, &FilCod, &CteCod, &ArquivoPronto)
+	EndIf
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&CteCod, in:&SolPesCod,  in:&sdtConfiguracoesPasta, inout:&Tentativa, inout:&SolSts, inout:&SolMsg);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="conteudo_arquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>conteudo_arquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteChv</Value></Property><Property><Name>Description</Name><Value>Chave de acesso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno_xml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno_xml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutSts</Value></Property><Property><Name>Description</Name><Value>Status Autorizado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutDatHorRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutDatHorRec</Value></Property><Property><Name>Description</Name><Value>Data e Hora do Recibo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutDatHorRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteAutNumPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteAutNumPro</Value></Property><Property><Name>Description</Name><Value>Cte Protocolo Autorização</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteAutNumPro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPronto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPronto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>LeituraRetornoCancelamentoCte</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

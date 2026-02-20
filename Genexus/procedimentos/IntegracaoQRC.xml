@@ -1,0 +1,540 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="682e9da9-32e7-4834-874e-83e4355820d6" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2020-11-18T17:25:13.0000000Z" checksum="a44b0228f37913965ca01f064f22c5aa" fullyQualifiedName="IntegracaoQRC" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="fe91cd63-503c-4173-9c94-60dff3fe04b7" name="IntegracaoQRC" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Integracao QRC" parent="QRC" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&sdtConfiguracoesPasta = RetornaConfiguracoesPastas.Udp(&EmpCod, &FilCod)
+&IsErroaqrquivo = False
+&Averbacao = ''
+&Sequence = ''
+&Datetime = ''
+&Application = ''
+
+Do 'MontaChave'
+&HttpClient.host = &Host.trim()
+&httpClient.Secure = false
+&HttpClient.AddHeader('Content-type','text/xml')
+Do 'PegaArquivos'
+
+Sub 'MontaChave'
+	For each Order EmpCod,FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		
+		&SoNumero = RetornaSoNumeros.Udp(FilCpj)
+		If FilAmbEms = TAmb.Homologacao
+			&Host = FilQctHomHost
+			&FilQctCodSeg = 'QRC'
+			&FilQctCodAut = 'TESTE'
+			&FilQctDtaFim = CTOD('01/10/2018')
+//			&httpClient.BaseUrl = FilQctHomBase
+			&httpClient.Port = val(FilQctHomPort)
+		Else
+			&Host = FilQctProHost
+			&FilQctCodAut = FilQctCodAut
+			&FilQctCodSeg = FilQctCodSeg
+			&FilQctDtaFim = FilQctDtaFim
+//			&httpClient.BaseUrl = FilQctProBase
+			&httpClient.Port = val(FilQctProPort)
+		EndIf
+	EndFor
+
+	&Validade = substr(trim(str(Year(&FilQctDtaFim))),3,2)+Padl(str(Month(&FilQctDtaFim)),2,'0')+PadL(str(Day(&FilQctDtaFim)),2,'0')
+	&ID = tRIM(&SoNumero)+Upper(TRIM(&FilQctCodSeg))+trim(&Validade)+'.'+&FilQctCodAut
+EndSub
+
+
+//#####ID#####
+//USERID: 14 caracteres quando for CNPJ ou 11 caracteres quando for CPF;
+//EDIÇÃO: 3 caracteres indicando a seguradora, exemplo: QRC, BRD, TOK, etc...;
+//VALIDADE: 6 caracteres indicando a data de validade do mesmo no formato
+//AAMMDD;
+//SEPARADOR: 1 caractere sempre um “ponto” [.];
+//AUTENTICAÇÃO: 16 caracteres, indicando o Hash de autenticação do Token; 
+
+
+Sub 'PegaArquivos'
+	For each Order EmpCod,FilCod,MDFeCod,MDFeCteItm	
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MdfeCod
+		
+		&auxFilCod = MDFeCteFilCod
+		&auxCteCod = MDFeCteCod	
+		Do 'CTe'
+	When none
+		&IsErroaqrquivo = True
+		msg('Nenhum documento em anexo encontrado!')
+	EndFor
+EndSub
+
+
+Sub 'CTe'
+	For Each Order EmpCod, FilCod, CteCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &auxFilCod
+		Where CteCod = &auxCteCod
+		&CteSer = CteSer
+		&CteNum = CteNum
+		&auxCteNum = CteNum
+		&CteChv = CteChv
+		&CteVlrTotPreSer = CteVlrTotPreSer
+		&CteRemRaz = CteRemRaz
+		&PastaDanfeNota = str(year(CteDtaEms),4,0)+padl(trim(str(month(CteDtaEms),2,0)),2,'0')
+		&CteArqXml = CteArqXml
+		
+		&AnoMes = str(year(CteDtaEms),4,0)+padl(trim(str(month(CteDtaEms),2,0)),2,'0')
+		&PastaAutorizadas = &sdtConfiguracoesPasta.PastaNFenviado.Trim() + 'Autorizados/' + &AnoMes.trim() + '/' + &CteChv.Trim() + '-procCTe.xml'
+		&PastaBancoDados =  &sdtConfiguracoesPasta.PastaNFenviado.Trim() + 'BancoDeDados/' + CteChv.Trim() + '-jaspi.xml'
+		
+		&File.Source = &PastaAutorizadas
+		If &File.Exists()
+			&Varchar = '/averba?Token='+&ID+'&Id='+&CteChv+'.xml'
+			&HttpClient.AddFile(&PastaAutorizadas)
+		Else
+			GravaXmlCteIntegracaoQRC.Call(EmpCod, FilCod, CteCod, &sdtConfiguracoesPasta)
+			&File.Source = &PastaBancoDados
+			If &File.Exists()
+				
+				&Varchar = '/averba?Token='+&ID+'&Id='+&CteChv+'.xml'
+				&HttpClient.AddFile(&PastaAutorizadas)
+			EndIF
+		EndIf			
+		Exit
+	EndFor
+	
+	If &IsErroaqrquivo = false
+	
+	&HttpClient.Timeout = 15
+	&HttpClient.Execute('POST',&Varchar)
+	If &httpClient.ErrCode = 0
+		Msg('Comunicação Quorum Ok')
+		&response = &HttpClient.ToString()
+//		Msg('teste ' +&response )
+		//começa leitura
+		&XmlReader.OpenFromString(&response)
+		&ret = &XmlReader.ReadType(1, 'Averbacao') 
+		if &ret <> 0
+			&XmlReader.Read()
+			Do while &XmlReader.Name <> 'Averbacao'
+				Do Case
+					Case &XmlReader.Name = 'Request'
+						&XmlReader.Read() //Avanca para o primeiro campo da tag...
+						Do 'Request'
+					Case &XmlReader.Name = 'Response'
+						&XmlReader.Read() //Avanca para o primeiro campo da tag...
+						Do 'Response'
+				EndCase
+				&XmlReader.Read()
+				
+				if &XmlReader.EOF
+					Exit
+				endif
+			EndDo
+		EndIf
+
+		//termina leitura	
+
+		If not &Averbacao.Trim().IsEmpty()
+			msg('Averbação realizada com Sucesso! Protocolo:'+&Protocolo+' Tipo:'+&Tipo+' Chave:'+&Chave)
+			&MdfeSegCnpj = '72.145.931/0001-99' 
+			&MdfeSegResCnpj = '72.145.931/0001-99'
+			&MdfeSegNom = 'SWISS RE CORPORATE SOLUTIONS BRASIL SEGUROS S.A.'
+			&MdfeSegNroApo = ''
+			&MdfeSegQCTXml = &response
+			Do 'GravaSeguro'
+		EndIf
+	
+	Else 
+		msg(&httpClient.ErrDescription)
+	EndIf
+EndIf
+EndSub
+
+
+Sub 'Request'
+	
+	Do while &XmlReader.Name <> 'Request'
+		Do Case 
+			Case &XmlReader.Name = 'Sequence'
+				&Sequence = &XmlReader.Value		
+			Case &XmlReader.Name = 'DateTime'
+				&Datetime = &XmlReader.Value	
+			Case &XmlReader.Name = 'Application'
+				&Application = &XmlReader.Value
+			Case &XmlReader.Name = 'Server'
+				&Server = &XmlReader.Value
+			Case &XmlReader.Name = 'Token'
+				&Token = &XmlReader.Value
+		EndCase
+		&XmlReader.Read()
+		
+		if &XmlReader.EOF
+			Exit
+		endif
+	EndDo
+EndSub
+
+
+Sub 'Response'
+	
+	Do while &XmlReader.Name <> 'Response'
+		Do Case 
+			Case &XmlReader.Name = 'Docs'
+				&XmlReader.Read()
+				Do while &XmlReader.Name <> 'Docs'
+					Do Case 
+						Case &XmlReader.Name = 'Doc'
+							&XmlReader.Read()
+							&arquivo = &XmlReader.GetAttributeByName('Arquivo')
+							Do 'doc'							
+					EndCase
+					&XmlReader.Read()
+					
+					if &XmlReader.EOF
+						Exit
+					endif
+				EndDo
+			Case &XmlReader.Name = 'Doc'
+				&XmlReader.Read()
+				&arquivo = &XmlReader.GetAttributeByName('Arquivo')
+				Do 'doc'
+		EndCase
+	
+		&XmlReader.Read()
+		
+		if &XmlReader.EOF
+			Exit
+		endif
+	EndDo
+EndSub
+
+Sub 'doc'
+	Do while &XmlReader.Name <> 'Doc'
+		Do Case 
+			Case &XmlReader.Name = 'Tipo'							
+				&Tipo = &XmlReader.Value		
+			Case &XmlReader.Name = 'Chave'
+				&Chave = &XmlReader.Value	
+			Case &XmlReader.Name = 'Averbacao'
+				&Averbacao = trim(&XmlReader.Value)
+				Msg('averb '+&Averbacao)
+			Case &XmlReader.Name = 'Protocolo'
+				&Protocolo = &XmlReader.Value
+			Case &XmlReader.Name = 'Erro'
+				&Erro = &XmlReader.Value
+				Msg('Erro: '+trim(&Erro))
+		EndCase
+		&XmlReader.Read()
+		
+		if &XmlReader.EOF
+			Exit
+		endif
+	EndDo
+EndSub
+
+
+
+Sub 'GravaSeguro'
+	For Each Order EmpCod, FilCod, MDFeCod,MdfeSegCod
+		Where EmpCod = &EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		Where MdfeSegCod = 1
+		MdfeSegRes = &MdfeSegRes
+		MdfeSegResCnpj = &MdfeSegResCnpj
+		MdfeSegNom = &MdfeSegNom
+		MdfeSegCnpj = &MdfeSegCnpj
+		MdfeSegNroApo = &MdfeSegNroApo
+		
+	When none
+		New
+			EmpCod = &EmpCod
+			FilCod = &FilCod
+			MDFeCod = &MDFeCod
+			MdfeSegCod = 1
+			MdfeSegRes = &MdfeSegRes
+			MdfeSegResCnpj = &MdfeSegResCnpj
+			MdfeSegNom = &MdfeSegNom
+			MdfeSegCnpj = &MdfeSegCnpj
+			MdfeSegNroApo = &MdfeSegNroApo
+		EndNew
+	EndFor
+
+	commit
+	
+	//averbações
+	For Each Order EmpCod, FilCod, MDFeCod,MdfeSegCod
+		Where EmpCod = &EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		Where MdfeSegCod = 1
+		Where MdfeSegNroAve = trim(&Averbacao)
+		MdfeSegQCTXml = &MdfeSegQCTXml
+	When none
+		New
+			EmpCod = &EmpCod
+			FilCod = &FilCod
+			MDFeCod = &MDFeCod
+			MdfeSegCod = 1
+			MdfeSegNroAve = trim(&Averbacao)
+			MdfeSegQCTXml = &MdfeSegQCTXml
+		EndNew
+	EndFor
+
+	commit
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&MdfeCod,out:&MdfeSegCnpj,out:&MdfeSegNom,out:&MdfeSegNroApo,out:&Averbacao,out:&MdfeSegQCTXml);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AnoMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoMes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>6</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCteNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCteNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Averbacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Averbacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteArqXml</Value></Property><Property><Name>Description</Name><Value>Arquivo XML</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteChv</Value></Property><Property><Name>Description</Name><Value>Chave de acesso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteRemRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteRemRaz</Value></Property><Property><Name>Description</Name><Value>Remetente Razão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteRemRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSer</Value></Property><Property><Name>Description</Name><Value>Série</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteVlrTotPreSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteVlrTotPreSer</Value></Property><Property><Name>Description</Name><Value>Valor Total Prestação Serviço</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteVlrTotPreSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctCodAut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctCodAut</Value></Property><Property><Name>Description</Name><Value>Autenticação HASH</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctCodAut</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctCodSeg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctCodSeg</Value></Property><Property><Name>Description</Name><Value>Código Seguradora</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctCodSeg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctDtaFim">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctDtaFim</Value></Property><Property><Name>Description</Name><Value>Validade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctDtaFim</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctHomBase">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctHomBase</Value></Property><Property><Name>Description</Name><Value>Base Url</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctHomBase</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctHomPort">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctHomPort</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctHomPort</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctProBase">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctProBase</Value></Property><Property><Name>Description</Name><Value>Base Url</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctProBase</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilQctProPort">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilQctProPort</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilQctProPort</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Host">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Host</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="httpresponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>httpresponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ID</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErroaqrquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErroaqrquivo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaAutorizadas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1500</Value></Property><Property><Name>AttMaxLen</Name><Value>1500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaBancoDados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaBancoDados</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>20</Value></Property><Property><Name>AttMaxLen</Name><Value>20</Value></Property></Properties>
+        </Variable>
+        <Variable Name="response">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>response</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2000</Value></Property><Property><Name>AttMaxLen</Name><Value>2000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SoNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SoNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Validade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Validade</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlReader</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Datetime">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Datetime</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Sequence">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Sequence</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Application">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Application</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Server">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Server</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Protocolo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Protocolo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Chave">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Chave</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>50</Value></Property><Property><Name>AttMaxLen</Name><Value>50</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tipo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegNom</Value></Property><Property><Name>Description</Name><Value>Nome Seguradora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegCnpj</Value></Property><Property><Name>Description</Name><Value>Cnpj Seguradora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegNroApo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegNroApo</Value></Property><Property><Name>Description</Name><Value>Número Apólice</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegNroApo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegQCTXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegQCTXml</Value></Property><Property><Name>Description</Name><Value>integração QCT xml</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegQCTXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxMdfeSegCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxMdfeSegCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegRes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegRes</Value></Property><Property><Name>Description</Name><Value>Responsavel</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegRes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegResCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegResCnpj</Value></Property><Property><Name>Description</Name><Value>CPF/CNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegResCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSegNroAve">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSegNroAve</Value></Property><Property><Name>Description</Name><Value>Número Averbação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeSegNroAve</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>IntegracaoQRC</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

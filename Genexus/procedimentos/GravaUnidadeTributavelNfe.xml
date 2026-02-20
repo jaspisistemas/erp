@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d2d76160-7ed9-404c-8ee0-a2e27d8c224b" user="WINJEAN\jeanfae" versionDate="2025-09-17T11:53:02.0000000Z" lastUpdate="2025-09-12T19:30:19.0000000Z" checksum="7b8a9c64f91061b45e1f6e987006ad1f" fullyQualifiedName="GravaUnidadeTributavelNfe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="0aaaae64-7fc7-41de-bb0c-c4d8f44db54a" name="GravaUnidadeTributavelNfe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Unidade Tributavel Nfe" parent="EmitirNFCe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&QuantidadeUnidades = 0
+&NfeProQtd = 0
+&IsOutrasUnidades = false
+
+For Each Order EmpCod, FilCod, NfeCod, NfeItmCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &NfeCod
+	&NfeCliCidUF = NfeCliCidUF
+	&NfeCfoCod = RetornaSoNumeros.Udp(NfeCfoCod)
+	&NfeEmbUndTrib = NfeEmbUndTrib
+	
+	RetornaUnidadeTributavelProduto.Call(EmpCod, NfeProCod, &NcmUnd, &ProBarTrib)
+	NfeProBarTrib = &ProBarTrib
+	if &NfeEmbUndTrib.IsEmpty()		
+		If (&NfeCliCidUF = 'EX' or (&NfeCfoCod in ('1501','2501','5501','5502','5504','5505','6501','6502','6504','6505'))) //EXTERIOR Unidade Tributavel
+			RetornaUnidadeTributavelNCM.Call(NfeNcmCod, &NcmUnd)			
+		Endif
+	
+		If &NcmUnd.IsEmpty()
+			&NfeEmbUndTrib = NfeEmbUnd
+		Else
+			&NfeEmbUndTrib = &NcmUnd
+		EndIF
+	EndIf
+	NfeEmbUndTrib = &NfeEmbUndTrib
+	&ProPesLiq = 0
+	
+	Do Case 
+		Case &NfeEmbUndTrib.Trim() = 'KG'	//and NfeEmbUnd <> 'TO'
+			&NfeProQtdTrib = 0
+			
+			&ProPesLiq = RetornaPesoProduto.udp(EmpCod, NfeProCod)
+			&NfeProQtdTrib = round(NfeProQtd * &ProPesLiq, 4)
+			if &NfeProQtdTrib > 0
+				&QuantidadeUnidades += &NfeProQtdTrib
+			Else
+				&QuantidadeUnidades += NfeProQtd
+			Endif
+			&NfeProQtd += NfeProQtd
+			NfeProQtdTrib  = &NfeProQtdTrib 
+			if &NfeProQtdTrib > 0 and NfeProVlrTot > 0
+				NfeProVlrUntTrib = round(NfeProVlrTot / &NfeProQtdTrib,6)
+			Else
+				if NfeProQtd > 0 and NfeProVlrTot > 0
+					NfeProVlrUntTrib = round(NfeProVlrTot / NfeProQtd,6)
+				Endif
+			Endif
+			
+			//TEM QUE ANALIZAR SE ESTA TONELADA E DEVERIA SER KG.
+			//Case &NcmUnd = 'KG' and NfeEmbUnd = 'TO' //JDF FIZ ISSO POR CAUSA DAS TONELADAS.
+			
+		Case (&NfeEmbUndTrib = 'TO' or &NfeEmbUndTrib = 'TON') and NfeEmbUnd = 'KG' //JDF FIZ ISSO POR CAUSA DAS TONELADAS.
+			NfeProQtdTrib = (NfeProQtd * 0.001)
+			NfeProVlrUntTrib = NfeProVlrUnt * 1000
+			
+		Otherwise
+			&IsOutrasUnidades = true
+			NfeProQtdTrib = NfeProQtd
+			NfeProVlrUntTrib = NfeProVlrUnt
+	EndCase
+EndFor
+
+Commit
+
+if &QuantidadeUnidades > 0 //and &IsOutrasUnidades = false
+	
+	For Each Order EmpCod, FilCod, NfeCod //PEGA TOTAL PESO NOTA
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where NfeCod = &NfeCod
+		&NfePesLiq = NfePesLiq
+		Exit
+	EndFor
+	&Diferenca = &NfePesLiq - &QuantidadeUnidades
+	
+	if &NfePesLiq > 0 and &NfeProQtd > 0 and (&Diferenca  > 1 or &Diferenca < -1)
+		
+		For Each Order EmpCod, FilCod, NfeCod, NfeItmCod //AJUSTA OS PRDUTOS SEM PESO DO TIPO KG
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where NfeCod = &NfeCod
+			Where NfeEmbUndTrib = 'KG' //or Where NfeEmbUndTrib = 'TO'
+			Where NfeProQtdTrib > 0
+			&NfePesLiq -= NfeProQtdTrib
+		EndFor
+	
+		
+		&QuantidadeUnitariaKg = (&NfePesLiq / &NfeProQtd)		
+		
+		For Each Order EmpCod, FilCod, NfeCod, NfeItmCod //AJUSTA OS PRDUTOS SEM PESO DO TIPO KG
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where NfeCod = &NfeCod
+			Where NfeEmbUndTrib = 'KG' //or Where NfeEmbUndTrib = 'TO'
+			Where NfeProQtdTrib = 0
+			Do Case
+				CAse &QuantidadeUnitariaKg > 0
+					&NfeProQtdTrib = round(NfeProQtd * &QuantidadeUnitariaKg, 3)
+					NfeProQtdTrib = &NfeProQtdTrib 
+					if NfeProVlrTot > 0 and &NfeProQtdTrib > 0
+						NfeProVlrUntTrib = round(NfeProVlrTot / &NfeProQtdTrib,6)
+					Endif
+					
+//				Case NfeProQtdTrib > 1
+//					if NfeProVlrTot > 0 and NfeProQtdTrib > 0
+//						NfeProVlrUntTrib = round(NfeProVlrTot / NfeProQtdTrib,6)
+//					Endif
+				
+				Otherwise
+					NfeProQtdTrib = NfeProQtd
+					NfeProVlrUntTrib = NfeProVlrUnt
+			EndCase
+		EndFor
+		
+		Commit
+		
+		if &IsOutrasUnidades = false
+			For Each Order EmpCod, FilCod, NfeCod //PEGA TOTAL PESO NOTA
+				Where EmpCod = &EmpCod
+				Where FilCod = &FilCod
+				Where NfeCod = &NfeCod
+				&NfePesLiq = NfePesLiq
+				Exit
+			EndFor
+		
+			&QuantidadeUnidades = 0
+			
+			For Each Order EmpCod, FilCod, NfeCod, NfeItmCod //SOMA TOTAL PESO DOS ITENS
+				Where EmpCod = &EmpCod
+				Where FilCod = &FilCod
+				Where NfeCod = &NfeCod
+				Where NfeEmbUndTrib = 'KG' //or Where NfeEmbUndTrib = 'TO'
+				&QuantidadeUnidades += NfeProQtdTrib 
+				
+			EndFor
+			&Diferenca = &NfePesLiq - &QuantidadeUnidades
+			
+			For Each Order EmpCod, FilCod, NfeCod, NfeItmCod //DIMINUI OU SOMA A QTD DE PESO DE ALGUM PRODUTO ALEATORIO
+				Where EmpCod = &EmpCod
+				Where FilCod = &FilCod
+				Where NfeCod = &NfeCod
+				Where NfeEmbUndTrib = 'KG' //or Where NfeEmbUndTrib = 'TO'
+				where NfeProVlrUntTrib > 0
+				
+				&NfeProQtdTrib = NfeProQtdTrib
+				&NfeProQtdTrib += &Diferenca
+				
+				if &NfeProQtdTrib > 0
+					NfeProQtdTrib = &NfeProQtdTrib
+					if NfeProVlrTot > 0 and &NfeProQtdTrib > 0
+						NfeProVlrUntTrib = round(NfeProVlrTot / &NfeProQtdTrib,6)
+					Endif
+					
+					Exit
+				Endif
+				
+			EndFor
+			
+			Commit
+		Endif
+	
+	Endif
+Endif
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&NfeCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NcmUnd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NcmUnd</Value></Property><Property><Name>Description</Name><Value>Und</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NcmUnd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QuantidadeUnidades">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QuantidadeUnidades</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Quantidade</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfePesLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfePesLiq</Value></Property><Property><Name>Description</Name><Value>Peso Liquido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfePesLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QuantidadeUnitariaKg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QuantidadeUnitariaKg</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>13</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProPesLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProPesLiq</Value></Property><Property><Name>Description</Name><Value>Peso Líquido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProPesLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeEmbUndTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeEmbUndTrib</Value></Property><Property><Name>Description</Name><Value>Und.Trib</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeEmbUndTrib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProQtdTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProQtdTrib</Value></Property><Property><Name>Description</Name><Value>Qtd.Trib</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProQtdTrib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Diferenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Diferenca</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOutrasUnidades">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOutrasUnidades</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCidUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCidUF</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCidUF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCfoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCfoCod</Value></Property><Property><Name>Description</Name><Value>Cfop</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCfoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProUndTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProUndTrib</Value></Property><Property><Name>Description</Name><Value>Pro Und Trib</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProUndTrib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProBarTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProBarTrib</Value></Property><Property><Name>Description</Name><Value>Ean Tributavel</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProBarTrib</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaUnidadeTributavelNfe</Value></Property><Property><Name>Description</Name><Value>Grava Unidade Tributavel Nfe</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

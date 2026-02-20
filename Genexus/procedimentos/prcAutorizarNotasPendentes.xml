@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2022-05-12T13:36:55.0000000Z" checksum="5fb168c8590db13d101a2e3d81235a00" fullyQualifiedName="prcAutorizarNotasPendentes" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="88e178e5-12ad-4864-bde0-8e4dd614c5d5" name="prcAutorizarNotasPendentes" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Autorizar Notas Pendentes" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+InicializaAgendador.Call(&EmpCod, TipoAgendamento.AutorizarValorXNotas, 0, &AgdCod)
+For Each Order EmpCod, AgdCod
+	Where EmpCod = &EmpCod
+	Where AgdCod = &AgdCod
+	
+	&AgdSts = AgdSts
+	&AgdTip = AgdTip
+	
+	&AgdUltDtaHora = AgdUltDtaHora
+	&AgdExeFilCod = AgdExeFilCod
+	
+	Exit
+EndFor
+
+&sdtAgendadorFiltros.FromXml(&AgdFiltro)
+For &sdtAgendadorFiltrosItem in &sdtAgendadorFiltros
+	//--NOTAS PROPRIAS
+	Do Case
+		Case &sdtAgendadorFiltrosItem.AgdFiltro = 'AUTNOTPERCE'
+			&Percentual = val(&sdtAgendadorFiltrosItem.AgdValue)
+			&Percentual = &Percentual
+			&PercentualFaturar = 100 - &Percentual
+			&PercentualFaturar = &PercentualFaturar * 0.01
+			
+		Case &sdtAgendadorFiltrosItem.AgdFiltro = 'XMLCPFAUTORIZAR'
+			&sdtAgendadorCPF.FromJson(&sdtAgendadorFiltrosItem.AgdValue)
+	EndCase
+EndFor
+
+
+&Hoje = serverdate() //JDF comentei por hora
+//if (&Hoje - &AgdUltDta) > 1
+//	msg('EXECUTAR AJUSTE NOTAS', nowait)
+//Else
+//	msg('JA EXECUTOU UMA VEZ HOJE', nowait)
+//	return	
+//Endif
+
+&DataFinal = eoM(&Hoje)
+&Mes = Month(&DataFinal)
+&Ano = Year(&DataFinal)
+&dataInicial = yMDtoD(&Ano, &Mes, 1)
+
+//retorna Total Faturado em Pedido
+TotalFaturadoPeriodoVendas.call(&EmpCod, &dataInicial, &DataFinal, &TotalFaturadoMoeda)
+
+//REtorna Total Faturado em Notas.
+TotalFaturadoNotasVendas.call(&EmpCod, &dataInicial, &DataFinal, &TotalNotasMoeda)
+
+
+//calcula quanto deveria ter em notas.
+&TotalDeveriaFaturarMoeda = &TotalFaturadoMoeda * &PercentualFaturar
+
+&mensagem = format('TOTAL PEDIDO: %1, TOTAL NOTA: %2, DEVERIA FATURAR: %3, %4%', trim(toformattedString(&TotalFaturadoMoeda)), trim(toformattedString(&TotalNotasMoeda)), trim(toformattedString(&TotalDeveriaFaturarMoeda)), trim(toformattedString(&PercentualFaturar)))
+msg(&mensagem, nowait)
+
+//manda autorizar notas pendentes sem numero de nfe
+&DiferencaMoeda = &TotalDeveriaFaturarMoeda - &TotalNotasMoeda
+
+&mensagem = format('PRECISA FATURAR MAIS: %1', trim(toformattedString(&DiferencaMoeda)))
+msg(&mensagem, nowait)
+
+//&dorme = sleep(2)
+RetornaConfSistema.Call(&EmpCod, 1, DomConfSistema.TCon020_ClientePadraoVista, &TCon020_ClientePadraoVista )
+&VistaPesCod = val(&TCon020_ClientePadraoVista)
+
+For &sdtAgendadorCPFItem in &sdtAgendadorCPF
+	if &sdtAgendadorCPFItem.PesUltEms.Month() <> &Hoje.Month()
+		&sdtAgendadorCPFItem.PesVlrTotEm = 0
+	Endif
+EndFor
+
+if &DiferencaMoeda > 0
+	For Each Order EmpCod, FilCod, NfeCod
+		Where EmpCod = &EmpCod
+		Where NfeNum.IsEmpty() or NfeNum.IsNull()
+		Where NfeVlrTot > 0
+		Where NfeEntSai = Status_EntradaSaida.Saida
+		Where ModCod = '65' //SOMENTE CONSUMIDOR
+		Where NfeProTer = Nota_ProPriaTerceira.PROPRIA
+		Where NfeSts = Status_Nfe.Digitando
+		Where NfeCliCnpj <> FilCpj
+		
+		if &EmitNfeCod > 0 //FIZ ISSO POIS POR CAUSA DO COMMIT DENTRO DO FOR PARA SALVAR O CPF, NAO IA O CPF NO XML
+			GeraXmlNFeModelo65_4.Call(&EmitEmpCod, &EmitFilCod, &EmitNfeCod, 'S', 1, 'E', &SolCod)	
+		EndIf
+		
+		if &DiferencaMoeda > NfeVlrTot
+			if (&Hoje - NfeDtaEms) >= 1				
+				if NfeCliCpf.IsEmpty() or NfeCliCpf.IsNull()
+					For &sdtAgendadorCPFItem in &sdtAgendadorCPF
+						if &sdtAgendadorCPFItem.PesVlrTotEm < &sdtAgendadorCPFItem.PesVlrTot
+							
+							NfeCliCod = &VistaPesCod
+							NfeCliCpf = &sdtAgendadorCPFItem.PesCpf
+							NfeCliRaz = 'CONSUMIDOR FINAL'
+							//NfeCliRaz = &sdtAgendadorCPFItem.PesRaz
+							NfeCliTipPes = TipoPessoa.FISICA
+							
+							&NfeNum = UltimoCodigoEmpresa.Udp(domParCod.NOTA65NUM, EmpCod,  FilCod)
+							&Serie = RetornaSerieNF.UDP(domParCod.NOTAFISCAL65_SERIE, EmpCod, FilCod)
+							&NfeSer = trim(str(&Serie))
+							NfeNum = &NfeNum
+							NfeSer = &NfeSer
+														
+							NfeDtaEms = &Hoje
+							NfeDtaFat_Ano = &Hoje.Year()
+							NfeDtaFat_Mes = &Hoje.Month()
+							
+							Commit
+							
+							&sdtAgendadorCPFItem.PesVlrTotEm += NfeVlrTot
+							&sdtAgendadorCPFItem.PesUltEms = &Hoje
+							Exit
+						Endif
+					EndFor
+					
+					&sdtAgendadorCPF.Sort("PesVlrTotEm")
+				Endif
+				
+				&DiferencaMoeda -= NfeVlrTot
+				
+				&mensagem = 'AUTORIZAR NF COD: ' +trim(str(NfeCod)) + 'VALOR: ' + trim(toformattedString(NfeVlrTot))
+				msg(&mensagem, nowait)
+				
+				&EmitEmpCod = EmpCod
+				&EmitFilCod = FilCod
+				&EmitNfeCod = NfeCod
+				
+			Endif
+			
+			if &DiferencaMoeda <= 0
+				Exit
+			Endif
+		Endif
+		
+	Endfor
+
+	if &EmitNfeCod > 0 //FIZ ISSO POIS POR CAUSA DO COMMIT DENTRO DO FOR PARA SALVAR O CPF, NAO IA O CPF NO XML
+		GeraXmlNFeModelo65_4.Call(&EmitEmpCod, &EmitFilCod, &EmitNfeCod, 'S', 1, 'E', &SolCod)	
+	EndIf
+
+ENdif
+
+&sdtAgendadorFiltros.Clear()
+
+&sdtAgendadorFiltrosItem = new()
+&sdtAgendadorFiltrosItem.AgdFiltro = 'AUTNOTPERCE'
+&sdtAgendadorFiltrosItem.AgdValue = trim(str(&Percentual))
+&sdtAgendadorFiltros.Add(&sdtAgendadorFiltrosItem)
+
+&sdtAgendadorFiltrosItem = new()
+&sdtAgendadorFiltrosItem.AgdFiltro = 'XMLCPFAUTORIZAR'
+&sdtAgendadorFiltrosItem.AgdValue = &sdtAgendadorCPF.ToJson()
+&sdtAgendadorFiltros.Add(&sdtAgendadorFiltrosItem)
+
+&outAgdFiltro = &sdtAgendadorFiltros.ToXml()
+//GravaTarefa.Call(&EmpCod, &AgdCod, &AgdSts, &AgdTip, &AgdExeFilCod, )
+&IsExecutou = true
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&AgdFiltro, in:&AgdUltDta, out:&IsExecutou, out:&outAgdFiltro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="IsExecutou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExecutou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdUltDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdUltDta</Value></Property><Property><Name>Description</Name><Value>Ultima Data</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdUltDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdFiltro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdFiltro</Value></Property><Property><Name>Description</Name><Value>Filtro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdFiltro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataFinal</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dataInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dataInicial</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalFaturadoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalFaturadoMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalNotasMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalNotasMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgendadorFiltros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgendadorFiltros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorFiltros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgendadorFiltrosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgendadorFiltrosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorFiltros.sdtAgendadorFiltrosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiferencaMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiferencaMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PercentualFaturar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PercentualFaturar</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDeveriaFaturarMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDeveriaFaturarMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgendadorCPF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgendadorCPF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorCPF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgendadorCPFItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgendadorCPFItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorCPF.sdtAgendadorCPFItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdCod</Value></Property><Property><Name>Description</Name><Value>Agendamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdTip</Value></Property><Property><Name>Description</Name><Value>Agendamento Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdUltDtaHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdUltDtaHora</Value></Property><Property><Name>Description</Name><Value>Ultima DataHora</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdUltDtaHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdExeFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdExeFilCod</Value></Property><Property><Name>Description</Name><Value>Agd Exe Fil Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdExeFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmitFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmitFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmitNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmitNfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmitEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmitEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon020_ClientePadraoVista">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon020_ClientePadraoVista</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VistaPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VistaPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeSer</Value></Property><Property><Name>Description</Name><Value>Serie</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeHorEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeHorEms</Value></Property><Property><Name>Description</Name><Value>Hora Emissao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeHorEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outAgdFiltro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outAgdFiltro</Value></Property><Property><Name>Description</Name><Value>Filtro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdFiltro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Serie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Serie</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcAutorizarNotasPendentes</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

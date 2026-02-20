@@ -1,0 +1,684 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="10279240-054b-4aed-a1d3-1a92192aec96" user="WINJEAN\jeanfae" versionDate="2025-10-01T11:54:19.0000000Z" lastUpdate="2025-09-29T12:18:17.0000000Z" checksum="e9e25314f0ce022c21ffc236b9977f7a" fullyQualifiedName="api_erp.setPedidosOffCompleto" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="0f9efa63-6d18-4475-bd02-aaba417d663e" name="setPedidosOffCompleto" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set Pedidos Off Completo" parent="api_erp.pedidoOFF" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&LogGUID = guid.NewGuid()
+
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+//&AuxPedidoOff = &PedidoOFF.Trim()
+//&AuxPedidoOff = &AuxPedidoOff.Replace('" ', '"')
+//&AuxPedidoOff = &AuxPedidoOff.Replace(' "', '"')
+//&AuxPedidoOff = &AuxPedidoOff.Replace('pedIsOrc', 'pedOrcPed')
+//&AuxPedidoOff = &AuxPedidoOff.Replace('false', '"O"')
+//&AuxPedidoOff = &AuxPedidoOff.Replace('true', '"P"')
+
+//
+GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'sdtPedidosOFF',&sdtPedidosOFF.ToJson())
+//GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'setpedidooff_pedido',&PedidoOFF)
+
+&longVarchar = &sdtPedidosOFF.ToJson()
+&total = gxMLines(&longVarchar, 5000)
+for &count = 1 to &total
+	&Tamanho = gxGetMLi(&longVarchar, &count, 5000)
+	
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'setpedidooff_produto'+&Count.ToString(),&Tamanho)
+EndFor
+
+do 'atualizaPedidoProduto'
+
+if &sdtRetornowbs.Sts.IsEmpty()
+	&sdtRetornowbs.Sts = 'J200'
+Endif
+
+Sub 'atualizaPedidoProduto'
+	if &IsAcessoConcedido = true //Acesso concedido	
+		
+//		&sdtPedidoProdutoOFF.FromJson(&PedidoProdutoOFF)
+		
+//		&sdtPedidoOFFCopy1.FromJson(&AuxPedidoOff)
+//		&sdtPedidoOff.Clear()
+//		&sdtPedidoOff.FromJson(&AuxPedidoOff.ToString())
+		
+//		GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'setpedidooff_pedidosdt',&sdtPedidosOFF.ToJson())
+		
+		
+//		if &sdtPedidoOFFCopy1.Count = 0
+//			GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'setpedidooff_deveriagravar',&AuxPedidoOff)			
+//		endif
+		
+		if &sdtPedidosOFF.qtdPed = 0
+			&sdtRetornowbs.Sts = 'J200' //E998 fazer trazer erro, mas antes tratar app para nao dar transmitir sem pedido
+			&sdtRetornowbs.Obs = 'Nenhum pedido a ser sincronizado'
+			return
+		Endif
+		
+		RetornaConfSistema.Call(&wwpContext.EmpCod, &wwpContext.FilCod, domConfSistema.TCon156_PagamentoPadrao, &TCon156_PagamentoPadrao)
+		if &TCon156_PagamentoPadrao.IsEmpty()
+			&TCon156_PagamentoPadrao = '1' //DUPLICATA
+		Endif
+		RetornaConfSistema.Call(&wwpContext.EmpCod, &wwpContext.FilCod, domConfSistema.TCon081_TipoFrete, &TCon081_TipoFrete)
+		
+		RetornaConfSistema.Call(&wwpContext.EmpCod, &wwpContext.FilCod, domConfSistema.TCon002_FilialFaturamento, &TCon002_FilialFaturamento)
+		if &TCon002_FilialFaturamento <> '0' and not &TCon002_FilialFaturamento.IsEmpty()
+			&PedFatFiLCod.FromString(&TCon002_FilialFaturamento)
+		Else
+			&PedFatFiLCod = &wwpContext.FilCod
+		EndIf
+	
+		getTipoLancamentoForcaVendas.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &OrcamentoLctCod, &VendaLctCod, &ConsumidorPedCliCod)
+		
+		For &sdtPedidoOffItem in &sdtPedidosOFF.Pedidos
+			&PedGUID.FromString(&sdtPedidoOffItem.guid)
+			
+			For Each Order EmpCod, FilCod, PedCod, PedGUID
+				Where EmpCod  = &wwpContext.EmpCod
+				Where FilCod  = &wwpContext.FilCod
+				Where PedGUID = &PedGUID
+				
+				&PedCod = PedCod
+				
+				if &sdtPedidoOffItem.stsSmt.IsEmpty()
+					&sdtPedidoOffItem.stsSmt = 'N'
+				Endif
+				
+				//Cliente
+				&sdtPedidoOffItem.cliGuid = &sdtPedidoOffItem.cliGuid.Trim()
+				if not &sdtPedidoOffItem.cliGuid.IsEmpty() and not &sdtPedidoOffItem.cliGuid = '-1'
+					&CliPesGUID.FromString(&sdtPedidoOffItem.cliGuid)
+					prcRetornaPessoaPorGUID.Call(&wwpContext.EmpCod, &CliPesGUID, &PedCliCod)
+					PedCliCod = &PedCliCod
+				Else
+					PedCliCod = &ConsumidorPedCliCod
+				Endif
+			
+				PedNovCliRaz = &sdtPedidoOffItem.consNom
+				
+				if &sdtPedidoOffItem.OrcPed = 'O' //Atualiza para orcamento
+					if not &OrcamentoLctCod.IsEmpty()
+						LctCod = &OrcamentoLctCod
+					Else				
+						LctCod = 8 // ORCAMENTO
+					Endif
+				Else
+					if not &VendaLctCod.IsEmpty()
+						LctCod = &VendaLctCod
+					Else
+						LctCod = 2 // VENDA
+					Endif		
+				Endif
+				
+				TimestamptoDate.Call(&sdtPedidoOffItem.dtaEms, &PedDtaEms)
+				PedDtaEms = &PedDtaEms
+				
+				//Tabela
+				&StringColl = &sdtPedidoOffItem.tab.SplitRegEx('\.')
+				if &StringColl.Count > 0
+					TabCod = &StringColl.Item(1)
+					TabColCod.FromString(&StringColl.Item(2))
+				Else
+					&varchar = '.'+trim(str(&sdtPedidoOffItem.tabC))
+					TabCod = &sdtPedidoOffItem.tab.Replace(&varchar, '')
+					TabColCod = &sdtPedidoOffItem.tabC
+				Endif
+				
+				&sdtPedidoOffItem.tabP	= &sdtPedidoOffItem.tabP.Replace("NULL", "")
+				TabPrmCod = &sdtPedidoOffItem.tabP
+				
+				&TabCod = TabCod
+				&TabPrmCod = TabPrmCod
+				&TabColCod = TabColCod
+				
+				//FINANCEIRO
+				if &sdtPedidoOffItem.praCod > 0
+					PedFrpPgtoCod = &sdtPedidoOffItem.frpCod
+					PedPraCod = &sdtPedidoOffItem.praCod
+					PedPraParDesc = &sdtPedidoOffItem.parDesc
+					PedPraParNom = &sdtPedidoOffItem.parNom
+				Endif
+				
+				PedObsEst = &sdtPedidoOffItem.oEst.Trim().ToUpper()
+				PedObsFin = &sdtPedidoOffItem.ofin.Trim().ToUpper()
+				PedObsGer = &sdtPedidoOffItem.oGer.Trim().ToUpper()
+				
+				//TOTAIS
+				PedVlrDscGlb = &sdtPedidoOffItem.vGlb
+				PedPerSpm1 = &sdtPedidoOffItem.perS1
+				PedPerSpm2 = &sdtPedidoOffItem.perS2
+				
+				PedPerPrm1 = &sdtPedidoOffItem.perp1
+				PedPerPrm2 = &sdtPedidoOffItem.perp2
+				
+				PedFrtFix = &sdtPedidoOffItem.vlrFrt
+				
+				if &sdtPedidoOffItem.StsSmt = 'P' or &sdtPedidoOffItem.pedSts = Status_pedido.CANCELADO
+					PedStsSmt = 'S' //Pedido Pronto
+				Else
+					PedStsSmt = &sdtPedidoOffItem.StsSmt	//Pedido Pendente
+				Endif		
+				
+				&PedSts.FromString(&sdtPedidoOffItem.PedSts)
+				
+				if &sdtPedidoOffItem.StsSmt = 'N' and &sdtPedidoOffItem.pedSts <> Status_pedido.CANCELADO
+					PedBlq =  Status_SimNao.Sim
+				Else
+					PedBlq =  Status_SimNao.Nao
+				Endif
+				
+				pedDtaHorMod = now()
+				
+				//DELETA ITENS
+				if &Pedsts <> Status_Pedido.CANCELADO
+					DeletaItemPedidoProdutoOFF.Call(EmpCod, FilCod, PedCod)
+				Endif
+				
+				Exit
+			When none
+				UltimoCodigoEmpresa.Call(domParCod.PEDIDO, &wwpContext.EmpCod, &wwpContext.FilCod, &PedCod)
+				
+				New
+					EmpCod          = &wwpContext.EmpCod
+					FilCod          = &wwpContext.FilCod
+					PedCod          = &PedCod
+					
+					if &sdtPedidoOffItem.StsSmt.IsEmpty()
+						&sdtPedidoOffItem.StsSmt = 'N'
+					Endif
+					
+					PedGUID.FromString(&sdtPedidoOffItem.guid)
+					&PedGUID = PedGUID
+					
+					//Cliente
+					&sdtPedidoOffItem.cliGuid = &sdtPedidoOffItem.cliGuid.Trim()
+					if not &sdtPedidoOffItem.cliGuid.IsEmpty() and not &sdtPedidoOffItem.cliGuid = '-1'
+						&CliPesGUID.FromString(&sdtPedidoOffItem.cliGuid)
+						prcRetornaPessoaPorGUID.Call(&wwpContext.EmpCod, &CliPesGUID, &PedCliCod)
+						PedCliCod = &PedCliCod
+					Else
+						PedCliCod = &ConsumidorPedCliCod
+					Endif
+				
+					PedNovCliRaz = &sdtPedidoOffItem.consNom
+					
+					if &sdtPedidoOffItem.OrcPed = 'O' //Atualiza para orcamento
+						if not &OrcamentoLctCod.IsEmpty()
+							LctCod = &OrcamentoLctCod
+						Else				
+							LctCod = 8 // ORCAMENTO
+						Endif
+					Else
+						if not &VendaLctCod.IsEmpty()
+							LctCod = &VendaLctCod
+						Else
+							LctCod = 2 // VENDA
+						Endif		
+					Endif
+					
+					TimestamptoDate.Call(&sdtPedidoOffItem.DtaEms, &PedDtaEms)
+					PedDtaEms = &PedDtaEms
+					
+					if &sdtPedidoOffItem.DtaPrv > 0
+						TimestamptoDate.Call(&sdtPedidoOffItem.DtaPrv, &PedDtaPrv)
+					Endif
+					PedDtaPrv = &PedDtaPrv
+					
+					//Tabela
+					&StringColl = &sdtPedidoOffItem.Tab.SplitRegEx('\.')
+					if &StringColl.Count > 0
+						TabCod = &StringColl.Item(1)
+						TabColCod.FromString(&StringColl.Item(2))
+					Else
+						&varchar = '.'+trim(str(&sdtPedidoOffItem.TabC))
+						TabCod = &sdtPedidoOffItem.tab.Replace(&varchar, '')
+						TabColCod = &sdtPedidoOffItem.TabC
+					Endif
+					
+					&sdtPedidoOffItem.tabP	= &sdtPedidoOffItem.tabP.Replace("NULL", "")
+					TabPrmCod = &sdtPedidoOffItem.tabP	
+					
+					&TabCod = TabCod
+					&TabPrmCod = TabPrmCod
+					&TabColCod = TabColCod
+					
+					PedVenCod = &wwpContext.PesCod
+					
+					//FINANCEIRO					
+					if &sdtPedidoOffItem.praCod > 0
+						PedFrpPgtoCod = &sdtPedidoOffItem.frpCod
+						PedPraCod = &sdtPedidoOffItem.praCod
+						PedPraParDesc = &sdtPedidoOffItem.parDesc
+						PedPraParNom = &sdtPedidoOffItem.parNom
+					Endif
+				
+					////			
+					////			//TRANSPORTE
+					////			PedTraRedCod = 1
+					
+					PedTipFrt.FromString(&TCon081_TipoFrete)			
+					PedTipSaiFrt.FromString(&TCon081_TipoFrete)
+					
+					PedFatFilCod = &PedFatFiLCod
+					
+					PedObsEst = &sdtPedidoOffItem.OEst.Trim().ToUpper()
+					PedObsFin = &sdtPedidoOffItem.oFin.Trim().ToUpper()
+					PedObsGer = &sdtPedidoOffItem.oGer.Trim().ToUpper()
+					
+					//TOTAIS
+					PedVlrDscGlb = &sdtPedidoOffItem.vGlb
+					PedPerSpm1 = &sdtPedidoOffItem.pers1
+					PedPerSpm2 = &sdtPedidoOffItem.pers2
+					
+					PedPerPrm1 = &sdtPedidoOffItem.perP1
+					PedPerPrm2 = &sdtPedidoOffItem.perP2
+					
+					PedFrtFix = &sdtPedidoOffItem.vlrFrt
+					
+					PedHorEms = ServerTime()
+					PedSts    = Status_Pedido.ABERTO
+					PedStsFin = Status_Financeiro.ABERTO		 
+					PedStsCrd =  Status_Autorizado.NAO_AUTORIZADO
+					PedStsAna =  Status_Analisado.NaoAnalisado
+					
+					if &sdtPedidoOffItem.StsSmt = 'P' or &sdtPedidoOffItem.PedSts = Status_pedido.CANCELADO
+						PedStsSmt = 'S'
+					Else
+						PedStsSmt = &sdtPedidoOffItem.StsSmt
+					Endif
+					
+					&PedSts.FromString(&sdtPedidoOffItem.PedSts)
+					
+					if &sdtPedidoOffItem.StsSmt = 'N' and &sdtPedidoOffItem.PedSts <> Status_pedido.CANCELADO
+						PedBlq =  Status_SimNao.Sim
+					Else
+						PedBlq =  Status_SimNao.Nao
+					Endif
+					
+					pedDtaHorMod = now()
+					PedStsGer = Pedido_Gerado.SMART //Pedido_Gerado.Vendas
+				EndNew
+				
+				commit
+			EndFor
+			
+			//TODA VEZ QUE SINCRONIZAR< VAI GRAVAR DATA DIGITACAO
+			CriticasPedido.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &PedCod, TipoCriticaPedido.Digitado, &wwpContext.PesCod)
+			
+			Commit
+			
+			&sdtRetornowbspedido = new()
+			&sdtRetornowbspedido.PedCod = &PedCod
+			&sdtRetornowbspedido.PedGuid = &PedGUID
+			
+			
+			if &Pedsts <> Status_Pedido.CANCELADO //se for cancelado nao atualiza itens
+				//SET PRODUTOS 
+				For &sdtPedidoProdutoOFFItem in &sdtPedidosOFF.Produtos
+					if &sdtPedidoProdutoOFFItem.GUID = &PedGUID
+						
+						prcRetornaProdutoPorGUID.Call(&wwpContext.EmpCod, &sdtPedidoProdutoOFFItem.PGuid, &ProCod)
+						
+						&ProGraCod = &sdtPedidoProdutoOFFItem.pGraC
+						if &ProGraCod.IsEmpty()
+							&ProGraCod = 1
+						Endif
+						
+						&PedQtd    = &sdtPedidoProdutoOFFItem.Qtd 
+						&PedVlrUnt = &sdtPedidoProdutoOFFItem.vlrUnt
+						&PedItmDsc = &sdtPedidoProdutoOFFItem.Dsc
+						&PedItmCmp = &sdtPedidoProdutoOFFItem.Cmp.ToUpper()
+						&PedVlrTab = RetornaPrecoUnitarioVenda.UDP(&wwpContext.EmpCod, &TabCod, &TabPrmCod, &ProCod, &ProGraCod, &TabColCod, &PedDtaEms, &PedDtaEms)
+						//&sdtPedidoProdutoOFFItem.PedVlrTab
+						
+						GravaItemPedidoVendaOFF.Call(&wwpContext.EmpCod,&wwpContext.FilCod,&PedCod,0,&ProCod,&ProGraCod,&PedQtd,0,&PedVlrUnt,&PedVlrTab, &PedItmDsc,&PedItmCmp,	0, 0, &MensagemInserido,&MensagemAlterado, &wwpContext.UserName)
+					Endif
+				EndFor
+				
+				AtualizaPrecosPedidoVenda.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &PedCod, false)
+				////	Else
+				////		&Mensagem = 'ERRO'
+				////		Return
+				////	Endif
+				
+				//pega o valor liquido.
+				For Each Order EmpCod, FilCod, PedCod
+					Where EmpCod          = &wwpContext.EmpCod
+					Where FilCod          = &wwpContext.FilCod
+					Where PedCod          = &PedCod
+					Where LctGerFin = Status_SimNao.Sim //gera financeiro
+					
+					&PedVlrLiq = PedVlrLiq
+					Exit
+				EndFor
+				
+				if &PedVlrLiq > 0
+					For Each order EmpCod, VenPedVenCod
+						Where EmpCod = &wwpContext.EmpCod
+						Where VenPedVenCod = &wwpContext.PesCod
+						
+						if VenDta = serverdate()
+							VenQtd += 1
+							VenTot += &PedVlrLiq
+						else
+							VenQtd = 1
+							VenTot = &PedVlrLiq
+							VenDta = serverdate()
+						Endif
+						
+						if VenQtd > 0 and VenTot > 0
+							VenMed = round(VenTot/VenQtd, 2)
+						Endif
+						
+						Exit
+					when none
+						NEw
+							EmpCod = &wwpContext.EmpCod
+							VenPedVenCod = &wwpContext.PesCod
+							VenDta = serverdate()					
+							VenQtd = 1
+							VenTot = &PedVlrLiq
+							VenMed = &PedVlrLiq
+						EndNew
+					Endfor
+					
+					commit
+				EndIF
+			
+			Else
+				AtualizaEstoqueGerencialVenda.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &PedCod, &PedDtaFat, &wwpContext.PesCod, Status_Pedido.CANCELADO)
+			Endif
+			
+			&sdtRetornowbs.qtdPed += 1
+			
+			if &sdtPedidoOffItem.StsSmt = 'P' or &sdtPedidoOffItem.PedSts = Status_pedido.CANCELADO
+				&sdtRetornowbspedido.Obs = 'DELETA'
+			Else
+				&sdtRetornowbspedido.Obs = 'SUCESSO'
+			Endif
+			
+			&sdtRetornowbs.pedido.Add(&sdtRetornowbspedido)
+		EndFor
+		
+		&sdtRetornowbs.Sts = 'J200'
+		&sdtRetornowbs.Obs = 'SUCESSO'
+		//&sdtRetornowbs.Detalhes = &sdtRetornoPedidoOFF.ToJson()
+	Else
+		&sdtRetornowbs.Sts = 'E001'
+		&sdtRetornowbs.Obs = 'Dispositivo não autorizado'
+		return
+	Endif
+Endsub
+
+
+Sub 'Exception_handler'
+	&sdtRetornowbs.Sts = 'E999'
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subError_handler',&PedidoOFF)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subError_handler',&PedidoProdutoOFF)
+Endsub
+
+Sub 'Error_handler'
+	&sdtRetornowbs.Sts = 'E998'
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&sdtPedidosOFF, out:&sdtRetornowbs);
+
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornowbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornowbs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornowbs, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedidoOFF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedidoOFF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>20485760</Value></Property><Property><Name>AttMaxLen</Name><Value>20485760</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedidoProdutoOFF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedidoProdutoOFF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>20485760</Value></Property><Property><Name>AttMaxLen</Name><Value>20485760</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon156_PagamentoPadrao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon156_PagamentoPadrao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OrcamentoLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OrcamentoLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VendaLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VendaLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPedidoOffItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidoOffItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosOFF.PedidosItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon081_TipoFrete">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon081_TipoFrete</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPedidoProdutoOFFItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidoProdutoOFFItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosOFF.ProdutosItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedGUID</Value></Property><Property><Name>Description</Name><Value>Ped GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MensagemAlterado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MensagemAlterado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MensagemInserido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MensagemInserido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StringColl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StringColl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornowbspedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornowbspedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornowbs.pedidoItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CliPesGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CliPesGUID</Value></Property><Property><Name>Description</Name><Value>Pes GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesGUID</Value></Property><Property><Name>AUTOGENERATE_GUID</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ConsumidorPedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ConsumidorPedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabColCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabColCod</Value></Property><Property><Name>Description</Name><Value>Coluna</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabPrmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabPrmCod</Value></Property><Property><Name>Description</Name><Value>Tabela Promoção</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabPrmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaPrv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaPrv</Value></Property><Property><Name>Description</Name><Value>Data Previsão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaPrv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tamanho">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tamanho</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUnt</Value></Property><Property><Name>Description</Name><Value>Produto Valor Unitário Bruto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmDsc</Value></Property><Property><Name>Description</Name><Value>Descontos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCmp</Value></Property><Property><Name>Description</Name><Value>Complemento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCmp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrTab">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrTab</Value></Property><Property><Name>Description</Name><Value>Valor Tabela Preco</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrTab</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPedidosOFF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidosOFF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosOFF, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="longVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>longVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon002_FilialFaturamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon002_FilialFaturamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedFatFiLCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedFatFiLCod</Value></Property><Property><Name>Description</Name><Value>Filial Faturamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedFatFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrLiq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>setPedidosOffCompleto</Value></Property><Property><Name>Description</Name><Value>set Pedidos Off Completo</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

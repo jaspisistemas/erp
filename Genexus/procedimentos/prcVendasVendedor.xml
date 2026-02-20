@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0bcce5a-5d8a-414e-bbed-c37e18633d56" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2019-01-23T10:32:18.0000000Z" checksum="53e706591e90c01ed3f5d98a27d9f04c" fullyQualifiedName="prcVendasVendedor" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="39ce5ed8-dcb6-4f9e-b0c0-f5546e1f5ef3" name="prcVendasVendedor" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Vendas Vendedor" parent="VendasVendedor" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&sdtTotalFaturado.Clear()
+&sdtPedidosVendedor.Clear()
+&PedidosFaturado = 0
+&PedidosFaturado = 0
+
+RetornacidadeCepFilial.Call(&EmpCod, &FilCod, &CidCod, &FilCep)
+
+if &parMes.IsEmpty()
+	&inicialData = yMDtoD(&parAno, 1, 1)
+	&FinalData = yMDtoD(&parAno, 12, 31)
+Else
+	&inicialData = yMDtoD(&parAno, &parMes, 1)
+	&FinalData = EoM(&inicialData)
+Endif
+
+//PEDIDOS EMITIDOS
+For Each Order EmpCod, FilCod, PedVenCod, PedDtaEms
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedVenCod = &PedVenCod when not &PedVenCod.IsEmpty()
+	Where PedVenIntExt = &PesVenIntExt when &PedVenCod.IsEmpty()
+	where pedVenIntDem.IsEmpty() or pedVenIntDem.IsNull() when &PedVenCod.IsEmpty() and &RegistradoTodos = 'S'
+	Where Year(PedDtaEms) = &parAno
+	Where Month(PedDtaEms) = &parMes when not &parMes.IsEmpty()
+	Where LctGerFin = Status_SimNao.Sim or LctTip = TipoLancamento.OrcamentoVenda //GERA FINANCEIRO OU ORCAMENTO
+	Where LctAtuSal = Status_EntradaSaida.Saida // ATUALIZA SALDO
+	where LctPagCom = Status_SimNao.Sim or LctTip = TipoLancamento.OrcamentoVenda //PAGA COMISSAO
+	Where PedNovStsNom <> 'DIGITAÇÃO'
+	Where PedSts <> Status_Pedido.CANCELADO // or PedSts = Status_Pedido.SEPARANDO
+	Where PedVenCod <> 0
+	
+	if (&AuxMes <> Month(PedDtaEms) or (&AuxPedVenCod <> PedVenCod) OR (&AuxDia <> Day(PedDtaEms) AND not &parMes.IsEmpty())) and &AuxPedVenCod <> 0
+		if &tmpPedVenCod <> &AuxPedVenCod
+			&tmpPedVenCod = &AuxPedVenCod
+			do 'iniciaSDT'
+		EndIf
+		do 'addSDTVEndas'
+	Endif
+	
+	if not &parMes.IsEmpty()
+		&AuxDia = Day(PedDtaEms)
+	Endif
+	
+	&AuxAno = Year(PedDtaEms)
+	&AuxMes = Month(PedDtaEms)
+	&AuxPedVenCod = -1
+	if &IsPorVEndedor = true
+		&AuxPedVenCod = PedVenCod
+	Endif
+	&PedidosVendidos += PedVlrLiq
+When none	
+	&AuxAno = &parAno
+	&AuxMes = &parMes
+	&AuxPedVenCod = -1
+	if &IsPorVEndedor = true
+		&AuxPedVenCod = &PedVenCod
+	Endif
+	if &tmpPedVenCod <> &AuxPedVenCod
+		&tmpPedVenCod = &AuxPedVenCod
+		do 'iniciaSDT'
+	EndIf
+EndFor
+
+if not &PedidosVendidos.IsEmpty()
+	if &tmpPedVenCod <> &AuxPedVenCod
+		&tmpPedVenCod = &AuxPedVenCod
+		do 'iniciaSDT'
+	EndIf
+	do 'addSDTVEndas'
+Endif
+
+&PedidosFaturado = 0
+&PedidosVendidos = 0
+&AuxMes = 0
+&AuxAno = 0
+&AuxDia = 0
+&AuxPedVenCod = 0
+
+//PEDIDOS FATURADOS
+For Each Order EmpCod, FilCod, PedVenCod, PedDtaFat
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedVenCod = &PedVenCod when not &PedVenCod.IsEmpty()
+	Where PedVenIntExt = &PesVenIntExt when &PedVenCod.IsEmpty()
+	where pedVenIntDem.IsEmpty() or pedVenIntDem.IsNull() when &PedVenCod.IsEmpty() and &RegistradoTodos = 'S'
+	Where Year(PedDtaFat) = &parAno
+	Where Month(PedDtaFat) = &parMes when not &parMes.IsEmpty()
+	Where LctGerFin = Status_SimNao.Sim //GERA FINANCEIRO
+	Where LctAtuSal = Status_EntradaSaida.Saida // ATUALIZA SALDO SAIDA
+	where LctPagCom = Status_SimNao.Sim //PAGA COMISSAO
+	Where PedVenCod <> 0
+	Where PedSts = Status_Pedido.FECHADO
+	
+	if (&AuxMes <> Month(PedDtaFat) or (&AuxPedVenCod <> PedVenCod) OR (&AuxDia <> Day(PedDtaFat) AND not &parMes.IsEmpty())) and &AuxPedVenCod <> 0
+		if &tmpPedVenCod <> &AuxPedVenCod
+			&tmpPedVenCod = &AuxPedVenCod
+			do 'iniciaSDT'
+		EndIf
+	
+		do 'addSDTVEndas'
+	Endif
+	
+	if not &parMes.IsEmpty()
+		&AuxDia = Day(PedDtaFat)
+	Endif
+
+	&AuxAno = Year(PedDtaFat)
+	&AuxMes = Month(PedDtaFat)
+	&AuxPedVenCod = -1
+	if &IsPorVEndedor = true
+		&AuxPedVenCod = PedVenCod
+	Endif
+	&PedidosFaturado += PedVlrLiq
+EndFor
+
+if not &PedidosFaturado.IsEmpty()
+	if &tmpPedVenCod <> &AuxPedVenCod
+		&tmpPedVenCod = &AuxPedVenCod
+		do 'iniciaSDT'
+	EndIf
+	do 'addSDTVEndas'
+Endif
+
+if not &parMes.IsEmpty()
+	&sdtPedidosVendedor.Sort('Dia')
+Else
+	&sdtPedidosVendedor.Sort('Mes')
+Endif
+
+Sub 'iniciaSDT'
+	&CountData = &inicialData
+	&tmpAno = &parAno
+	
+	if &TmpPedVenCod <> 0
+		do while &CountData <= &FinalData
+			If &parMes.IsEmpty()
+				&TmpDia = 0
+			Else
+				&TmpDia = day(&CountData)
+			Endif	
+			&tmpMes = month(&CountData)
+			
+			&Isachou = false
+			For &sdtPedidosVendedorItem in &sdtPedidosVendedor
+				if &TmpDia = &sdtPedidosVendedorItem.Dia AND &TmpMes = &sdtPedidosVendedorItem.Mes and &TmpPedVenCod = &sdtPedidosVendedorItem.PedVenCod
+					&Isachou = true
+					exit
+				Endif
+			EndFor
+			
+			if &Isachou = false
+				&sdtPedidosVendedorItem = new()
+				&sdtPedidosVendedorItem.PedVenCod = &tmpPedVenCod
+				&sdtPedidosVendedorItem.Ano = &tmpAno
+				&sdtPedidosVendedorItem.Mes = &tmpMes
+				&sdtPedidosVendedorItem.Dia = &tmpDia
+				&sdtPedidosVendedorItem.feriado = false
+				
+				If not &tmpDia.IsEmpty()
+					&DataSemana = YmDtoD(&tmpAno, &tmpMes, &tmpDia)
+					
+					&OutDias = 0
+					RetornaFeriadoPeriodo.Call(&EmpCod, '', &CidCod, &DataSemana, &DataSemana, &OutDias)
+					if &OutDias > 0
+						&sdtPedidosVendedorItem.feriado = true
+					Endif
+				
+					&sdtPedidosVendedorItem.Semana = Substr(UPPER(CDoW(&dataSemana)),1,3)
+				Endif
+			
+				&sdtPedidosVendedorItem.VendidoMoeda = 0
+				&sdtPedidosVendedorItem.FaturadoMoeda = 0
+				&sdtPedidosVendedor.Add(&sdtPedidosVendedorItem)
+			Endif
+			
+			if &parMes.IsEmpty()
+				&CountData = &CountData.addMonths(1)
+			Else
+				&CountData = &CountData.AddDays(1)
+			Endif
+		EndDo
+	Endif
+EndSub
+
+Sub 'AddSDTVEndas'
+	&Isachou = false
+	For &sdtPedidosVendedorItem in &sdtPedidosVendedor
+		if &AuxDia = &sdtPedidosVendedorItem.Dia AND &AuxMes = &sdtPedidosVendedorItem.Mes and &AuxPedVenCod = &sdtPedidosVendedorItem.PedVenCod
+			&sdtPedidosVendedorItem.VendidoMoeda += &PedidosVendidos
+			&sdtPedidosVendedorItem.FaturadoMoeda += &PedidosFaturado
+			&Isachou = true
+			exit
+		Endif
+	
+	EndFor
+	
+	if &Isachou = false
+		&sdtPedidosVendedorItem = new()
+		&sdtPedidosVendedorItem.PedVenCod = &AuxPedVenCod
+		&sdtPedidosVendedorItem.Ano = &AuxAno
+		&sdtPedidosVendedorItem.Mes = &AuxMes
+		&sdtPedidosVendedorItem.Dia = &AuxDia
+		&sdtPedidosVendedorItem.VendidoMoeda = &PedidosVendidos
+		&sdtPedidosVendedorItem.FaturadoMoeda = &PedidosFaturado
+		&sdtPedidosVendedor.Add(&sdtPedidosVendedorItem)
+	Endif
+	
+	&Isachou = false
+	For &sdtTotalFaturadoItem in &sdtTotalFaturado
+		if &sdtTotalFaturadoItem.PedVenCod = &AuxPedVenCod and &sdtTotalFaturadoItem.Descricao = 'FATURADO'
+			&sdtTotalFaturadoItem.FaturadoMoeda += &PedidosFaturado	
+			&Isachou = true
+			Exit
+		EndIf
+	EndFor
+	if &Isachou = false
+		&sdtTotalFaturadoItem = new()
+		&sdtTotalFaturadoItem.PedVenCod = &AuxPedVenCod
+		&sdtTotalFaturadoItem.Descricao = 'FATURADO'
+		&sdtTotalFaturadoItem.FaturadoMoeda = &PedidosFaturado
+		&sdtTotalFaturado.Add(&sdtTotalFaturadoItem)
+	Endif
+	
+	&Isachou = false
+	For &sdtTotalFaturadoItem in &sdtTotalFaturado
+		if &sdtTotalFaturadoItem.PedVenCod = &AuxPedVenCod and &sdtTotalFaturadoItem.Descricao = 'VENDIDO'
+			&sdtTotalFaturadoItem.FaturadoMoeda += &PedidosVendidos	
+			&Isachou = true
+			Exit
+		EndIf
+	EndFor
+	if &Isachou = false
+		&sdtTotalFaturadoItem = new()
+		&sdtTotalFaturadoItem.PedVenCod = &AuxPedVenCod
+		&sdtTotalFaturadoItem.Descricao = 'VENDIDO'
+		&sdtTotalFaturadoItem.FaturadoMoeda = &PedidosVendidos
+		&sdtTotalFaturado.Add(&sdtTotalFaturadoItem)
+	Endif
+
+	&PedidosVendidos = 0
+	&PedidosFaturado = 0
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedVenCod, in:&PesVenIntExt, in:&RegistradoTodos, in:&IsPorVEndedor, in:&parAno, in:&parMes, out:&sdtPedidosVendedor, out:&sdtTotalFaturado);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPedidosVendedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidosVendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosVendedor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPedidosVendedorItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidosVendedorItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosVendedor.sdtPedidosVendedorItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parAno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parMes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedidosVendidos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedidosVendidos</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxAno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Isachou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Isachou</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedidosFaturado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedidosFaturado</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpMes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpAno</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpPedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpPedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inicialData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inicialData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinalData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinalData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtTotalFaturado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtTotalFaturado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosVendedor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtTotalFaturadoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtTotalFaturadoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidosVendedor.sdtPedidosVendedorItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesVenIntExt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesVenIntExt</Value></Property><Property><Name>Description</Name><Value>Externo/Interno</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesVenIntExt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPorVEndedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPorVEndedor</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesSts</Value></Property><Property><Name>Description</Name><Value>Pessoa Ativo/Inativo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RegistradoTodos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RegistradoTodos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataSemana">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataSemana</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OutDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OutDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCep</Value></Property><Property><Name>Description</Name><Value>Filial Cep</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCep</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcVendasVendedor</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

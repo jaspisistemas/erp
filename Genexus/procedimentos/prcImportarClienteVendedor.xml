@@ -1,0 +1,369 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="afa47377-41d5-4ae8-9755-6f53150aa361" user="LUIZ\LuiZ Henrique" versionDate="2024-10-15T11:30:24.0000000Z" lastUpdate="2024-10-15T11:27:11.0000000Z" checksum="837fb28838b3187c41378988acb01ce2" fullyQualifiedName="prcImportarClienteVendedor" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="46e85325-ad83-4d7d-839a-22774e06c298" name="prcImportarClienteVendedor" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Importar Cliente Vendedor">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&SdtImportaClienteVendedor.EmpCod	= &EmpCod
+&SdtImportaClienteVendedor.SdtImportaClienteVendedorErro.Clear()
+&SdtImportaClienteVendedor.SdtImportaClienteVendedorSucess.Clear()
+
+&ProgressLogXml = ''
+&Percentual = 0
+&ProgressIni = serverNow()
+&PerCount = 0
+&PercentualTotal = 100
+Do 'Atualiza'
+
+&Linha	= &PrimeiraLinha
+&ExcelDocument.Open(&PathUrl)
+If &ExcelDocument.ErrCode <> 0
+	msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro " + Trim(Str(&ExcelDocument.ErrCode)) + '!', &ExcelDocument.ErrDescription, DVMessageType.error, "", DVMessageBoolean.True, ""))
+Else
+	Do While &Fim < 10
+		Do 'Percentual'
+		Do 'LimpaCampos'
+		&PesCod	= IIf(&ColCliente > 0, Round(&ExcelDocument.Cells(&Linha, &ColCliente).Number, 0), 0)
+		
+		&PesExtVenCod	= IIf(&ColVenExt > 0, Round(&ExcelDocument.Cells(&Linha, &ColVenExt).Number, 0), 0)
+		If &ColVenExt > 0
+			&AuxPesCod	= &PesExtVenCod
+			&IsVendedorExterno	= True
+			&IsVendedorInterno	= False
+			Do 'VerificaVendedor'
+		Else
+			&IsVendedorExternoOk = True
+		EndIf
+		
+		If &ColVenInt > 0
+			&PesIntVenCod	= IIf(&ColVenInt > 0, Round(&ExcelDocument.Cells(&Linha, &ColVenInt).Number, 0), 0)
+			&AuxPesCod	= &PesIntVenCod
+			&IsVendedorExterno	= False
+			&IsVendedorInterno	= True
+			Do 'VerificaVendedor'
+		Else
+			&IsVendedorInternoOk = True
+		EndIf
+	
+		If &PesCod.IsEmpty()
+			&Fim += 1
+		Else
+			If &IsVendedorExternoOk = False Or &IsVendedorInternoOk = False
+				&ClienteErro	= New()
+				If &IsVendedorExternoOk	= False
+					&MotivoMensagem	= 'VENDEDOR EXTERNO NÃO ENCONTRADO; '
+				EndIf
+				If &IsVendedorInternoOk	= False
+					&MotivoMensagem	+= 'VENDEDOR INTERNO NÃO ENCONTRADO.'
+				EndIf
+				&ClienteErro.Motivo	= &MotivoMensagem
+				&ClienteErro.PesCod	= &PesCod
+				&ClienteErro.PesCodRaz	= Trim(Str(&PesCod)) + ' - ' + RetornaNomePessoa.Udp(&EmpCod, &PesCod)
+				&ClienteErro.PesExtVenCod	= &PesExtVenCod
+				&ClienteErro.PesIntVenCod	= &PesIntVenCod
+				&ClienteSucesso.OldPesExtVenCod	= 0
+				&ClienteSucesso.OldPesIntVenCod	= 0
+				&SdtImportaClienteVendedor.SdtImportaClienteVendedorErro.Add(&ClienteErro)
+			Else
+				Do 'GetCliente'
+			EndIf	
+			&Fim	= 0
+		EndIf
+		&Linha += 1
+	EndDo
+EndIf
+
+&Percentual = 100
+&ProgressFin = serverNow()
+Do 'Atualiza'
+PadraoUsuario.Call('G', &ProgressId, &ContextPesCod, &EmpCod, &SdtImportaClienteVendedor.ToJson(), ServerDate())
+
+Sub 'VerificaVendedor'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod	= &EmpCod
+		Where PesCod	= &AuxPesCod
+		Where PesIsVen	= True
+		
+		If &IsVendedorExterno	= True
+			&IsVendedorExternoOk	= True
+		Else
+			&IsVendedorInternoOk	= True
+		EndIf
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'GetCliente'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod	= &EmpCod
+		Where PesCod	= &PesCod
+		
+		Do Case
+			Case PesIsCli = False And PesSts = Status_AtivoInativo.INATIVO
+				&ClienteErro	= New()
+				&ClienteErro.Motivo	= 'PESSOA NÃO É CLIENTE E POSSUI CADASTRO INATIVO'
+				&ClienteErro.PesCod	= PesCod
+				&ClienteErro.PesCodRaz	= PesCodRaz
+				&ClienteErro.PesExtVenCod	= &PesExtVenCod
+				&ClienteErro.PesIntVenCod	= &PesIntVenCod
+				&ClienteErro.PesIsCli	= PesIsCli
+				&ClienteErro.PesRaz	= PesRaz
+				&ClienteErro.PesSts	= PesSts
+				&ClienteSucesso.OldPesExtVenCod	= 0
+				&ClienteSucesso.OldPesIntVenCod	= 0
+				&SdtImportaClienteVendedor.SdtImportaClienteVendedorErro.Add(&ClienteErro)
+				
+			Case PesIsCli = False
+				&ClienteErro	= New()
+				&ClienteErro.Motivo	= 'PESSOA NÃO É CLIENTE'
+				&ClienteErro.PesCod	= PesCod
+				&ClienteErro.PesCodRaz	= PesCodRaz
+				&ClienteErro.PesExtVenCod	= &PesExtVenCod
+				&ClienteErro.PesIntVenCod	= &PesIntVenCod
+				&ClienteErro.PesIsCli	= PesIsCli
+				&ClienteErro.PesRaz	= PesRaz
+				&ClienteErro.PesSts	= PesSts
+				&ClienteSucesso.OldPesExtVenCod	= 0
+				&ClienteSucesso.OldPesIntVenCod	= 0
+				&SdtImportaClienteVendedor.SdtImportaClienteVendedorErro.Add(&ClienteErro)
+				
+			Case PesSts = Status_AtivoInativo.INATIVO
+				&ClienteErro	= New()
+				&ClienteErro.Motivo	= 'PESSOA COM CADASTRO INATIVO'
+				&ClienteErro.PesCod	= PesCod
+				&ClienteErro.PesCodRaz	= PesCodRaz
+				&ClienteErro.PesExtVenCod	= &PesExtVenCod
+				&ClienteErro.PesIntVenCod	= &PesIntVenCod
+				&ClienteErro.PesIsCli	= PesIsCli
+				&ClienteErro.PesRaz	= PesRaz
+				&ClienteErro.PesSts	= PesSts
+				&ClienteSucesso.OldPesExtVenCod	= 0
+				&ClienteSucesso.OldPesIntVenCod	= 0
+				&SdtImportaClienteVendedor.SdtImportaClienteVendedorErro.Add(&ClienteErro)
+				
+			OtherWise
+				&ClienteSucesso	= New()
+				&ClienteSucesso.PesCod	= PesCod
+				&ClienteSucesso.PesCodRaz	= PesCodRaz
+				&ClienteSucesso.PesExtVenCod	= &PesExtVenCod
+				&ClienteSucesso.PesIntVenCod	= &PesIntVenCod
+				&ClienteSucesso.PesIsCli	= PesIsCli
+				&ClienteSucesso.PesRaz	= PesRaz
+				&ClienteSucesso.PesSts	= PesSts
+				&ClienteSucesso.OldPesExtVenCod	= PesExtVenCod
+				&ClienteSucesso.OldPesIntVenCod	= PesIntVenCod
+				&SdtImportaClienteVendedor.SdtImportaClienteVendedorSucess.Add(&ClienteSucesso)
+		EndCase
+		
+		Exit
+	When None
+		&ClienteErro	= New()
+		&ClienteErro.PesCod	= &PesCod
+		&ClienteErro.PesExtVenCod	= &PesExtVenCod
+		&ClienteErro.PesIntVenCod	= &PesIntVenCod
+		&ClienteErro.PesSts	= Status_AtivoInativo.INATIVO
+		&ClienteSucesso.OldPesExtVenCod	= 0
+		&ClienteSucesso.OldPesIntVenCod	= 0
+		&ClienteErro.Motivo	= 'REGISTRO (LINHA ' + Trim(Str(&Linha)) + ') NÃO ENCONTRADO'
+		&SdtImportaClienteVendedor.SdtImportaClienteVendedorErro.Add(&ClienteErro)
+	EndFor
+
+EndSub
+
+Sub 'Percentual'
+	
+	&PerCount += 1
+	If &PerCount > 0
+		&Percentual = round((&PerCount / &PercentualTotal) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+EndSub
+
+Sub 'LimpaCampos'
+		
+	&PesCod.SetEmpty()
+	&PesExtVenCod.SetEmpty()
+	&PesIntVenCod.SetEmpty()
+	&IsVendedorExternoOk	= False
+	&IsVendedorInternoOk	= False
+	&MotivoMensagem.SetEmpty()
+	&AuxPesCod.SetEmpty()
+	
+EndSub
+
+Sub 'Atualiza'
+	For Each Order ProgressId
+		where ProgressId = &ProgressId
+		
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+		ProgressLogXml = &ProgressLogXml 
+		
+	When none
+		
+		New
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+			ProgressLogXml = &ProgressLogXml 
+		EndNew
+	
+	EndFor
+
+	Commit
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&ProgressId, In:&EmpCod, In:&PathUrl, In:&PrimeiraLinha, In:&ColCliente, In:&ColVenExt, In:&ColVenInt, In:&ContextPesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PerCount">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PerCount</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PercentualTotal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PercentualTotal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Linha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Linha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrimeiraLinha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrimeiraLinha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExcelDocument">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExcelDocument</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:ExcelDocument</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PathUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PathUrl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Fim">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Fim</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColCliente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColCliente</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColVenExt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColVenExt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesIntVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesIntVenCod</Value></Property><Property><Name>Description</Name><Value>Televendas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesIntVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColVenInt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColVenInt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtImportaClienteVendedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtImportaClienteVendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtImportaClienteVendedor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ClienteErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ClienteErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtImportaClienteVendedor.SdtImportaClienteVendedorErroItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ClienteSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ClienteSucesso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtImportaClienteVendedor.SdtImportaClienteVendedorSucessItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsVendedorInterno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsVendedorInterno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsVendedorExterno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsVendedorExterno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsVendedorExternoOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsVendedorExternoOk</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsVendedorInternoOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsVendedorInternoOk</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotivoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotivoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ContextPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ContextPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcImportarClienteVendedor</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

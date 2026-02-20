@@ -1,0 +1,396 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="86cf8388-bbd0-4e8e-b057-1f4f397b01e0" user="WIN-JEAN\jean.fae" versionDate="2023-04-24T14:24:53.0000000Z" lastUpdate="2023-04-20T20:24:46.0000000Z" checksum="7fcf89024b8d5ac97f34440774ca0a1b" fullyQualifiedName="prcVerificaValoresImpostoFuturo" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="8af298de-4817-44d2-a985-9b920a72e6de" name="prcVerificaValoresImpostoFuturo" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Verifica Valores Imposto Futuro" parent="prcLojas" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&PedFatFilCod = &ParPedFatFilCod
+
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon144_FreteBaseCalculoICMS, &TCon144_FreteBaseCalculoICMS) //FRETE
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon005_TipoCliente, &TipoCliente_369)
+
+RetornaNotasPedido.Call(&EmpCod, &FilCod, &PedCod, &DadosNota)
+if not &DadosNota.IsEmpty()
+	Return
+EndIf
+
+&UltimoPedItmCod = 0 //&TCon144_FreteBaseCalculoICMS
+For Each Order EmpCod, FilCod, PedCod, PedItmCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	Where  ProTipDef <> Definicao.SERVICO
+	&UltimoPedItmCod += 1 //&TCon144_FreteBaseCalculoICMS
+EndFor
+
+For Each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	Where PedSts <> Status_Pedido.FECHADO
+	
+	//&TCon144_FreteBaseCalculoICMS
+	&tmpNfeVlrBrtNotDesconto = PedVlrBrt
+	&tmpNfeVlrBrtNot = PedVlrBrt - (PedVlrOut + PedVlrFrt + PedVlrGnre) //- PedVlrDscGlb
+	
+	If &TipoCliente_369 = 'S'
+		&PedTpcVlr 		= PedTpcVlr
+	Else
+		&PedTpcVlr 		= 0
+	EndIF
+	
+	if &PedFatFilCod.IsEmpty()
+		if PedFatFilCod.IsEmpty() or PedFatFilCod.IsNull()
+			&PedFatFilCod = FilCod
+		Else
+			&PedFatFilCod = PedFatFilCod
+		Endif
+	Endif
+	
+	RetornaFilialBaseImposto.Call(EmpCod, &PedFatFiLCod, &FilBasImp)
+	
+	prcDadosEmissaoNfe.call(EmpCod, &FilBasImp, &FilAmbEms)
+	
+	if &FilAmbEms <> TAmb.Producao
+		Return
+	Else
+		&DescontoUnitarioGlobal = 0 
+		if PedVlrDscGlb > 0 and &tmpNfeVlrBrtNotDesconto > 0 and not &PedTpcVlr > 0
+			&DescontoUnitarioGlobal = (PedVlrDscGlb/&tmpNfeVlrBrtNotDesconto ) * 100
+			&tmpNfeVlrBrtNot -= PedVlrDscGlb
+		Endif
+
+		if &TCon144_FreteBaseCalculoICMS = 'S' or &TCon144_FreteBaseCalculoICMS = 'A'
+			&AuxPedVlrFrt = PedVlrFrt
+			
+			&valorGlobalFrete = 0 
+			if &AuxPedVlrFrt > 0 and &tmpNfeVlrBrtNot > 0
+				&valorGlobalFrete = &AuxPedVlrFrt/&tmpNfeVlrBrtNot
+			Endif
+		Endif
+	
+		&LctBasImpCod = LctBasImpCod
+		&PedCliCidUfeCod = PedCliCidUfeCod
+		&PedCliGruImpCod = PedCliGruImpCod
+		
+		&AuxImpostosTotal = 0				
+		&TotalItem = 0
+		&ImpostosTotal = 0
+		
+		For Each Order EmpCod, FilCod, PedCod, PedItmCod
+			Where PedQtd > 0
+			
+			&CalculoFretePedItmCod += 1 //&TCon144_FreteBaseCalculoICMS
+			
+			&PedVlrUntComDsc = PedVlrUntComDsc
+			&tmpPedVlrDsc = 0
+			if &DescontoUnitarioGlobal > 0 and &PedVlrUntComDsc > 0 and not &PedTpcVlr > 0
+				&tmpPedVlrDsc = round(((&PedVlrUntComDsc * &DescontoUnitarioGlobal) / 100), 5)
+				&PedVlrUntComDsc -= &tmpPedVlrDsc
+			Endif
+		
+			&tmpProVlrFrt = 0 //if &TCon144_FreteBaseCalculoICMS
+			&tmpProBasVlrIcm = PedVlrItm-&tmpPedVlrDsc
+			if &TCon144_FreteBaseCalculoICMS = 'S' or &TCon144_FreteBaseCalculoICMS = 'A' 
+				do 'CalculaFrete'
+			EndIf
+		
+			RetornaTotalImpostoDetalhado.Call(EmpCod, FilCod, PedCod, ProCod, &FilBasImp, &LctBasImpCod, &PedCliCidUfeCod, &PedCliGruImpCod, ProCatCod, &PedVlrUntComDsc, PedQtd, &tmpProVlrFrt, &PedTpcVlr, false, &ImpAlqIcmInt,&impIPI,&ImpAlqIcmExt,&tmpProVlrIcm,&tmpProVlrIpi,&tmpProVlrIcmSt,&tmpProVlrFCPIcmsSt,&tmpProVlrCOFINS,&tmpProVlrPIS,&IsImpostoCadastrado)
+			
+			if &IsImpostoCadastrado = false
+				&IsErroTabelaImposto = true
+				&impostoNaoCalculado = format('IMPOSTO DO PRODUTO: %1 NÃO CALCULADO, PODERA SOFRER ALTERAÇÕES ATÉ O FATURAMENTO', ProGraRef)
+			Endif
+			//&ImpAlqIcmInt % icms
+			//&impIPI       % ipi
+			//&ImpAlqIcmExt % st
+			
+			//&tmpProVlrIcm R$ icms
+			If (&tmpProVlrIpi > 0 or &tmpProVlrIcmSt > 0 or &tmpProVlrFCPIcmsSt > 0 or &tmpProVlrPIS > 0 or &tmpProVlrCOFINS > 0) and PedQtd > 0
+				//soma dos impostos
+				&AuxImpostosTotal = (&tmpProVlrIpi + &tmpProVlrIcmSt+ &tmpProVlrFCPIcmsSt)
+				
+				//calculando unitario final
+				&ImpostosTotal = ( &AuxImpostosTotal / PedQtd)
+				
+				//Totalizando Valor IPI
+				&TottmpProVlrIpi+=&tmpProVlrIpi
+				
+				//Totalizando Valor ST
+				&TottmpProVlrIcmSt+=(&tmpProVlrIcmSt+&tmpProVlrFCPIcmsSt)
+				
+				//Totalizando Valor Pis
+				&tottmpProVlrPIS += &tmpProVlrPIS
+				
+				//Totalizando Valor Cofins
+				&TottmpProVlrCOFINS+=&tmpProVlrCOFINS
+				
+				&TottmpProVlrIcm  += &tmpProVlrIcm
+			EndIF
+			
+//			&ImpostosTotal += &PedVlrUntDsc
+			
+			&TotalAcrescimoMoeda = round(PedVlrItm * &AcrescimoPercentual, 2) / PedQtd		
+			&TotaDescontoMoeda = round(PedVlrItm * &DescontoPercentual, 2) / PedQtd
+			
+			&ImpostosTotal += &TotalAcrescimoMoeda
+			&ImpostosTotal -= &TotaDescontoMoeda
+			
+			&TotalItem =  PedVlrItm + &AuxImpostosTotal
+			&TotalImpostosPedido += &AuxImpostosTotal
+			//total com imposto na config T ########
+			&TotalItemcomimposto = &ImpostosTotal * PedQtd
+			
+		EndFor
+	Endif
+EndFor
+
+Sub 'CalculaFrete' //FRETE	&TCon144_FreteBaseCalculoICMS
+	if &CalculoFretePedItmCod = &UltimoPedItmCod and &UltimoPedItmCod > 0
+		&tmpProVlrFrt = &AuxPedVlrFrt - &AuxNfeProVlrFrt
+	Else
+		&tmpProVlrFrt =  round((&tmpProBasVlrIcm * &valorGlobalFrete), 2)
+		&AuxNfeProVlrFrt += &tmpProVlrFrt
+	Endif
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmPCod, in:&FilCod, in:&PedCod, in:&ParPedFatFilCod, out:&TottmpProVlrIpi, out:&TottmpProVlrIcmSt, out:&IsErroTabelaImposto);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedFatFiLCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedFatFiLCod</Value></Property><Property><Name>Description</Name><Value>Filial Faturamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedFatFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmPCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmPCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilBasImp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilBasImp</Value></Property><Property><Name>Description</Name><Value>Filial Base Imposto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilBasImp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpAlqIcmExt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpAlqIcmExt</Value></Property><Property><Name>Description</Name><Value>Icms Externo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpAlqIcmExt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpAlqIcmInt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpAlqIcmInt</Value></Property><Property><Name>Description</Name><Value>Icms Inteno</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpAlqIcmInt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="impIPI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>impIPI</Value></Property><Property><Name>Description</Name><Value>IPI</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpIPI</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctBasImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctBasImpCod</Value></Property><Property><Name>Description</Name><Value>Lançamento Base Imposto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctBasImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliGruImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliGruImpCod</Value></Property><Property><Name>Description</Name><Value>Grupo Imposto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliGruImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTpcVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTpcVlr</Value></Property><Property><Name>Description</Name><Value>Ped Tpc Vlr</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTpcVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrIcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrIcm</Value></Property><Property><Name>Description</Name><Value>Vlr.ICMS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrIcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AcrescimoPercentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AcrescimoPercentual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>13</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxImpostosTotal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxImpostosTotal</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DadosNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DadosNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DescontoPercentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DescontoPercentual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>13</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="impostoNaoCalculado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>impostoNaoCalculado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>120</Value></Property><Property><Name>AttMaxLen</Name><Value>120</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpostosTotal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpostosTotal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>4</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idTHOUSANDSEP</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsImpostoCadastrado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsImpostoCadastrado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUntDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUntDsc</Value></Property><Property><Name>Description</Name><Value>Valor Calculado Liquido</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property><Property><Name>idTHOUSANDSEP</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoCliente_369">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoCliente_369</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrCOFINS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrCOFINS</Value></Property><Property><Name>Description</Name><Value>tmp Pro Vlr COFINS</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrFCPIcmsSt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrFCPIcmsSt</Value></Property><Property><Name>Description</Name><Value>tmp Pro Vlr FCPIcms St</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrIcmSt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrIcmSt</Value></Property><Property><Name>Description</Name><Value>Valor S.T</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrIpi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrIpi</Value></Property><Property><Name>Description</Name><Value>Vlr.IPI</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrPIS</Value></Property><Property><Name>Description</Name><Value>tmp Pro Vlr PIS</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalImpostosPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalImpostosPedido</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalItem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalItemcomimposto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalItemcomimposto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>3</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idTHOUSANDSEP</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tottmpProVlrCOFINS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tottmpProVlrCOFINS</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TottmpProVlrIcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TottmpProVlrIcm</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TottmpProVlrIcmSt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TottmpProVlrIcmSt</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TottmpProVlrIpi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TottmpProVlrIpi</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tottmpProVlrPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tottmpProVlrPIS</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalAcrescimoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalAcrescimoMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotaDescontoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotaDescontoMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParPedFatFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParPedFatFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Faturamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedFatFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErroTabelaImposto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErroTabelaImposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAmbEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAmbEms</Value></Property><Property><Name>Description</Name><Value>Ambiente Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAmbEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon144_FreteBaseCalculoICMS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon144_FreteBaseCalculoICMS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpNfeVlrBrtNot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpNfeVlrBrtNot</Value></Property><Property><Name>Description</Name><Value>tmp Nfe Vlr Brt Not</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpNfeVlrBrtNot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UltimoPedItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UltimoPedItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPedVlrFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPedVlrFrt</Value></Property><Property><Name>Description</Name><Value>Valor Frete</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="valorGlobalFrete">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>valorGlobalFrete</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>11</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>11</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrFrt</Value></Property><Property><Name>Description</Name><Value>Frete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProBasVlrIcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProBasVlrIcm</Value></Property><Property><Name>Description</Name><Value>Base ICMS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProBasVlrIcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNfeProVlrFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNfeProVlrFrt</Value></Property><Property><Name>Description</Name><Value>Valor Frete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProVlrFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CalculoFretePedItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CalculoFretePedItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpNfeVlrBrtNotDesconto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpNfeVlrBrtNotDesconto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DescontoUnitarioGlobal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DescontoUnitarioGlobal</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>14</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUntComDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUntComDsc</Value></Property><Property><Name>Description</Name><Value>Valor Unit. Com desc</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUntComDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpPedVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpPedVlrDsc</Value></Property><Property><Name>Description</Name><Value>Descontos Unitarios</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpPedVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcVerificaValoresImpostoFuturo</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

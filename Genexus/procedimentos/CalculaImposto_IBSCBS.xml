@@ -1,0 +1,375 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="3da02edb-1b7b-48ed-b7ed-63881a7bef92" user="WINJEAN\jeanfae" versionDate="2025-12-11T20:07:11.0000000Z" lastUpdate="2025-12-11T18:07:02.0000000Z" checksum="ba386af667fa5624d239291a40662e93" fullyQualifiedName="CalculaImposto_IBSCBS" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="43784831-d0d2-4b31-8f94-c249023a8c1b" name="CalculaImposto_IBSCBS" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Calcula Imposto_IBSCBS" parent="NfePrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon160_FreteBaseCalculoIPI, &TCon160_FreteBaseCalculoIPI)
+//RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon144_FreteBaseCalculoICMS, &TCon144_FreteBaseCalculoICMS) //FRETE
+
+//Valores que precisam ser preenchidos para realizar os calculos no  sdtImpostoProduto
+//ValorTotalProduto
+//ProBasVlrIpi
+//ProBasVlrIcm
+//ProBasVlrIcmSt
+//ProBasPis
+//ProBasCofins
+//ProVlrFrt
+//ProVlrOut
+
+//validacao a fazer. se informar 
+//if &ImpAlqIcmStUF > 0
+//			&ImpAlqIcmExt = 0
+//		Endif
+
+Do CAse
+	CAse &sdtCadastroTabelaImpostoCbs.Tipo = 'CTE'
+		&ValorBaseIbsCbs = &sdtImpostoProduto.ProVlrFrt
+		&sdtImpostoProduto.ProVlrFrt = 0
+		
+	Otherwise
+		//BASE IBS (soma total produto, + frete, + outros valores + Seguro
+		&ValorBaseIbsCbs =  (&sdtImpostoProduto.ValorTotalProduto + &sdtImpostoProduto.ProVlrFrt + &sdtImpostoProduto.ProVlrOut)
+		
+		//CONFORME ORIENTADO POR FERNANDA -- REAL CONTABILIDADE> PRIMEIRO ADICIONA O FRETE DEPOIS REDUZ
+		if &sdtImpostoProduto.ProVlrFrt > 0 and &sdtImpostoProduto.ProBasVlrIpi > 0 and &sdtCadastroTabelaImpostoCbs.TCon160_FreteBaseCalculoIPI = 'S'//ACRESCENTA O //FRETE
+			&sdtImpostoProduto.ProBasVlrIpi += &sdtImpostoProduto.ProVlrFrt
+		Endif
+		
+		//IPI
+		&sdtImpostoProduto.ProVlrIpi = 0
+		If &sdtCadastroTabelaImpostoCbs.CImpIPI <> 0
+			&sdtImpostoProduto.ProVlrIpi = round((&sdtImpostoProduto.ProBasVlrIpi * &sdtCadastroTabelaImpostoCbs.CImpIPI) / 100,2)
+		EndIF
+		
+		Do Case
+			CAse &sdtCadastroTabelaImpostoCbs.CImpIncIPI = 'S' and &sdtImpostoProduto.ProBasVlrIcmSt > 0 and &sdtCadastroTabelaImpostoCbs.CImpAlqIcmExt > 0 
+				//INCLUIR NA BASE DO ICMS ST
+				&sdtImpostoProduto.ProBasVlrIcmSt += &sdtImpostoProduto.ProVlrIpi
+			CAse &sdtCadastroTabelaImpostoCbs.CImpIncIPI = 'I' and &sdtImpostoProduto.ProBasVlrIcm > 0 and &sdtCadastroTabelaImpostoCbs.CImpAlqIcmInt > 0
+				//INCLUIR IPI NA BASE DO ICMS
+				&sdtImpostoProduto.ProBasVlrIcm += &sdtImpostoProduto.ProVlrIpi //JDF SOMA O IPI NA BASE DO ICMS, config
+		EndCase
+		
+		//CONFORME ORIENTADO POR FERNANDA -- REAL CONTABILIDADE> PRIMEIRO ADICIONA O FRETE DEPOIS REDUZ
+		if &sdtImpostoProduto.ProVlrFrt > 0 and &sdtImpostoProduto.ProBasVlrIcm > 0 and (&sdtCadastroTabelaImpostoCbs.TCon144_FreteBaseCalculoICMS = 'A')//ACRESCENTA O //FRETE ANTES
+			&sdtImpostoProduto.ProBasVlrIcm += &sdtImpostoProduto.ProVlrFrt
+		Endif
+		
+		&BaseIcmsAntesReducao = &sdtImpostoProduto.ProBasVlrIcm
+		
+		//ICMS
+		If not &sdtCadastroTabelaImpostoCbs.CImpAlqIcmInt.IsEmpty()
+			if &sdtCadastroTabelaImpostoCbs.CImpRedAlqIcmInt > 0 //APLICA REDUCAO DO ICMS
+				&sdtImpostoProduto.ProBasVlrIcm = &sdtImpostoProduto.ProBasVlrIcm - ((&sdtImpostoProduto.ProBasVlrIcm * &sdtCadastroTabelaImpostoCbs.CImpRedAlqIcmInt) / 100)
+			EndIF
+		Else
+			&sdtImpostoProduto.ProBasVlrIcm = 0 
+		EndIF
+	 
+		if &sdtImpostoProduto.ProVlrFrt > 0 and &sdtImpostoProduto.ProBasVlrIcm > 0 and (&sdtCadastroTabelaImpostoCbs.TCon144_FreteBaseCalculoICMS = 'S')//ACRESCENTA O //FRETE
+			&sdtImpostoProduto.ProBasVlrIcm += &sdtImpostoProduto.ProVlrFrt
+			&BaseIcmsAntesReducao += &sdtImpostoProduto.ProVlrFrt
+		Endif
+		
+		//R$ ICMS
+		&sdtImpostoProduto.ProVlrIcm = 0
+		if &sdtImpostoProduto.ProBasVlrIcm <> 0 and &sdtCadastroTabelaImpostoCbs.CImpAlqIcmInt <> 0
+			&sdtImpostoProduto.ProVlrIcm = round((&sdtImpostoProduto.ProBasVlrIcm * &sdtCadastroTabelaImpostoCbs.CImpAlqIcmInt) / 100,2)
+		Endif
+		
+		//DIFERIMENTO
+		if &sdtCadastroTabelaImpostoCbs.CImpDif > 0 and &sdtImpostoProduto.ProVlrIcm > 0
+			//Valor da Mercadoria - R$ 1.000,00 (a)
+			//Alíquota do ICMS - 18% (b)
+			//Valor do ICMS da operação - (18% de R$ 1.000,00) R$ 180,00 (c) = (a) x (b)
+			//Percentual do ICMS diferido - (hipótese do inciso I, do Art. 96 do RICMS/PR) 33,33% (d)
+			//Valor do ICMS diferido - (33,33% de R$ 180,00) R$ 60,00 (e) = (c) x (d)
+			//Valor do ICMS devido - (R$ 180,00 – R$ 60,00) R$ 120,00 (f) = (c) – (d)
+			
+			&sdtImpostoProduto.ProVlrDif = round((&sdtImpostoProduto.ProVlrIcm * &sdtCadastroTabelaImpostoCbs.CImpDif) / 100 , 2)
+			
+			&sdtImpostoProduto.ProVlrIcm = &sdtImpostoProduto.ProVlrIcm - &sdtImpostoProduto.ProVlrDif
+		EndIF
+		
+		if &sdtCadastroTabelaImpostoCbs.CImpIcmsMotDes <> '' //caso tenha desoneracao do icms.
+			&sdtImpostoProduto.ProBasVlrIcmSt = &sdtImpostoProduto.ProBasVlrIcmSt-&sdtImpostoProduto.ProVlrIcm
+		Endif
+		
+		//BASE DO ICMS ST.;
+		Do CAse
+			Case not &sdtCadastroTabelaImpostoCbs.CImpAlqIcmExt.IsEmpty() //and &NfsIcmAcreBca <> 0  
+				If &sdtCadastroTabelaImpostoCbs.CImpRedAlqIcmExt <> 0
+					&sdtImpostoProduto.ProBasVlrIcmSt = &sdtImpostoProduto.ProBasVlrIcmSt - ((&sdtImpostoProduto.ProBasVlrIcmSt * &sdtCadastroTabelaImpostoCbs.CImpRedAlqIcmExt) / 100)
+				EndIf
+				
+				If &sdtCadastroTabelaImpostoCbs.CImpAlqMVA <> 0
+					&sdtImpostoProduto.ProBasVlrIcmSt = &sdtImpostoProduto.ProBasVlrIcmSt + ((&sdtImpostoProduto.ProBasVlrIcmSt * &sdtCadastroTabelaImpostoCbs.CImpAlqMVA)/100)
+				EndIF
+				
+			CAse not &sdtCadastroTabelaImpostoCbs.CImpAlqIcmStUF.IsEmpty()
+				&sdtImpostoProduto.ProBasVlrIcmSt = &BaseIcmsAntesReducao
+				
+			Otherwise
+				&sdtImpostoProduto.ProBasVlrIcmSt = 0
+		EndCAse
+		&sdtImpostoProduto.ProBasVlrIcmSt = round(&sdtImpostoProduto.ProBasVlrIcmSt, 2)
+		
+		//Valor do icms st
+		&sdtImpostoProduto.ProVlrIcmSt = 0
+		Do Case
+			Case &sdtImpostoProduto.ProBasVlrIcmSt <> 0 and &sdtCadastroTabelaImpostoCbs.CImpAlqIcmExt <> 0
+				&sdtImpostoProduto.ProVlrIcmSt = round(((&sdtImpostoProduto.ProBasVlrIcmSt * &sdtCadastroTabelaImpostoCbs.CImpAlqIcmExt) / 100) - &sdtImpostoProduto.ProVlrIcm, 2)
+				
+			Case &sdtImpostoProduto.ProBasVlrIcmSt <> 0 and &sdtCadastroTabelaImpostoCbs.CImpAlqIcmStUF <> 0
+				&sdtImpostoProduto.ProVlrIcmSt = round(((&sdtImpostoProduto.ProBasVlrIcmSt * &sdtCadastroTabelaImpostoCbs.CImpAlqIcmStUF) / 100), 2)
+		EndCase
+		
+		//FECOP
+		&sdtImpostoProduto.ProVlrFCPIcmsSt = 0 
+		if &sdtCadastroTabelaImpostoCbs.CImpTaxFecop > 0 and &sdtImpostoProduto.ProVlrIcmSt > 0
+			&sdtImpostoProduto.ProBasFCPIcmsSt = &sdtImpostoProduto.ProBasVlrIcmSt
+			&sdtImpostoProduto.ProVlrFCPIcmsSt = round(&sdtImpostoProduto.ProBasFCPIcmsSt * (&sdtCadastroTabelaImpostoCbs.CImpTaxFecop/100),2)
+		EndIf
+		
+		//PIS
+		if &sdtCadastroTabelaImpostoCbs.CImpExcPisCofins = 'S' //EXCLUIR VALOR DO ICMS //FERNANDA E FABIANO, SUGERIO PRIMEIRO DIMINUIR O ICMS E DEPOIS REDUZIR A BASE
+			&sdtImpostoProduto.ProBasPis = &sdtImpostoProduto.ProBasPis - &sdtImpostoProduto.ProVlrIcm
+		Endif
+		if &sdtCadastroTabelaImpostoCbs.CImpPisRed > 0
+			&sdtImpostoProduto.ProBasPis = &sdtImpostoProduto.ProBasPis - ((&sdtImpostoProduto.ProBasPis * &sdtCadastroTabelaImpostoCbs.CImpPisRed) / 100)
+		Endif
+		
+		&sdtImpostoProduto.ProVlrPIS = 0
+		If &sdtCadastroTabelaImpostoCbs.CImpPis > 0
+			&sdtImpostoProduto.ProVlrPIS = round((&sdtImpostoProduto.ProBasPis * &sdtCadastroTabelaImpostoCbs.CImpPis) / 100, 2)
+		EndIF
+		
+		//COFINS
+		if &sdtCadastroTabelaImpostoCbs.CImpExcPisCofins = 'S' //EXCLUIR VALOR DO ICMS //FERNANDA E FABIANO, SUGERIO PRIMEIRO DIMINUIR O ICMS E DEPOIS REDUZIR A BASE
+			&sdtImpostoProduto.ProBasCofins = &sdtImpostoProduto.ProBasCofins - &sdtImpostoProduto.ProVlrIcm
+		Endif	
+		if &sdtCadastroTabelaImpostoCbs.CImpCofinsRed > 0
+			&sdtImpostoProduto.ProBasCofins = &sdtImpostoProduto.ProBasCofins - ((&sdtImpostoProduto.ProBasCofins * &sdtCadastroTabelaImpostoCbs.CImpCofinsRed) / 100)
+		Endif
+		
+		&sdtImpostoProduto.ProVlrCOFINS = 0
+		If &sdtCadastroTabelaImpostoCbs.CImpCofins > 0
+			&sdtImpostoProduto.ProVlrCOFINS = round((&sdtImpostoProduto.ProBasCofins * &sdtCadastroTabelaImpostoCbs.CImpCofins) / 100, 2)
+		EndIF
+		
+		//calcular a base para o ibs e  cbs. sem os impostos acima.
+		//diminuir ICMS, ST, IPI, PIS, COFINS 
+		
+		&ValorBaseIbsCbs -= (&sdtImpostoProduto.ProVlrIcm + &sdtImpostoProduto.ProVlrIcmSt + &sdtImpostoProduto.ProVlrIpi + &sdtImpostoProduto.ProVlrPis + &sdtImpostoProduto.ProVlrCofins)
+EndCase
+
+
+if &sdtCadastroTabelaImpostoCbs.Cltind_gIBSCBS = 'S' 
+	&sdtImpostoProduto.ValorBaseIbsCbs = &ValorBaseIbsCbs //so preencher se precisar destacar gIBSCBS
+Endif
+
+if &sdtCadastroTabelaImpostoCbs.CltClsTipAliq = TipoAliquotaIbsCbs.SemAliquota
+	&sdtImpostoProduto.ValorBaseIbsCbs = 0
+	
+	//IBS  UF E Mun
+	&sdtImpostoProduto.ValorIbsMun = 0 
+	&sdtImpostoProduto.ValorIbsUf = 0
+	
+	//CBS (uniao)
+	&sdtImpostoProduto.ValorCbs = 0
+Else	
+	&sdtImpostoProduto.ValorBaseIbsCbs = &ValorBaseIbsCbs //so preencher se tivver aliquota
+	
+	//IBS  UF E Mun
+	&sdtImpostoProduto.ValorIbsMun = &sdtImpostoProduto.ValorBaseIbsCbs * (&sdtCadastroTabelaImpostoCbs.ibsMunTaxEfe*0.01)
+	&sdtImpostoProduto.ValorIbsUf = &sdtImpostoProduto.ValorBaseIbsCbs * (&sdtCadastroTabelaImpostoCbs.IbsUfTaxEfe*0.01)
+	
+	//CBS (uniao)
+	&sdtImpostoProduto.ValorCbs = &sdtImpostoProduto.ValorBaseIbsCbs * (&sdtCadastroTabelaImpostoCbs.IbsUnTaxEfe*0.01)
+Endif
+
+//diferimento
+if &sdtCadastroTabelaImpostoCbs.CltIsDif = 'S' //Diferido	
+	&sdtImpostoProduto.NfeIbsUfVlrDif = &sdtImpostoProduto.ValorIbsUf * (&sdtCadastroTabelaImpostoCbs.NfeIbsUfPerDif*0.01)
+	&sdtImpostoProduto.NfeIbsMunVlrDif = &sdtImpostoProduto.ValorIbsMun * (&sdtCadastroTabelaImpostoCbs.NfeIbsMunPerDif*0.01)
+	&sdtImpostoProduto.NfeCbsVlrDif = &sdtImpostoProduto.ValorCbs * (&sdtCadastroTabelaImpostoCbs.NfeCbsPerDif*0.01)
+	
+	&sdtImpostoProduto.ValorIbsMun -= &sdtImpostoProduto.NfeIbsMunVlrDif	
+	&sdtImpostoProduto.ValorIbsUf -= &sdtImpostoProduto.NfeIbsUfVlrDif
+	&sdtImpostoProduto.ValorCbs -= &sdtImpostoProduto.NfeCbsVlrDif //diminui o valor do diferimento
+Endif
+
+//aliquota regular
+if &sdtCadastroTabelaImpostoCbs.CltClsIsTribReg = 'S' 
+	&sdtImpostoProduto.ValorBaseIbsCbs = &ValorBaseIbsCbs //so preenche se exigir tributacao regular
+	
+	//IBS  UF E Mun
+	&sdtImpostoProduto.NfeRegIbsUfeVlr = &sdtImpostoProduto.ValorBaseIbsCbs * (&sdtCadastroTabelaImpostoCbs.NfeRegIbsUfeTaxEfe*0.01)
+	&sdtImpostoProduto.NfeRegIbsMunVlr = &sdtImpostoProduto.ValorBaseIbsCbs * (&sdtCadastroTabelaImpostoCbs.NfeRegIbsMunTaxEfe*0.01)
+	
+	//CBS (uniao)
+	&sdtImpostoProduto.NfeRegCbsVlr = &sdtImpostoProduto.ValorBaseIbsCbs * (&sdtCadastroTabelaImpostoCbs.NfeRegCbsTaxEfe*0.01)	
+EndIf
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[//parm(in:&TCon147_ExcluirIcmsPisCofins, in:&TCon145_IpiBaseCalculoICMS, in:&FilRegTrib, in:&SitCod, inout:&ImpAlqIcmInt, inout:&ImpRedAlqIcmInt, in:&ImpAlqIcmExt, in:&ImpRedAlqIcmExt, 
+//	in:&ImpAlqMVA, in:&ImpIPI, in:&ImpCofins, in:&ImpPis, in:&ImpDif, in:&ImpPisRed, in:&ImpCofinsRed,
+//	inout:&tmpProBasVlrIcm, out:&tmpProVlrIcm, 
+//	inout:&tmpProBasVlrIcmSt, out:&tmpProVlrIcmSt, 
+//	inout:&tmpProBasVlrIpi, out:&tmpProVlrIpi, inout:&tmpBasePIS, out:&tmpProVlrCOFINS,
+////	inout:&tmpBaseConfins, out:&tmpProVlrPIS, out:&tmpProVlrDif);
+//
+
+parm(in:&sdtCadastroTabelaImpostoCbs, inout:&sdtImpostoProduto);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilRegTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRegTrib</Value></Property><Property><Name>Description</Name><Value>Regime Tributario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TbFilRegTrib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpAlqIcmExt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpAlqIcmExt</Value></Property><Property><Name>Description</Name><Value>Icms Externo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpAlqIcmExt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpAlqIcmInt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpAlqIcmInt</Value></Property><Property><Name>Description</Name><Value>Icms Inteno</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpAlqIcmInt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpAlqMVA">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpAlqMVA</Value></Property><Property><Name>Description</Name><Value>Taxa MVA</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpAlqMVA</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpCofins">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpCofins</Value></Property><Property><Name>Description</Name><Value>Cofins</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCofins</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpDif">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpDif</Value></Property><Property><Name>Description</Name><Value>Diferimento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpDif</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpIPI">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpIPI</Value></Property><Property><Name>Description</Name><Value>IPI</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpIPI</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpPis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpPis</Value></Property><Property><Name>Description</Name><Value>Pis</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpPis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpRedAlqIcmExt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpRedAlqIcmExt</Value></Property><Property><Name>Description</Name><Value>Reducao Aliquota Externa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpRedAlqIcmExt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpRedAlqIcmInt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpRedAlqIcmInt</Value></Property><Property><Name>Description</Name><Value>Reducao Aliquota Interna</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpRedAlqIcmInt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="obscod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>obscod</Value></Property><Property><Name>Description</Name><Value>Observacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ObsCod</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SitCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SitCod</Value></Property><Property><Name>Description</Name><Value>Situacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SitCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProBasVlrIcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProBasVlrIcm</Value></Property><Property><Name>Description</Name><Value>Base ICMS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProBasVlrIcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProBasVlrIcmSt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProBasVlrIcmSt</Value></Property><Property><Name>Description</Name><Value>Base S.T</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProBasVlrIcmSt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrCOFINS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrCOFINS</Value></Property><Property><Name>Description</Name><Value>tmp Pro Vlr COFINS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrCOFINS</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrDif">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrDif</Value></Property><Property><Name>Description</Name><Value>Valor Diferimento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrDif</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrIcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrIcm</Value></Property><Property><Name>Description</Name><Value>Vlr.ICMS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrIcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrIcmSt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrIcmSt</Value></Property><Property><Name>Description</Name><Value>Valor S.T</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrIcmSt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrIpi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrIpi</Value></Property><Property><Name>Description</Name><Value>Vlr.IPI</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrIpi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpProVlrPIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpProVlrPIS</Value></Property><Property><Name>Description</Name><Value>tmp Pro Vlr PIS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:tmpProVlrPIS</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon145_IpiBaseCalculoICMS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon145_IpiBaseCalculoICMS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon147_ExcluirIcmsPisCofins">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon147_ExcluirIcmsPisCofins</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpBasePIS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpBasePIS</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpBaseConfins">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpBaseConfins</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpPisRed">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpPisRed</Value></Property><Property><Name>Description</Name><Value>Reducao PIS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpPisRed</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpCofinsRed">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpCofinsRed</Value></Property><Property><Name>Description</Name><Value>Reducao cofins</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCofinsRed</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtImpostoProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtImpostoProduto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtImpostoProduto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCadastroTabelaImpostoCbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCadastroTabelaImpostoCbs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCadastroTabelaImpostoCbs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BaseIcmsAntesReducao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BaseIcmsAntesReducao</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorBaseIbsCbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorBaseIbsCbs</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>CalculaImposto_IBSCBS</Value></Property><Property><Name>Description</Name><Value>Calcula Imposto_IBSCBS</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

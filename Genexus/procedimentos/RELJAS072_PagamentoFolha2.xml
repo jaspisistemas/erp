@@ -1,0 +1,1005 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="WINJEAN\jeanfae" versionDate="2024-10-10T20:50:36.0000000Z" lastUpdate="2024-10-09T20:09:54.0000000Z" checksum="ddd12077177ab09b783891d93d44a252" fullyQualifiedName="RELJAS072_PagamentoFolha2" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="f7d78c78-b941-458b-8562-807c32abee17" name="RELJAS072_PagamentoFolha2" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="RELJAS072_Pagamento Folha2" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//ParmLcto: 1=Dinheiro/depósito Único;  2=Cheque Unico;  3=Multiplos pgtos; 4=Multiplos funcionarios 
+//SOMENTE FOLHA AVULSA -> AGRUPAR LANCAMENTO DO CAIXA POR TIPO
+
+&TotMovItmVlr = 0
+&FolDin = 0
+&FolCheque = 0
+&AuxMes = &Mes
+
+Do Case
+	CAse &DiariasFolhas = 'D' //DIARIAS
+		&titulo = 'LANÇAMENTO DIÁRIAS(S) DE PAGAMENTO'
+		&MovTip = TipoMovimento.PgtoDiaria
+	CAse &DiariasFolhas = 'F' //FOLHAS		
+		&titulo = 'LANÇAMENTO FOLHA(S) DE PAGAMENTO'
+		&MovTip = TipoMovimento.FolhaPgto
+EndCAse
+
+if &AuxMes > 12
+	&titulo = 'DECIMO TERCEIRO'
+	&MovTip = TipoMovimento.DecimoTerceiro
+	&AuxMes = 12
+EndIf
+
+loadWWPContext.Call(&Context)
+If &Context.PesCod = 0
+	Return
+EndIf
+
+&PesRaz = &Context.PesRaz
+For Each Order EmpCod, FilCod
+	Where EmpCod = &Context.EmpCod
+	Where FilCod = &Context.FilCod
+	&FilFan = FilFan
+	Exit
+EndFor
+
+MB 4
+MT 2
+
+Header
+	print Cabecalho
+	If &IsErro = False
+		if &ParmLcto = 1 or &ParmLcto = 2 //3 e 4 é o printblock 'MenuLevelPagamento'
+			Print Menu
+		else
+			Print MenuLevelPagamento
+		EndIf
+	EndIf
+End
+
+&DtaRef = yMDtoD(&Ano,&AuxMes,1)
+&Longmsg = ''
+&IsErroPlano = false
+&IsErro = False
+//##################### DETALHA SOMENTO O PAGAMENTO ######################
+
+Do 'Plano'
+If &IsErroPlano = true
+	Print PlanoConta
+else	
+	if &TipoFolha = TipoFolha.Dinheiro or &TipoFolha.IsEmpty()
+		&FolPgtCtaTip = TipoFolha.Dinheiro
+		&MovCplMan = &titulo + ' EM DINHEIRO.'
+		Do 'PagamentoDinheiro'
+		If &DinMovItmVlr > 0
+			Print TotalDinheiro
+			Print Linha
+		EndIf
+	Endif
+	
+	if &TipoFolha = TipoFolha.Deposito or &TipoFolha.IsEmpty()
+		&FolPgtCtaTip = TipoFolha.Deposito
+		&MovCplMan = &titulo + 'EM DEPOSITO.'
+		Do 'PagamentoDinheiro'
+		If &DepMovItmVlr > 0
+			Print TotalDeposito
+			Print Linha
+		EndIf
+	Endif	
+	
+	if &TipoFolha = TipoFolha.ChequePropio or &TipoFolha.IsEmpty()
+		&MovCplMan = &titulo + ' EM CHEQUE.'
+		Do 'PagamentoCheque'
+		If &ChqMovItmVlr > 0
+			Print TotalCheque
+			Print Linha
+		EndIf
+	Endif
+	
+	AtualizaStatusPagamentoFolha.Call(&EmpCod, &Ano, &mes) //ATUALIZA STATUS DE TODAS FOLHAS DO ANO/MES
+	
+	If &TotMovItmVlr > 0
+		Print TotalGeral
+		Print Linha
+	EndIf
+	
+	&IsFolLib = true
+	For each Order EmpCod,FPagAno,FPagMes,FPagFunFilCod,FPagPesCod,FPagLibPgt
+		Where EmpCod = &EmpCod
+		Where FPagAno = &Ano
+		Where FPagMes = &Mes
+		Where FPagFunFilCod = &FilCodCtb //origem=PesFunFilCod
+		Where FPagPesCod = &PesCod when not &PesCod.IsEmpty()
+		Where FPagLibPgt = False
+		Where FPagTip = TipoPagamentoFolha.FolhaMensal when &DiariasFolhas = 'F'
+		Where FPagTip = TipoPagamentoFolha.pagamentoDiarias when &DiariasFolhas = 'D'
+		
+		Do Case
+			CAse &DiariasFolhas = 'F'
+				&Longmsg = 'Folha do mês '+FPagMes.ToString()+ ' do funcionário '+ FPagPesRaz.Trim() + ' da filial '+FPagFunFilCod.ToString()+' não liberada para Pagamento!'
+			CAse &DiariasFolhas = 'D'
+				&Longmsg = 'Diária do mês '+FPagMes.ToString()+ ' do funcionário '+ FPagPesRaz.Trim() + ' da filial '+FPagFunFilCod.ToString()+' não liberada para Pagamento!'
+		EndCAse
+		
+		&IsFolLib = false
+		Print MsgErro
+	EndFor	
+EndIf
+
+Footer
+	print Rodape
+End
+
+sub 'PagamentoDinheiro'
+	&MovCtaBanCod.SetEmpty()
+	For each Order EmpCod, FPagAno, FPagMes, FPagLibPgt, FPagCtaBanCod, FPagCtaTip
+		Where EmpCod = &EmpCod
+		Where FPagAno = &Ano
+		Where FPagMes = &Mes
+		Where FPagFunFilCod = &FilCodCtb
+		Where FPagLibPgt = True
+		Where FPagPesCod = &PesCod when not &PesCod.IsEmpty()
+		Where FPagTip = TipoPagamentoFolha.FolhaMensal when &DiariasFolhas= 'F'
+		Where FPagTip = TipoPagamentoFolha.PagamentoDiarias when &DiariasFolhas= 'D'
+		Where (FPagCtaTip = TipoFolha.Dinheiro or FPagCtaTip = TipoFolha.Deposito)
+		Where FPagCtaTip = &FolPgtCtaTip when not &FolPgtCtaTip.IsEmpty()
+		Where FPagCtaBanCod = &FolPgtCtaBanCod when not &FolPgtCtaBanCod.IsEmpty()
+		Where FPagCtaMovCod.IsEmpty() or FPagCtaMovCod.IsNull()
+		
+		Do CAse 
+			CAse FPagTip = TipoPagamentoFolha.FolhaMensal
+				if FPagFunIsSocPro = true
+					&PlanCod = &ProPlanCod
+				Else
+					&PlanCod = &FolPlanCod
+				Endif
+				
+			Case FPagTip = TIpoPagamentoFolha.PagamentoDiarias
+				&PlanCod = &DiaPlanCod
+		EndCase
+	
+		&LayFolFunCod = FPagPesCod
+		&LayFolFunNom = FPagPesRaz
+		&LayTipo      = TipoFolha.EnumerationDescription(FPagCtaTip)
+		&LayMovItmVlr = FPagTotVlr
+		&MovItmVlr = FPagCtaVlr
+		&MovFunCod = FPagPesCod		
+		Do Case 
+			Case &mes = 14
+				&MovItmCpl = '13º PARC.2  '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+				&MovTip = TipoMovimento.DecimoTerceiro
+			Case &mes = 13
+				&MovItmCpl = '13º PARC.1  '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+				&MovTip = TipoMovimento.DecimoTerceiro
+			otherwise				
+				Do Case 
+					Case FPagTip = TipoPagamentoFolha.FolhaMensal
+						&MovItmCpl = 'PGTO FOLHA REF. '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+						&MovTip = TipoMovimento.FolhaPgto
+					
+					Case FPagTip = TipoPagamentoFolha.PagamentoDiarias
+						&MovItmCpl = 'PGTO DIÁRIA REF. '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+						&MovTip = TipoMovimento.PgtoDiaria
+				EndCase
+		EndCase
+		
+		if &MovCtaBanCod <> FPagCtaBanCod
+			if &MovCod > 0
+				//Atualiza saldo da conta que já foi lançada ***&Ant não vai usar no #Insert
+				AtualizaSaldoConta.Call(TrnMode.Insert,&EmpCod,&MovCtaBanCod,&MovDtaCon,'D',&ValorMoeda,&AntMovDta,&AntMovVlr,&AntMovCreDeb) //Atualiza saldo
+				&ValorMoeda = 0
+			Endif
+			&MovDtaCon = &inMovDtaCon
+			&MovCtaBanCod = FPagCtaBanCod
+			&MovCod = 0	
+			Do 'GravaMovimentoCapa'
+		Endif
+		&ValorMoeda 	+= FPagCtaVlr
+	
+		Do 'GravaMovimentoItem'
+		FPagCtaMovCod = &MovCod
+		FPagCtaMovItmCod = &MovItmCod
+		
+		Print Funcionario 
+		noskip
+		
+		Do Case
+			Case FPagCtaTip = TipoFolha.Dinheiro
+				&Tipo = 'DINHEIRO'
+				&DinMovItmVlr += FPagCtaVlr
+			Case FPagCtaTip = TipoFolha.Deposito
+				&Tipo = 'DEPÓSITO'
+				&DepMovItmVlr += FPagCtaVlr
+		EndCase
+		
+		&FolPgtMovCod = FPagCtaMovCod
+		&FolPgtVlr = FPagCtaVlr
+		&TotMovItmVlr += &FolPgtVlr
+		Do 'Banco' //layout
+		Print LevelPagamento
+		
+	When none
+		if &FolDin = 0
+			Print Linha
+			//&Longmsg = 'Nenhuma folha do tipo DINHEIRO ou DEPÓSITO encontrada para pagamento!'
+			//Print MsgErro
+		EndIf
+		&IsErro = True
+		
+	EndFor
+	
+	commit	
+
+	if &MovCod > 0
+		//Atualiza saldo da conta que já foi lançada ***&Ant não vai usar no #Insert
+		AtualizaSaldoConta.Call(TrnMode.Insert,&EmpCod,&MovCtaBanCod,&MovDtaCon,'D',&ValorMoeda,&AntMovDta,&AntMovVlr,&AntMovCreDeb) //Atualiza saldo
+		&ValorMoeda = 0
+		&MovCod = 0
+	Endif
+EndSub
+
+sub 'PagamentoCheque'
+	&MovCtaBanCod.SetEmpty()
+	For each Order EmpCod, FPagAno, FPagMes, FPagLibPgt, FPagCtaBanCod, FPagCtaTip
+		Where EmpCod = &EmpCod
+		Where FPagAno = &Ano
+		Where FPagMes = &Mes
+		Where FPagFunFilCod = &FilCodCtb
+		Where FPagLibPgt = True
+		Where FPagPesCod = &PesCod when not &PesCod.IsEmpty()
+		Where FPagTip = TipoPagamentoFolha.FolhaMensal when &DiariasFolhas = 'F'
+		Where FPagTip = TipoPagamentoFolha.PagamentoDiarias when &DiariasFolhas = 'D'
+		Where FPagCtaTip = TipoFolha.ChequePropio
+		Where FPagCtaTip = &TipoFolha when not &TipoFolha.IsEmpty()
+		Where FPagCtaBanCod = &FolPgtCtaBanCod when not &FolPgtCtaBanCod.IsEmpty()
+		Where FPagCtaMovCod.IsEmpty() or FPagCtaMovCod.IsNull()
+		
+		Do CAse 
+			CAse FPagTip = TipoPagamentoFolha.FolhaMensal
+				if FPagFunIsSocPro = true
+					&PlanCod = &ProPlanCod
+				Else
+					&PlanCod = &FolPlanCod
+				Endif
+				
+			Case FPagTip = TIpoPagamentoFolha.PagamentoDiarias
+				&PlanCod = &DiaPlanCod
+		EndCase	
+		
+		&LayFolFunCod = FPagPesCod
+		&LayFolFunNom = FPagPesRaz
+		&LayTipo      = TipoFolha.EnumerationDescription(FPagCtaTip)
+		&LayMovItmVlr = FPagTotVlr
+		&MovItmVlr 		= FPagCtaVlr
+		&MovFunCod    	= FPagPesCod
+		&MovFunCod 		= FPagPesCod
+		Do Case 
+			Case &mes = 14
+				&MovItmCpl = '13º PARC.2  '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+				&MovTip = TipoMovimento.DecimoTerceiro
+			Case &mes = 13
+				&MovItmCpl = '13º PARC.1  '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+				&MovTip = TipoMovimento.DecimoTerceiro
+			otherwise
+				Do Case 
+					Case FPagTip = TipoPagamentoFolha.FolhaMensal
+						&MovItmCpl = 'PGTO FOLHA REF. '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+						&MovTip = TipoMovimento.FolhaPgto
+						
+					Case FPagTip = TipoPagamentoFolha.PagamentoDiarias
+						&MovItmCpl = 'PGTO DIÁRIA REF. '+ Upper(CMonth(&DtaRef))+'/'+&Ano.ToString()+ ' - '+FPagPesRaz.Trim()
+						&MovTip = TipoMovimento.PgtoDiaria
+				EndCase
+		EndCase
+		
+		//if &MovCtaBanCod <> FolPgtCtaBanCod //CHEQUE PROPRIO É UM POR LANCAMENTO
+		if &MovCod > 0
+			//Atualiza saldo da conta que já foi lançada ***&Ant não vai usar no #Insert
+			AtualizaSaldoConta.Call(TrnMode.Insert,&EmpCod,&MovCtaBanCod,&MovDtaCon,'D',&ValorMoeda,&AntMovDta,&AntMovVlr,&AntMovCreDeb) //Atualiza saldo
+			&ValorMoeda = 0
+		Endif
+		&MovDtaCon.SetEmpty()
+		&MovCtaBanCod = FPagCtaBanCod
+		&MovCod = 0
+		Do 'GravaMovimentoCapa'
+		//Endif
+		&ValorMoeda += FPagCtaVlr
+		
+		Do 'GravaMovimentoItem'
+		FPagCtaMovCod = &MovCod
+		FPagCtaMovItmCod = &MovItmCod
+		
+		Print Funcionario 
+		noskip
+		
+		&Tipo = 'CHEQUE'
+		&FolCheque = 1
+		&ChqMovItmVlr += FPagCtaVlr
+		
+		&FolPgtMovCod = FPagCtaMovCod
+		&FolPgtVlr = FPagCtaVlr
+		&TotMovItmVlr += &FolPgtVlr
+		Do 'Banco'//layout
+		Print LevelPagamento
+		
+	When none		
+		if &FolCheque = 0
+			Print Linha
+			//&Longmsg = 'Nenhuma folha do tipo CHEQUE encontrada para pagamento!'
+			//Print MsgErro
+		EndIf
+		&IsErro = True		
+	EndFor
+	
+	commit
+	
+	if &MovCod > 0
+		//Atualiza saldo da conta que já foi lançada ***&Ant não vai usar no #Insert
+		AtualizaSaldoConta.Call(TrnMode.Insert,&EmpCod,&MovCtaBanCod,&MovDtaCon,'D',&ValorMoeda,&AntMovDta,&AntMovVlr,&AntMovCreDeb) //Atualiza saldo
+		&ValorMoeda = 0
+	Endif
+EndSub
+
+Sub 'Plano'
+	//FOLHA 
+	&FolPlanCod = 0
+	For each order EmpCod,LcfCod
+		Where EmpCod = &EmpCod
+		Where LcfCod = 1
+		&FolPlanCod = LcfPlanCod
+		Exit
+	When none
+		&IsErroPlano = True
+	EndFor
+	if &FolPlanCod = 0
+		&IsErroPlano = true
+	EndIf
+
+	//PRO LABORE
+	&ProPlanCod = 0
+	For each order EmpCod,LcfCod
+		Where EmpCod = &EmpCod
+		Where LcfCod = 22
+		
+		&ProPlanCod = LcfPlanCod
+		if LcfPlanCod.IsEmpty() or LcfPlanCod.IsNull()
+			LcfPlanCod = &FolPlanCod
+			&ProPlanCod = &FolPlanCod
+		Endif	
+		Exit
+	EndFor
+
+	//DIARIA 
+	&DiaPlanCod = 0
+	For each order EmpCod,LcfCod
+		Where EmpCod = &EmpCod
+		Where LcfCod = 23
+		
+		&DiaPlanCod = LcfPlanCod
+		if LcfPlanCod.IsEmpty() or LcfPlanCod.IsNull()
+			LcfPlanCod = &FolPlanCod
+			&DiaPlanCod = &FolPlanCod
+		Endif		
+		Exit
+	EndFor
+EndSub
+
+Sub 'Banco'
+	For each Order EmpCod, CtabanCod
+		Where EmpCod = &EmpCod
+		Where CtabanCod = &MovCtaBanCod
+		&LayCtaBanCodNom = CtaBanCodNom
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'GravaMovimentoCapa'
+	UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &EmpCod, 0, &MovCod)
+	New
+		EmpCod = &EmpCod
+		MovCod = &MovCod
+		MovDta = ServerDate()
+		MovHor = serverNow()
+		Do CAse 
+			CAse &DiariasFolhas = 'F'
+				MovDoc = 'FOLHAS DE PGTO'
+			CAse &DiariasFolhas = 'D'
+				MovDoc = 'PGTO DIÁRIAS'
+		EndCAse
+	
+		MovTip = &MovTip
+		MovCtaBanCod = &MovCtaBanCod
+		MovCreDeb = 'D' //somente Débito
+		MovDtaPgt = serverdate()
+		MovCplMan = &MovCplMan
+		if not &MovDtaCon.IsEmpty()
+			MovIsCon = Status_SimNao.Sim
+			MovDtaCon = &MovDtaCon
+		else
+			MovIsCon = Status_SimNao.Nao
+			MovDtaCon.SetEmpty()
+		EndIf
+		MovSts = Status_Caixa.Lancado
+	EndNew
+	
+	Commit
+EndSub
+
+
+Sub 'GravaMovimentoItem'
+	&MovItmCod.SetEmpty()
+	For Each Order EmpCod, MovCod, (MovItmCod)
+		Where EmpCod = &EmpCod
+		Where MovCod = &MovCod
+		&MovItmCod = MovItmCod
+		Exit
+	EndFor
+	&MovItmCod += 1
+	
+	New
+		EmpCod = &EmpCod
+		MovCod = &MovCod
+		MovItmCod = &MovItmCod
+		MovItmVlr = &MovItmVlr
+		MovFunCod = &MovFunCod
+		MovItmCpl = &MovItmCpl
+		MovFunMes = &mes
+		MovFunAno = &Ano
+		PlanCod = &PlanCod
+	EndNew
+	
+	commit
+	
+	prcAtualizaMovimentoFinanceiro.Call(&EmpCod,&MovCod)//Atualiza Cpl movimento conforme formula
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Layout>
+          <Bands>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute1</Value></Property><Property><Name>RPT_ID</Name><Value>2</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;FilFan</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Pgmname</Value></Property><Property><Name>RPT_ID</Name><Value>4</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Pgmname</Value></Property><Property><Name>RPT_X</Name><Value>657</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle1</Value></Property><Property><Name>RPT_ID</Name><Value>7</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>29</Value></Property><Property><Name>RPT_WIDTH</Name><Value>774</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>4</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>57, 179, 215</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>57, 179, 215</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute6</Value></Property><Property><Name>RPT_ID</Name><Value>237</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;titulo</Value></Property><Property><Name>RPT_X</Name><Value>207</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Cabecalho</Value></Property><Property><Name>RPT_ID</Name><Value>1</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>33</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute19</Value></Property><Property><Name>RPT_ID</Name><Value>277</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayFolFunNom</Value></Property><Property><Name>RPT_X</Name><Value>133</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>167</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 8.25pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute20</Value></Property><Property><Name>RPT_ID</Name><Value>278</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayFolFunCod</Value></Property><Property><Name>RPT_X</Name><Value>78</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 8.25pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel19</Value></Property><Property><Name>RPT_ID</Name><Value>289</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Funcionário:</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Funcionario</Value></Property><Property><Name>RPT_ID</Name><Value>276</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel14</Value></Property><Property><Name>RPT_ID</Name><Value>279</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Valor</Value></Property><Property><Name>RPT_X</Name><Value>758</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel15</Value></Property><Property><Name>RPT_ID</Name><Value>280</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Tipo</Value></Property><Property><Name>RPT_X</Name><Value>608</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel17</Value></Property><Property><Name>RPT_ID</Name><Value>282</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Movimento</Value></Property><Property><Name>RPT_X</Name><Value>467</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel18</Value></Property><Property><Name>RPT_ID</Name><Value>283</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Conta</Value></Property><Property><Name>RPT_X</Name><Value>325</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>MenuLevelPagamento</Value></Property><Property><Name>RPT_ID</Name><Value>275</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute22</Value></Property><Property><Name>RPT_ID</Name><Value>286</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;FolPgtMovCod</Value></Property><Property><Name>RPT_X</Name><Value>467</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute23</Value></Property><Property><Name>RPT_ID</Name><Value>287</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;FolPgtVlr</Value></Property><Property><Name>RPT_X</Name><Value>692</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>91</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute24</Value></Property><Property><Name>RPT_ID</Name><Value>288</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Tipo</Value></Property><Property><Name>RPT_X</Name><Value>608</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute21</Value></Property><Property><Name>RPT_ID</Name><Value>297</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCtaBanCodNom</Value></Property><Property><Name>RPT_X</Name><Value>308</Value></Property><Property><Name>RPT_WIDTH</Name><Value>132</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>LevelPagamento</Value></Property><Property><Name>RPT_ID</Name><Value>284</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>17</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel16</Value></Property><Property><Name>RPT_ID</Name><Value>294</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value /></Property><Property><Name>RPT_X</Name><Value>600</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>85</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute25</Value></Property><Property><Name>RPT_ID</Name><Value>295</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalFuncionario</Value></Property><Property><Name>RPT_X</Name><Value>692</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>91</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine8</Value></Property><Property><Name>RPT_ID</Name><Value>296</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>733</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Solid</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>TotalFuncionario</Value></Property><Property><Name>RPT_ID</Name><Value>292</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine7</Value></Property><Property><Name>RPT_ID</Name><Value>291</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>758</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dashed</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Linha</Value></Property><Property><Name>RPT_ID</Name><Value>290</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>2</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel3</Value></Property><Property><Name>RPT_ID</Name><Value>239</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Funcionário</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel4</Value></Property><Property><Name>RPT_ID</Name><Value>240</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>DOC</Value></Property><Property><Name>RPT_X</Name><Value>533</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel5</Value></Property><Property><Name>RPT_ID</Name><Value>241</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Valor</Value></Property><Property><Name>RPT_X</Name><Value>758</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel6</Value></Property><Property><Name>RPT_ID</Name><Value>242</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Tipo</Value></Property><Property><Name>RPT_X</Name><Value>608</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel7</Value></Property><Property><Name>RPT_ID</Name><Value>243</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Conta</Value></Property><Property><Name>RPT_X</Name><Value>308</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine1</Value></Property><Property><Name>RPT_ID</Name><Value>251</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>284</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine2</Value></Property><Property><Name>RPT_ID</Name><Value>252</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>308</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>133</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine3</Value></Property><Property><Name>RPT_ID</Name><Value>253</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>533</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>67</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine4</Value></Property><Property><Name>RPT_ID</Name><Value>254</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>608</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>84</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine5</Value></Property><Property><Name>RPT_ID</Name><Value>255</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>705</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>84</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel9</Value></Property><Property><Name>RPT_ID</Name><Value>260</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Movimento</Value></Property><Property><Name>RPT_X</Name><Value>463</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine6</Value></Property><Property><Name>RPT_ID</Name><Value>262</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>458</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>67</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Menu</Value></Property><Property><Name>RPT_ID</Name><Value>238</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute7</Value></Property><Property><Name>RPT_ID</Name><Value>245</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayFolFunCod</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>42</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute8</Value></Property><Property><Name>RPT_ID</Name><Value>246</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayFolFunNom</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>233</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute9</Value></Property><Property><Name>RPT_ID</Name><Value>247</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCtaBanCodNom</Value></Property><Property><Name>RPT_X</Name><Value>310</Value></Property><Property><Name>RPT_WIDTH</Name><Value>132</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute10</Value></Property><Property><Name>RPT_ID</Name><Value>248</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayMovItmVlr</Value></Property><Property><Name>RPT_X</Name><Value>700</Value></Property><Property><Name>RPT_WIDTH</Name><Value>80</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute11</Value></Property><Property><Name>RPT_ID</Name><Value>249</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;MovDoc</Value></Property><Property><Name>RPT_X</Name><Value>533</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>65</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute12</Value></Property><Property><Name>RPT_ID</Name><Value>250</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayTipo</Value></Property><Property><Name>RPT_X</Name><Value>608</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute14</Value></Property><Property><Name>RPT_ID</Name><Value>261</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;MovCod</Value></Property><Property><Name>RPT_X</Name><Value>463</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Dados</Value></Property><Property><Name>RPT_ID</Name><Value>244</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>15</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel10</Value></Property><Property><Name>RPT_ID</Name><Value>266</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total em Dinheiro:</Value></Property><Property><Name>RPT_X</Name><Value>583</Value></Property><Property><Name>RPT_WIDTH</Name><Value>85</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute15</Value></Property><Property><Name>RPT_ID</Name><Value>269</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;DinMovItmVlr</Value></Property><Property><Name>RPT_X</Name><Value>675</Value></Property><Property><Name>RPT_WIDTH</Name><Value>107</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine9</Value></Property><Property><Name>RPT_ID</Name><Value>298</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>733</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Solid</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>TotalDinheiro</Value></Property><Property><Name>RPT_ID</Name><Value>263</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel11</Value></Property><Property><Name>RPT_ID</Name><Value>267</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total em Cheque:</Value></Property><Property><Name>RPT_X</Name><Value>583</Value></Property><Property><Name>RPT_WIDTH</Name><Value>85</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute16</Value></Property><Property><Name>RPT_ID</Name><Value>270</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;ChqMovItmVlr</Value></Property><Property><Name>RPT_X</Name><Value>675</Value></Property><Property><Name>RPT_WIDTH</Name><Value>106</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine10</Value></Property><Property><Name>RPT_ID</Name><Value>299</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>733</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Solid</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>TotalCheque</Value></Property><Property><Name>RPT_ID</Name><Value>264</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute18</Value></Property><Property><Name>RPT_ID</Name><Value>273</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;DepMovItmVlr</Value></Property><Property><Name>RPT_X</Name><Value>675</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>107</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel13</Value></Property><Property><Name>RPT_ID</Name><Value>274</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total em Depósito:</Value></Property><Property><Name>RPT_X</Name><Value>583</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>85</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine11</Value></Property><Property><Name>RPT_ID</Name><Value>300</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>733</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Solid</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>TotalDeposito</Value></Property><Property><Name>RPT_ID</Name><Value>272</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel12</Value></Property><Property><Name>RPT_ID</Name><Value>268</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total Geral:</Value></Property><Property><Name>RPT_X</Name><Value>583</Value></Property><Property><Name>RPT_WIDTH</Name><Value>85</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>Black</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute17</Value></Property><Property><Name>RPT_ID</Name><Value>271</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotMovItmVlr</Value></Property><Property><Name>RPT_X</Name><Value>675</Value></Property><Property><Name>RPT_WIDTH</Name><Value>106</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>TotalGeral</Value></Property><Property><Name>RPT_ID</Name><Value>265</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute13</Value></Property><Property><Name>RPT_ID</Name><Value>257</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Longmsg</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>758</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>17</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>MsgErro</Value></Property><Property><Name>RPT_ID</Name><Value>256</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>17</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel8</Value></Property><Property><Name>RPT_ID</Name><Value>259</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>O plano de conta não foi encontrado no cadastro de operação para a categoria 1 - Salário. Verifique!</Value></Property><Property><Name>RPT_X</Name><Value>117</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>550</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 9pt, style=Bold</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>PlanoConta</Value></Property><Property><Name>RPT_ID</Name><Value>258</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>32</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute2</Value></Property><Property><Name>RPT_ID</Name><Value>236</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PesRaz</Value></Property><Property><Name>RPT_X</Name><Value>116</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel1</Value></Property><Property><Name>RPT_ID</Name><Value>214</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Respeite o meio ambiente. Evite a impressão deste documento!</Value></Property><Property><Name>RPT_X</Name><Value>494</Value></Property><Property><Name>RPT_Y</Name><Value>18</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>Green</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold, Italic</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel2</Value></Property><Property><Name>RPT_ID</Name><Value>155</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Desenvolvido por JASPI - http://www.jaspi.com.br - Página:</Value></Property><Property><Name>RPT_X</Name><Value>494</Value></Property><Property><Name>RPT_Y</Name><Value>5</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute3</Value></Property><Property><Name>RPT_ID</Name><Value>8</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Page</Value></Property><Property><Name>RPT_X</Name><Value>744</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property><Property><Name>RPT_WIDTH</Name><Value>36</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute4</Value></Property><Property><Name>RPT_ID</Name><Value>6</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Today</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute5</Value></Property><Property><Name>RPT_ID</Name><Value>5</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Time</Value></Property><Property><Name>RPT_X</Name><Value>57</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle2</Value></Property><Property><Name>RPT_ID</Name><Value>26</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>774</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>4</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>57, 179, 215</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>57, 179, 215</Value></Property></Properties>
+                </ReportRectangle>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Rodape</Value></Property><Property><Name>RPT_ID</Name><Value>12</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>29</Value></Property></Properties>
+            </PrintBlock>
+          </Bands>
+          <Properties><Property><Name>RPT_PAPER_SIZE</Name><Value>A4</Value></Property><Property><Name>RPT_RIGHT_MARGIN</Name><Value>36</Value></Property><Property><Name>RPT_ATT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property><Property><Name>RPT_TXT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+        </Layout>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCodCtb,in:&Ano,in:&mes,in:&PesCod,in:&inMovDtaCon,in:&MovDoc,in:&FolPgtCtaBanCod,in:&TipoFolha, in:&DiariasFolhas);
+output_file(&Pgmname, 'PDF');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FolPgtCtaTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolPgtCtaTip</Value></Property><Property><Name>Description</Name><Value>FolhaPagamentoTipoFolha</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagCtaTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inMovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inMovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AntMovCreDeb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntMovCreDeb</Value></Property><Property><Name>Description</Name><Value>Movimento Crédito Débito</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCreDeb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AntMovDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntMovDta</Value></Property><Property><Name>Description</Name><Value>Movimento Data</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AntMovVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntMovVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxLcfPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxLcfPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano de Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LcfPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMovimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMovimento</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ChqMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ChqMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DepMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DepMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiaPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiaPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiariasFolhas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiariasFolhas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DinMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DinMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaRef</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCodCtb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCodCtb</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFan</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolCheque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolCheque</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolDin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolDin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolPgtCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolPgtCtaBanCod</Value></Property><Property><Name>Description</Name><Value>FolhaPagamentoCodigoBanco</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolPgtCtaBanCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolPgtCtaBanCodNom</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolPgtMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolPgtMovCod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolPgtVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolPgtVlr</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagCtaVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FolPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FolPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GraCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GraCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isErro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErroPlano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErroPlano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsFolLib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsFolLib</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsFunMultiplo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsFunMultiplo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsMultiplo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsMultiplo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSubFuncionario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSubFuncionario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCtaBanCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCtaBanCodNom</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayFolFunCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayFolFunCod</Value></Property><Property><Name>Description</Name><Value>Funcionario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayFolFunNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayFolFunNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayTipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayTipo</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomePequeno20</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Longmsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Longmsg</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:MesDecimo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="moeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCplMan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCplMan</Value></Property><Property><Name>Description</Name><Value>Mov Cpl Man</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCplMan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Movimento Conta Bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDoc</Value></Property><Property><Name>Description</Name><Value>Movimento Documento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovFunCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovFunCod</Value></Property><Property><Name>Description</Name><Value>Movimento Adiantamento Funcionário</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovFunCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCod</Value></Property><Property><Name>Description</Name><Value>Movimento Item Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCpl</Value></Property><Property><Name>Description</Name><Value>Movimento Complemento Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTip</Value></Property><Property><Name>Description</Name><Value>Movimento Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParmLcto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParmLcto</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tipo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoFolha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoFolha</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:TipoFolha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="titulo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>titulo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalFuncionario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalFuncionario</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RELJAS072_PagamentoFolha2</Value></Property><Property><Name>Description</Name><Value>RELJAS072_Pagamento Folha2</Value></Property><Property><Name>CALL_PROTOCOL</Name><Value>HTTP</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

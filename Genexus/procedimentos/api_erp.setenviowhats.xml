@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7ec4b584-f6b1-46fc-8891-bf576cc1984d" user="WINJEAN\jeanfae" versionDate="2024-12-12T17:52:31.0000000Z" lastUpdate="2024-12-05T20:51:01.0000000Z" checksum="a2fc358effc3edc7c1bb55025b857e7c" fullyQualifiedName="api_erp.setenviowhats" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="7e5ccaf7-6a43-40b2-ac6a-ebeb5dbb7deb" name="setenviowhats" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="setenviowhats" parent="api_erp.configuracoes" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+//	padraousuario.Call('G', '%testeEnviaEmail%', 1, 1, &EnviaWhats, &PadDtaMod)
+
+if &EnviaWhats.IsEmpty()
+	&sdtRetornowbs.Sts = 'E003'
+	&sdtRetornowbs.Obs = 'Nada para enviar whats'
+	
+	return
+Endif
+
+if &IsAcessoConcedido = true //Acesso conced
+	
+	&sdtEnviaEmail.FromJson(&EnviaWhats)
+	//	padraousuario.Call('G', '%testeEnviaEmail%', 1, 1, &EnviaWhats, &PadDtaMod)
+	//	padraousuario.Call('G', '%testeEnviaEmail1%', 1, 1, &sdtEnviaEmail.ToJson(), &PadDtaMod)
+	
+	FormataFone.Call(&sdtEnviaEmail.Eml1, &PesFonNum1)
+	FormataFone.Call(&sdtEnviaEmail.Eml2, &PesFonNum2)
+	FormataFone.Call(&sdtEnviaEmail.Eml3, &PesFonNum3)
+		
+//		&EnviarFaltasPDFWhats = Status_SIMNAO.Sim And &IsFaltas >= 1
+//		&EnviarNotasWhats = Status_SimNao.Sim
+//		&EnviarBoletosWhats = Status_SimNao.Sim
+
+	//		&PadObs = '1' //iif(&EnviarEmailPDF = true, '1', '0')
+	//		&PadObs += '0' //iif(&EnviarEmailExcell = true, '1', '0')
+	//		&PadObs += iif(&waDestacarImpostos = Status_SimNao.Sim, 'S', 'N')
+	//		&PadObs += trim(&waTipoPedido)
+	//		&PadObs += iif(&EnviarBoletosWhats = Status_SimNao.Sim, 'S', 'N')
+	//		PadraoUsuarioHora.call('G', &LoadPadrao+'_wa', &wwpContext.PesCod, &wwpContext.EmpCod, &PadObs, &PadDtaMod, &PadDtaHorMod, 'P')
+	
+	&WaDtaEms = serverdate()
+	&Ano = year(&WaDtaEms)
+	&Mes = month(&WaDtaEms)
+	&WaAnoMes = trim(str(&Ano)) + padL(trim(str(&mes)),2,'0')
+	&IsGerouPDF = false
+	
+	&IsPodeEnviar = true
+	if not &PesFonNum1.IsEmpty()
+		&WaFonDest = &PesFonNum1
+		do 'GravaEnvio'
+	Endif
+	
+	if &IsPodeEnviar = true
+		if not &PesFonNum2.IsEmpty()
+			&WaFonDest = &PesFonNum2
+			do 'GravaEnvio'
+		Endif
+	Endif
+	if &IsPodeEnviar = true
+		if not &PesFonNum3.IsEmpty()
+			&WaFonDest = &PesFonNum3
+			do 'GravaEnvio'
+		Endif
+	Endif
+	
+	if &IsPodeEnviar = true
+		&sdtRetornowbs.Sts = 'J200'
+		&sdtRetornowbs.Obs = 'Whats enviados com sucesso'
+	Else
+		&sdtRetornowbs.Sts = 'E009'
+		&sdtRetornowbs.Obs = 'Não foi possivel enviar todas as mensagens, pacote mensagens exedido!'
+	Endif
+Else
+	&sdtRetornowbs.Sts = 'E002'
+	&sdtRetornowbs.Obs = 'Nao autorizado Device'
+EndiF
+
+
+Sub 'GravaEnvio'
+
+	&IsPodeEnviar = false
+	&IsJaEnviado = false
+	&IsPrimeiraVez = false
+	//Verificar se o numero ja foi enviado hoje
+	prcWhatsApp_VerificaJaEnviado.Call(&wwpContext.EmpCod, &WaAnoMes, &WaDtaEms, &WaFonDest, &IsJaEnviado)
+	If &IsJaEnviado = false
+		//se nao foi enviado verificar se pode enviar
+		prcWhatsApp_verificaQtdEnviadaAnoMes.Call(&wwpContext.EmpCod, &WaAnoMes, &WaAnoMesQtd, &EmpQtdWhatsMsg)
+		if &EmpQtdWhatsMsg > &WaAnoMesQtd
+			&IsPodeEnviar = true
+			&IsPrimeiraVez = true
+		Endif
+	Else
+		&IsPodeEnviar = true
+	Endif
+	
+	if &IsPodeEnviar = true
+		//grava envio
+		
+		&WaMensagem = 'Envio de Pedido: ' + trim(Str(&sdtEnviaEmail.EmlPedCod)) //PREENCHER MENSAGEM
+		prcWhatsApp_GravaEnvio.Call(&wwpContext.EmpCod, &WaAnoMes, &WaDtaEms, &WaFonDest, &IsPrimeiraVez, &WaMensagem, &sdtEnviaEmail.EmlPedCod, &FilCod, 0, 0, &wwpContext.PesCod, &WaGUID)
+		
+		if &IsGerouPDF = false
+			//GERA O PDF DO PEDIDO
+			RetornaCaminhoPedido.call(trim(str(&wwpContext.PesExtCod)), &wwpContext.EmpCod, &wwpContext.FilCod, &sdtEnviaEmail.EmlPedCod, &URLDESTINO, &UrlVirtual)
+			
+			Do Case //&TipoPedido mesmo codigo do envia email.
+				Case &waTipoPedido = '3' //PEDIDO VENDA COM LOGOMARCA
+					RELJAS078_toFile.Call('SR', &wwpContext.EmpCod, &wwpContext.FilCod, &sdtEnviaEmail.EmlPedCod, &wwpContext.PesCod, &URLDESTINO, 'N', false)
+				Case  &waTipoPedido = '2' //PEDIDO VENDA COM LOGOMARCA
+					RELJAS078_toFile.Call('', &wwpContext.EmpCod, &wwpContext.FilCod, &sdtEnviaEmail.EmlPedCod, &wwpContext.PesCod, &URLDESTINO, 'N', false)
+				Case  &waTipoPedido = '4' //PEDIDO VENDA COM LOGOMARCA - IMG PRODUTO
+					RELJAS137_toFile.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &sdtEnviaEmail.EmlPedCod, &wwpContext.PesCod, &URLDESTINO, 'N', false)
+				Otherwise //PEDIDO SEM LOGO			 
+					RELJAS002_toFile.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &sdtEnviaEmail.EmlPedCod, &URLDESTINO, 'N', false)
+			EndCase
+		Endif
+		&IsGerouPDF = true
+		
+		&IsFaltasPDF = iIf( &EnviarFaltasPDFWhats = Status_SIMNAO.Sim And &IsFaltas >= 1, true, false)
+		&IsEnviarNota = iif( &EnviarNotasWhats = Status_SimNao.Sim, true, false)
+		&IsEnviarBoletos = iif(&EnviarBoletosWhats = Status_SimNao.Sim, true, false)
+	
+		//GRAVA FILA DE ENVIO
+		prcFilaEnvioWhats_EnviaPedidoVenda.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &sdtEnviaEmail.EmlPedCod, &wwpContext.PesCod, &URLDESTINO, &UrlVirtual, 0, &WaFonDest, &WaGUID, &IsFaltasPDF, &IsEnviarNota, &IsEnviarBoletos)
+	//Else
+	//	&sdtRetornoWbs.Sts = 'E001'
+	//	&sdtRetornoWbs.Obs = 'Pacote de Mensagens WhatsApp atingido, para envio de Mais mensagens entre em contato com o suporte.'
+	Endif
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&EnviaWhats, out:&sdtRetornowbs);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornowbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornowbs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornowbs, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaEmail</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEnviaEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEnviaEmail</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEnviaEmail, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtEmail</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEmail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ItemSdtEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ItemSdtEmail</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEmail.sdtEmailItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pattern">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pattern</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaWhats">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaWhats</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaDtaEms</Value></Property><Property><Name>Description</Name><Value>Wa Dta Ems</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaAnoMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaAnoMes</Value></Property><Property><Name>Description</Name><Value>Ano Mess</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaAnoMes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsGerouPDF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsGerouPDF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPodeEnviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPodeEnviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJaEnviado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJaEnviado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPrimeiraVez">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPrimeiraVez</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaFonDest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaFonDest</Value></Property><Property><Name>Description</Name><Value>Fone Destino</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaFonDest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaAnoMesQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaAnoMesQtd</Value></Property><Property><Name>Description</Name><Value>Qtd Envia Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaAnoMesQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpQtdWhatsMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpQtdWhatsMsg</Value></Property><Property><Name>Description</Name><Value>Qtd Max. Msg WhatsApp no Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpQtdWhatsMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaMensagem</Value></Property><Property><Name>Description</Name><Value>Wa Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaMensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="URLDESTINO">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>URLDESTINO</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UrlVirtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UrlVirtual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="waTipoPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>waTipoPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsFaltasPDF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsFaltasPDF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEnviarNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEnviarNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEnviarBoletos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEnviarBoletos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviarFaltasPDFWhats">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviarFaltasPDFWhats</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviarNotasWhats">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviarNotasWhats</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviarBoletosWhats">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviarBoletosWhats</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsFaltas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsFaltas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaGUID</Value></Property><Property><Name>Description</Name><Value>Wa Guid</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaGuid</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum1</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum3">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum3</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>setenviowhats</Value></Property><Property><Name>Description</Name><Value>setenviowhats</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

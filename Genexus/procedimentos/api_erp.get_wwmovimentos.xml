@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2029c88d-bc03-4d0a-89d8-cf9907782d43" user="WINJEAN\jeanfae" versionDate="2025-03-03T21:12:34.0000000Z" lastUpdate="2025-02-28T12:48:13.0000000Z" checksum="db3602f52488a8ccf4a4327682442cf0" fullyQualifiedName="api_erp.get_wwmovimentos" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="9ec4f843-c21d-427a-aaf8-c2cb282ba867" name="get_wwmovimentos" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="get_wwmovimentos" parent="api_erp.Financeiro" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	&sdtMovimentos.sts = 'J200'
+	&Pagina = &parPaginaSelecionada
+	&QtdRegistros = &parQtdRegistros
+	if &QtdRegistros.IsEmpty()
+		&QtdRegistros = 15
+	Endif
+	
+	if &Pagina.IsEmpty()
+		&Pagina = 1
+	Endif
+	
+	&sdtMovimentos.pA = '0'
+	&sdtMovimentos.pT = '0'
+	&sdtMovimentos.p1 = '0'
+	&sdtMovimentos.p2 = '0'
+	&sdtMovimentos.p3 = '0'
+	&sdtMovimentos.p4 = '0'
+	&sdtMovimentos.p5 = '0'
+	&IsPaginaOk = false
+	
+	if &DtaInicialTmp > 0
+		timestampToDate.Call(&DtaInicialTmp, &MovDtaCon)
+	Endif
+	if &DtaFinalTmp > 0
+		timestampToDate.Call(&DtaFinalTmp, &MovDtaCon_To)
+	Endif
+	
+	&SoNumeros = retornaSoNumeros.Udp(&localizar)
+	&LocalizarCodigo = val(&SoNumeros)
+	
+	
+	For Each 
+		Order EmpCod, MovCtaBanCod, (MovDtaCon), (MovCod) when &Ordem = 'D' or &Ordem.IsEmpty()
+		Order EmpCod, MovCtaBanCod, MovDtaCon, MovCod when &Ordem = 'C'
+		Where EmpCod = &wwpContext.EmpCod
+		Where MovCtaBanCod = &MovCtaBanCod
+		Where MovCplTot like &localizar or MovDoc like &localizar or MovCod = &LocalizarCodigo when not &localizar.IsEmpty()
+		Where MovDtaCon >= &MovDtaCon WHEN not &MovDtaCon.isempty()
+		Where MovDtaCon <= &MovDtaCon_To WHEN not &MovDtaCon_To.isempty()
+		Where MovSts.isempty() or MovSts.isnull() or MovSts <> Status_Caixa.Cancelado WHEN &IsCancelado <> TRUE
+		
+		&sdtMovimentos.obs = MovCtaBanNom
+		if &IsPaginaOk = false
+			if &IsTestaPagina = true
+				if &QtdPaginas = &Pagina
+					
+					&IsPaginaOk = true
+				Else
+					&sdtMovimentos.Item.Clear()
+					&IsTestaPagina = false
+				Endif
+			Endif
+			
+			if &IsPaginaOk = false
+				
+				&sdtMovimentosItem = new()
+				&sdtMovimentosItem.movCod = MovCod
+				
+				if not MovCplTot.IsEmpty() and not MovCplTot.IsNull()
+					&sdtMovimentosItem.movCpl = MovCplTot
+				Else
+					&sdtMovimentosItem.movCpl = 'LANÇAMENTO: ' + iif(MovCreDeb = 'D', 'DÉBITO', 'CRÉDITO')
+				Endif
+				
+				&sdtMovimentosItem.movCreDeb = MovCreDeb
+				&sdtMovimentosItem.movDoc = MovDoc
+				&sdtMovimentosItem.movSts = MovSts
+				&sdtMovimentosItem.movDtaCon = trim(MovDtaCon.ToFormattedString())
+				&sdtMovimentosItem.movDtaConTmp = datetotimestamp(MovDtaCon)
+				&sdtMovimentosItem.movDtaPgtTmp = datetotimestamp(MovDtaPgt)
+				&sdtMovimentosItem.movDtaPgt = trim(MovDtaPgt.ToFormattedString())
+				&sdtMovimentosItem.movTip = MovTip
+				&sdtMovimentosItem.movTipDesc = MovTip.EnumerationDescription()
+				if MovSts = 'C' //CANCELADO
+					&MovVlr = 0
+					For Each Order EmpCod, MovCod, MovItmCod
+						Where MovItmSts <> Status_Caixa.Cancelado or MovItmSts.isempty() or MovItmSts.isnull()
+						&MovVlr += MovItmVlr
+					EndFor
+				
+					&sdtMovimentosItem.movVlr = trim(&MovVlr.ToFormattedString())
+				Else
+					&sdtMovimentosItem.movVlr = trim(MovVlr.ToFormattedString())
+				EndIf
+				
+				&sdtMovimentos.item.Add(&sdtMovimentosItem)
+				
+			Endif		
+		Endif
+		
+		&QtdLInhasPagina += 1
+		if (&QtdLinhasPagina = &QtdRegistros)
+			&QtdPaginas += 1
+			&IsTestaPagina = true
+			&QtdLInhasPagina = 0
+		Endif
+	When none
+		For Each Order EmpCod, CtabanCod
+			Where EmpCod = &wwpContext.EmpCod
+			Where CtabanCod = &MovCtaBanCod
+			&sdtMovimentos.obs = CtaBanNom
+			Exit
+		EndFor
+	
+	EndFor
+	
+	if &QtdLInhasPagina > 0 or &QtdPaginas > 0
+		if &QtdLInhasPagina > 0
+			&QtdPaginas += 1
+			&QtdLInhasPagina = 0
+		Endif
+		
+		if &Pagina > &QtdPaginas
+			&Pagina = &QtdPaginas
+		Endif
+		
+		&sdtMovimentos.pA = trim(str(&Pagina))
+		&sdtMovimentos.pT = trim(str(&QtdPaginas))
+		retornaPaginasGrid.Call(&Pagina, &QtdPaginas, &sdtMovimentos.p1, &sdtMovimentos.p2, &sdtMovimentos.p3, &sdtMovimentos.p4, &sdtMovimentos.p5)
+		
+	Endif
+	
+Endif
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&MovCtaBanCod, in:&DtaInicialTmp, in:&DtaFinalTmp, in:&localizar, in:&IsCancelado, in:&parPaginaSelecionada, in:&parQtdRegistros, in:&Ordem, out:&sdtMovimentos);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtMovimentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMovimentos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMovimentos, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Movimento Conta Bancária</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaInicialTmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaInicialTmp</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaFinalTmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaFinalTmp</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdRegistros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdRegistros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="pagina">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>pagina</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ordem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ordem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMovimentosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMovimentosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMovimentos.itemItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parQtdRegistros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parQtdRegistros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parPaginaSelecionada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parPaginaSelecionada</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon_To">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon_To</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPaginaOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPaginaOk</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdLInhasPagina">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdLInhasPagina</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdPaginas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdPaginas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTestaPagina">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTestaPagina</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="localizar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>localizar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsCancelado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsCancelado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SoNumeros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SoNumeros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LocalizarCodigo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LocalizarCodigo</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovVlr</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>get_wwmovimentos</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

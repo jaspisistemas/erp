@@ -1,0 +1,639 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="eeb8fa38-ac20-433d-b76a-b9bb9eca03d8" user="WINJEAN\jeanfae" versionDate="2026-01-09T21:11:19.0000000Z" lastUpdate="2026-01-09T20:40:55.0000000Z" checksum="e289daa953f3f15a6e10936b80f877e5" fullyQualifiedName="AtualizaEstoqueGerencialVenda_submit" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="ca52f2a0-c6e2-4f53-b888-ca6bbb92c943" name="AtualizaEstoqueGerencialVenda_submit" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Atualiza Estoque Gerencial Venda_submit" parent="CompraPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&LogGUID = GUID.NewGuid()
+
+&Total = 10
+&Count = 1
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+&IsAutoAlimentarKit = false
+For Each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	
+	&PedCliCod = PedCliCod
+	
+	if LctAtuEst = Status_EntradaSaida.Saida and 
+		(PedStsGer = Pedido_Gerado.OrdemCarregamento or 
+		PedStsGer = Pedido_Gerado.Amostra or 
+		PedStsGer = Pedido_Gerado.BalcaoVendas or 
+		PedStsGer = Pedido_Gerado.Faturamento or 
+		PedStsGer = Pedido_Gerado.PDV or 
+		PedStsGer =  Pedido_Gerado.Televendas or 
+		PedStsGer =  Pedido_Gerado.Vendas or
+		PedStsGer =  Pedido_Gerado.SMART or
+		PedStsGer =  Pedido_Gerado.Delivery)
+		
+		&IsAutoAlimentarKit = true		
+	Endif
+	
+	Exit
+EndFor
+
+Do Case
+	Case &NovoPedSts = Status_Pedido.ABERTO //ABRIR PEDIDO VENDA
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedCodOciRef = PedCodOciRef 
+			&OldPedSts = PedSts
+			
+			PedDtaFic = PedDtaEms
+		
+			If PedSts = &NovoPedSts
+				return
+			EndIf
+						
+			If PedStsFin = Status_Financeiro.CANCELADO
+				PedStsFin = Status_Financeiro.ABERTO
+			EndIF
+			
+			PedSts = &NovoPedSts			
+			&AuxPedDtaFat = PedDtaFat
+			PedAplCom = 'S' //APLICAR COMISSAO
+			
+			Exit
+		EndFor
+		Commit
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		do 'AtualizaUltimaVendaCliente'
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.Aberto, &wwpContextPesCod)
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		If &OldPedSts = Status_Pedido.FECHADO or &OldPedSts = Status_Pedido.SEPARANDO
+			//ATUALIZA ESTOQUE
+			AtualizaEstoqueEntradaSaida.Call(&EmpCod, &FilCod, &PedCod, Status_Pedido.ABERTO)	
+			
+			&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+			//ALIMENTA ESTOQUE KIT
+			if &IsAutoAlimentarKit = true
+				AutoAbasteceEstoqueProducao.Call(&EmpCod, &FilCod, &PedCod, &wwpContextPesCod, &AuxPedDtaFat, &NovoPedSts)
+			Endif
+		Else
+			AtualizaEstoqueEntradaSaida.Call(&EmpCod, &FilCod, &PedCod, Status_Pedido.CANCELADO)		
+		EndIf
+	
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+	Case &NovoPedSts = Status_Pedido.SEPARANDO //SEPARA PEDIDO VENDA
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			where PedCod = &PedCod
+			
+			&PedCodOciRef = PedCodOciRef 
+			
+			if PedSts = Status_Pedido.ABERTO
+				PedSts = &NovoPedSts
+				PedDtaSep = &PedDtaFat
+				if PedDtaFat.IsEmpty() or PedDtaFat.IsNull()
+					PedDtaFic = &PedDtaFat
+				EndIF
+				PedHorSep = serverTime()
+			Endif
+			
+			&AuxPedDtaFat = PedDtaFic
+			
+			//PedFunCodSep = &SicFunCod
+		EndFor		
+		commit
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		do 'AtualizaUltimaVendaCliente'
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.Separado, &wwpContextPesCod)
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		//ATUALIZA ESTOQUE
+		AtualizaEstoqueEntradaSaida.Call(&EmpCod, &FilCod, &PedCod, Status_Pedido.SEPARANDO)
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		//ALIMENTA ESTOQUE KIT
+		if &IsAutoAlimentarKit = true
+			AutoAbasteceEstoqueProducao.Call(&EmpCod, &FilCod, &PedCod, &wwpContextPesCod, &AuxPedDtaFat, &NovoPedSts)
+		Endif
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+	Case &NovoPedSts = Status_Pedido.FECHADO //FECHAR PEDIDO VENDA
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedCodOciRef = PedCodOciRef 
+			
+			If PedSts = &NovoPedSts
+				return
+			EndIf
+			
+			&OldPedSts = PedSts
+			
+			If PedSts <> &NovoPedSts
+				PedSts = &NovoPedSts //FECHA PEDIDO
+				PedDtaFat = &PedDtaFat //DATA FATURAMENTO	
+				PedHorFat = serverNow()
+				PedDtaFic = &PedDtaFat
+			EndIF
+			
+			&AuxPedDtaFat = &PedDtaFat
+			PedAplCom = 'S' //APLICAR COMISSAO
+			
+			if PedStsFin <> Status_Financeiro.FECHADO
+				if LctGerFin = Status_SimNao.Sim
+					PedStsFin = Status_Financeiro.ABERTO
+				else
+					PedStsFin = Status_Financeiro.CANCELADO
+				Endif
+			endif			
+		Endfor
+	
+		Commit
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		do 'AtualizaUltimaVendaCliente'
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.Fechado, &wwpContextPesCod)
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		//ATUALIZAPEDIDOVINCULADO
+		if not &PedCodOciRef.IsEmpty()
+			AtualizaVendaFutura.Call(&EmpCod, &FilCod, &PedCodOciRef, VendaFutura.BloqueiaVendaFutura)
+		Endif
+	
+		If &OldPedSts <> Status_Pedido.SEPARANDO
+						
+			//ATUALIZA ESTOQUE
+			AtualizaEstoqueEntradaSaida.Call(&EmpCod, &FilCod, &PedCod, Status_Pedido.FECHADO)
+			
+			&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+			//ALIMENTA ESTOQUE KIT
+			If &IsAutoAlimentarKit = true
+				AutoAbasteceEstoqueProducao.Call(&EmpCod, &FilCod, &PedCod, &wwpContextPesCod, &AuxPedDtaFat, &NovoPedSts)
+			Endif
+		EndIF
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+	Case &NovoPedSts = Status_Pedido.CANCELADO //CANCELA VENDA
+	
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedCodOciRef = PedCodOciRef 
+			If PedSts = Status_Pedido.CANCELADO
+				return
+			EndIf
+
+			PedStsFin = Status_Financeiro.CANCELADO
+			
+			PedSts = Status_Pedido.CANCELADO
+			
+			&PedSerItmCod = PedSerItmCod
+			Exit
+		EndFor		
+		commit
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+		do 'AtualizaUltimaVendaCliente'
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.Cancelado, &wwpContextPesCod)
+		
+		if &PedSerItmCod > 0
+			prcAtualizaUltimaDataServico.Call(&EmpCod, &FilCod, &PedSerItmCod)
+		Endif
+	
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+	
+		AtualizaEstoqueEntradaSaida.Call(&EmpCod, &FilCod, &PedCod, Status_Pedido.CANCELADO)
+		
+		&Count += 1
+		If &Count > 0
+			&Percentual = round((&Count / &Total) * 100, 0)
+		EndIF
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf
+		do 'Atualiza'
+		
+EndCase
+
+IF &IsCancelarFinanceiro = TRUE
+	CancelaStatusFinanceiroPedido.Call(&EmpCod, &FilCod, &PedCod, 'CANCELAMENTO DA VENDA, ABERTURA ESTOQUE PEDIDO', &wwpContextPesCod)
+	
+	&Count += 1
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+EndIf
+
+PedNovStsCod_FORMULA.Call(&EmpCod, &FilCod, &PedCod)
+if &PedCodOciRef <> 0
+	PedNovStsCod_FORMULA.Call(&EmpCod, &FilCod, &PedCodOciRef)
+Endif
+
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit	
+EndSub
+
+
+sub 'AtualizaUltimaVendaCliente'
+	
+	RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon042_TrocarTransportadoraPadrao, &TrocarTransportadora)
+	
+	RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon139_TrocarVendedorPadrao, &TCon139_TrocarVendedorPadrao)
+	
+	//ATUALIZA ULTIMA VENDA CLIENTE E VINCULOS
+	&sdtVinculos = RetornaVinculos.Udp(&EmpCod, &PedCliCod)
+	
+	PesUltVenDta_FORMULA.Call(&EmpCod, &sdtVinculos, &PesUltVenDta, &PesUltVenVlr, &PedTraRedCod, &PedTraSaiCod, &PesIntVenCod, &PesExtVenCod)
+	
+	For &sdtVinculosItem in &sdtVinculos
+		For Each Order EmpCod, PesCod
+			Where EmpCod = &EmpCod
+			Where PesCod = &sdtVinculosItem.PesCod
+			Where PesIsCli = true
+			
+			PesUltVenDta = &PesUltVenDta
+			PesUltVenVlr = &PesUltVenVlr
+			
+			If &PesIntVenCod <> 0 and &TCon139_TrocarVendedorPadrao <> 'N'
+				PesIntVenCod = &PesIntVenCod
+			EndIF
+			
+			If &PesExtVenCod <> 0 and &TCon139_TrocarVendedorPadrao <> 'N'
+				PesExtVenCod = &PesExtVenCod
+			EndIF
+			
+			if &PedTraRedCod <> 0 and &TrocarTransportadora = 'S'
+				PesCliTraCod = &PedTraRedCod
+			Endif
+			if &PedTraSaiCod <> 0 and &TrocarTransportadora = 'S'
+				PesCliTraSaiCod = &PedTraSaiCod
+			EndIF
+			
+			Exit
+		EndFor
+	EndFor
+	Commit
+EndSub
+
+
+Sub 'Exception_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+Endsub
+
+Sub 'Error_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod, in:&PedCod, in:&PedDtaFat, in:&wwpContextPesCod, in:&NovoPedSts, IN:&IsCancelarFinanceiro);
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovoPedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovoPedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtVinculos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtVinculos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtVinculos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cadastro de Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtVinculosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtVinculosItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtVinculos.sdtVinculosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesUltVenDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesUltVenDta</Value></Property><Property><Name>Description</Name><Value>Cliente Última Venda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesUltVenDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesUltVenVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesUltVenVlr</Value></Property><Property><Name>Description</Name><Value>Cliente Valor Ultima venda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesUltVenVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OldPedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OldPedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEms</Value></Property><Property><Name>Description</Name><Value>Pedido Data Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTraRedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTraRedCod</Value></Property><Property><Name>Description</Name><Value>Transportadora</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTraRedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesIntVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesIntVenCod</Value></Property><Property><Name>Description</Name><Value>Televendas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesIntVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrocarTransportadora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrocarTransportadora</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ConPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ConPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTraSaiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTraSaiCod</Value></Property><Property><Name>Description</Name><Value>Transportadora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTraSaiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutoAlimentarKit">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutoAlimentarKit</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCodOciRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCodOciRef</Value></Property><Property><Name>Description</Name><Value>Pedido Referenciado na Ordem Carregamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCodOciRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon139_TrocarVendedorPadrao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon139_TrocarVendedorPadrao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Progressini">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Progressini</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsCancelarFinanceiro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsCancelarFinanceiro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContextPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContextPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSerItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSerItmCod</Value></Property><Property><Name>Description</Name><Value>Servico Origem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSerItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolEmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>AtualizaEstoqueGerencialVenda_submit</Value></Property><Property><Name>Description</Name><Value>Atualiza Estoque Gerencial Venda_submit</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

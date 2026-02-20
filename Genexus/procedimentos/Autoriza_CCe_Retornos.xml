@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2018-03-19T12:31:48.0000000Z" checksum="cbd49eb35f985e5acf2ab4df3ea60c2f" fullyQualifiedName="Autoriza_CCe_Retornos" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="b9f7b8a6-0bf2-4a91-9f0e-b8ca5a744387" name="Autoriza_CCe_Retornos" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Autoriza_CCe_Retornos" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&conteudo_arquivo = ''
+
+For Each Order EmpCod, FilCod, NfeCod, NfeCCeSts, (NfeCCeEvtCod) //SICNFS3
+Where EmpCod = &EmpCod
+Where FilCod = &FilCod
+Where NfeCod = &NfeCod
+Where NfeCCeSts = Status_NFe.Autorizada
+    &NfeCCeEvtCod = NfeCCeEvtCod
+Exit
+EndFor
+&NfeCCeEvtCod += 1
+
+For Each Order EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &NfeCod
+	&NfeChv = NfeChv
+	&PastaDanfeNota = str(year(NfeDtaEms),4,0)+padl(trim(str(month(NfeDtaEms),2,0)),2,'0')
+		
+	For Each Order EmpCod, FilCod, NfeCod, NfeCCeCod
+		Where NfeCCeCod = &NfeCCeCod
+		&PastaDanfeCCe = str(year(NfeCCeDta),4,0)+padl(trim(str(month(NfeCCeDta),2,0)),2,'0')	
+		Exit
+	EndFor
+	Exit
+EndFor
+
+&nomeArquivo = &NfeChv.Trim() + '-' + padL(trim(str(&NfeCCeEvtCod)),2,'0') 
+
+&Nome_retorno_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + trim(&nomeArquivo)+'-ret-env-cce.err'
+&Nome_retorno_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + trim(&nomeArquivo) + '-ret-env-cce.xml'
+
+&File.Source = &Nome_retorno_erro
+if &File.Exists() 
+	&ResultadoAbertura =   DFROpen(&Nome_retorno_erro)    
+	
+	Do while dfrnext() = 0 
+		&ResultadoAbertura = DFRGTxt(&CampoUnico)
+		&conteudo_arquivo += NewLine() + &CampoUnico.Trim()
+	EndDo
+	&ResultadoAbertura = DFRClose()
+	
+	&File.Delete()
+	
+	&Tentativa = 99
+	&SolSts = Status_Solicitacao.Falha
+	&SolMsg = &conteudo_arquivo
+else
+	&File.Source = &Nome_retorno_correto
+	if &File.Exists()
+		
+		&retorno_xml.Open(&Nome_retorno_correto)    
+		&retorno_xml.ReadType(1, 'infEvento')
+		&retorno_xml.Read()  
+		Do While (&retorno_xml.Name <> 'infEvento' and &retorno_xml.Name <> '')
+			Do Case
+				Case &retorno_xml.Name = 'cStat'
+					&NfeCCecStat = &retorno_xml.Value
+//				Case &retorno_xml.Name = 'dhRegEvento'
+//					&NfeAutDatHorRec = &retorno_xml.Value
+				Case &retorno_xml.Name = 'xMotivo'
+					&NfeCCexMotivo  = &retorno_xml.Value
+				Case &retorno_xml.Name = 'nProt'
+					&NfeCCeProt  = &retorno_xml.Value
+			EndCase
+			&retorno_xml.Read()           
+		EndDo
+		&retorno_xml.close()
+
+	If &NfeCCecStat <> '' or &NfeCCexMotivo <> ''
+			Do Case
+				Case &NfeCCecStat = '573' //Duplicidade de Nfe //carta autorizada mas sem o retorno da sefaz
+					&Mensagem = trim(&NfeCCecStat) + ' - ' + trim(&NfeCCexMotivo)
+					&Mensagem += NewLine() +'ATENÇÃO: Não foi obtido o retorno da NFe, problema com a comunicação à Sefaz ou fechamento inesperado da Comunicação.'
+					&Mensagem += NewLine() + 'O QUE FAZER: Emita outra carta de correção.'
+					&Mensagem += NEwLIne() + 'Se o Problema persistir contacte o suporte.'
+					GravaRetornoCCe.Call(&EmpCod, &FilCod, &NfeCod, &NfeCceCod, &NfeCCecStat, &NfeCCexMotivo, &NfeCCeProt)
+					&SolSts = Status_Solicitacao.Falha
+					
+				Case &NfeCcecStat in ('135', '136')
+					//&NfeAutSts = '101'					
+					&mensagem = &NfeCCecStat.Trim() + ' - ' + &NfeCCexMotivo.Trim()
+					
+					GravaRetornoCCe.Call(&EmpCod, &FilCod, &NfeCod, &NfeCceCod, &NfeCCecStat, &NfeCCexMotivo, &NfeCCeProt)					
+					
+					&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeCCe) +'/'+&NfeChv.Trim() + '_' + padL(str(&NfeCCeEvtCod),2,'0') + '-procEventoNFe.xml'
+		            &file.Source = &ArquivoPronto
+		            if &file.Exists()
+		                GravaArquivoXmlCCe.Call(&EmpCod, &FilCod, &NfeCod, &NfeCCeCod, &ArquivoPronto)
+						&SolSts = Status_Solicitacao.Finalizada
+					Else
+						&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFenviado.Trim() +'/Autorizados/' + trim(&PastaDanfeNota) +'/'+&NfeChv.Trim() + '_' + padL(str(&NfeCCeEvtCod),2,'0') + '-procEventoNFe.xml'
+		            	&file.Source = &ArquivoPronto
+						if &file.Exists()
+							GravaArquivoXmlCCe.Call(&EmpCod, &FilCod, &NfeCod, &NfeCCeCod, &ArquivoPronto)
+							&SolSts = Status_Solicitacao.Finalizada
+						EndIF
+		            EndIf
+					
+				Case &NfeAutSts in ('579', '577', '578')
+					&mensagem = 'Falha na Comunicação, Fuso horário informado diverge dos servidores sefaz.'
+					&SolSts = Status_Solicitacao.Falha
+					
+				Otherwise
+					&mensagem = &NfeCCecStat.Trim() + ' - ' + trim(&NfeCCexMotivo)
+					&SolSts = Status_Solicitacao.Falha
+			EndCase
+
+			&Tentativa = 99
+			&SolMsg = &mensagem
+		EndIF
+	EndIf
+EndIf
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&NfeCod, in:&NfeCCeCod, in:&SolPesCod,  in:&sdtConfiguracoesPasta, inout:&Tentativa, inout:&SolSts, inout:&SolMsg);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="conteudo_arquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>conteudo_arquivo</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCeEvtCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCeEvtCod</Value></Property><Property><Name>Description</Name><Value>Sequencia Evento na NF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCeEvtCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCeCod</Value></Property><Property><Name>Description</Name><Value>Nfe CCe Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeCCe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeCCe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChv</Value></Property><Property><Name>Description</Name><Value>Chave NFE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno_xml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno_xml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCecStat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCecStat</Value></Property><Property><Name>Description</Name><Value>Status Retorno</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCecStat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCexMotivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCexMotivo</Value></Property><Property><Name>Description</Name><Value>Motivo Retorno</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCexMotivo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCeProt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCeProt</Value></Property><Property><Name>Description</Name><Value>Protocolo Autorizacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCeProt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPronto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPronto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Autoriza_CCe_Retornos</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

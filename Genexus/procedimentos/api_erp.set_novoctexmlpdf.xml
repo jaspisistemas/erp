@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="187a4a7f-bd09-43ed-b6cc-bb45b7f907fc" user="WIN-ITALO\Italo" versionDate="2025-05-23T18:46:39.0000000Z" lastUpdate="2025-11-13T19:20:32.0000000Z" checksum="fc19476db9ce854125b02fab4141b647" fullyQualifiedName="api_erp.set_novoctexmlpdf" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="4cc1fd82-8b7c-4432-a7be-c4aa79e642e4" name="set_novoctexmlpdf" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_novoctexmlpdf" parent="api_erp.cte" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	
+	if &sdtCte.sts = 'MAN' //modo manual
+		GravaCteNovo.Call(&wwpContext.EmpCod, &FilCod, &CteCod, &wwpContext.FilCod, &wwpContext.PesCod, &sdtCte, &erroMensagem)
+		
+		&sdtRetornowbsetc.sts = 'J200'
+		&sdtRetornowbsetc.obs = ""
+		&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+		&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+	Else
+		&Extensao = &sdtCte.ext.Replace('.', '')
+		&Extensao = &Extensao.ToLower()
+		&GUID = GUID.NewGuid()
+		
+		RetornaConfiguracoesPastas.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &sdtConfiguracoesPasta)
+		&NomeArquivo = &sdtConfiguracoesPasta.PastaDiretorioTempFis + trim(&GUID.toString()) + '.' + &Extensao
+		
+		&file.Source = &NomeArquivo
+		&file.FromBase64String(&sdtCte.arq)
+		&File.Close()
+		
+		Do Case
+			Case &sdtCte.sts = 'NFE' and &Extensao.ToLower().Trim() = 'xml' //Arquivo Correto, Iniciando CT-e!
+				GravaCteComXml.Call(&wwpContext.EmpCod, &FilCod, &CteCod, &wwpContext.FilCod, &wwpContext.PesCod, &NomeArquivo, &erroMensagem)
+				
+				if &CteCod > 0
+					//Fazer um update para X para poder ficar como pendente e depois apagar automaticamente caso nao tenha.
+					For EAch ORder EmpCod, FilCod, CteCod
+						Where EmpCod = &wwpContext.EmpCod
+						Where FilCod = &FilCod
+						Where CteCod = &CteCod
+						
+						CteSts = Status_NFe.Importada
+						Exit
+					EndFor
+					
+					&sdtRetornowbsetc.sts = 'J200'
+					&sdtRetornowbsetc.obs = ""
+					&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+					&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+				Else
+					&sdtRetornowbsetc.sts = 'E899'
+					&sdtRetornowbsetc.obs = &erroMensagem
+					&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+					&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+				Endif		
+				
+			Case &sdtCte.sts = 'NFE' and &Extensao.ToLower().Trim() = 'pdf'
+				
+				GravaCteComIa.Call(&wwpContext.EmpCod, &FilCod, &NomeArquivo, &CteCod, &UserMessage)
+				&IsSucess = CodeIsSucesso(&UserMessage.code)
+				
+				if &CteCod > 0
+					//Fazer um update para X para poder ficar como pendente e depois apagar automaticamente caso nao tenha.
+					For EAch ORder EmpCod, FilCod, CteCod
+						Where EmpCod = &wwpContext.EmpCod
+						Where FilCod = &FilCod
+						Where CteCod = &CteCod
+						
+						CteSts = Status_NFe.Importada
+						Exit
+					EndFor
+					
+					if (&IsSucess = true)
+						&sdtRetornowbsetc.sts = 'J200'
+						&sdtRetornowbsetc.obs = ""
+						&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+						&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+					Else
+						&sdtRetornowbsetc.sts = 'E989'
+						&sdtRetornowbsetc.obs = &UserMessage.message
+						&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+						&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+					Endif
+				Else
+					if (&IsSucess = true)				
+						&sdtRetornowbsetc.sts = 'J200'
+						&sdtRetornowbsetc.obs = ""
+						&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+						&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+					Else
+						&sdtRetornowbsetc.sts = 'E979'
+						&sdtRetornowbsetc.obs = &UserMessage.message
+						&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+						&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+					Endif
+				Endif
+				
+				
+			CAse  &sdtCte.sts = 'REL'and &Extensao.ToLower().Trim() = 'pdf' // Arquivo LAR, Iniciando CT-e!
+				GravaCteComPdf.Call(&wwpContext.EmpCod, &FilCod, &CteCod, &NomeArquivo, false, 0, &IsSucess, &erroMensagem)
+				
+				if &CteCod > 0
+					//Fazer um update para X para poder ficar como pendente e depois apagar automaticamente caso nao tenha.
+					For EAch ORder EmpCod, FilCod, CteCod
+						Where EmpCod = &wwpContext.EmpCod
+						Where FilCod = &FilCod
+						Where CteCod = &CteCod
+						
+						CteSts = Status_NFe.Importada
+						Exit
+					EndFor
+					
+					if (&IsSucess = true)
+						&sdtRetornowbsetc.sts = 'J200'
+						&sdtRetornowbsetc.obs = ""
+						&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+						&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+					Else
+						&sdtRetornowbsetc.sts = 'E988'
+						&sdtRetornowbsetc.obs = &erroMensagem
+						&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+						&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+					Endif
+				Else
+					&sdtRetornowbsetc.sts = 'E978'
+					&sdtRetornowbsetc.obs = &erroMensagem
+					&sdtRetornowbsetc.c1 = trim(str(&FilCod))
+					&sdtRetornowbsetc.c2 = trim(str(&CteCod))
+				Endif
+				
+				
+				//		Case &Extensao.ToLower().Trim() = 'xlsx' or  &Extensao.ToLower().Trim() = 'xls' // Arquivo complemento lar,  CT-e!
+				//			GravaCteComExcel.Call(&EmpCod,&FilCod,&CteCod,&NomeArquivo,&IsSucess)
+				//			If &IsSucess = true
+				//				WWCte.Call()
+				//			EndIf
+				
+			Otherwise
+				&sdtRetornowbsetc.sts = 'J999'
+				&sdtRetornowbsetc.obs = "Arquivo incorreto!"
+		EndCase
+	EndIf
+	
+Else
+	&sdtRetornowbsetc.sts = 'E999'
+	&sdtRetornowbsetc.obs = 'Nada mais aqui!'
+	return
+Endif
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&FilCod, in:&sdtCte, out:&sdtRetornowbsetc);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Extensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Extensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornowbsetc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornowbsetc</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornoWbsEtc, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:UserMessage</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSucess">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSucess</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="erroMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>erroMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCte</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte, api_erp</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_novoctexmlpdf</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

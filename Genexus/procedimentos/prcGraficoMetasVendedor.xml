@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="61872444-cc2a-43f6-9ddd-7a44c0b9df0d" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2016-08-18T03:39:48.0000000Z" checksum="1cc4b0f7aa6407839c86071a6b4c0012" fullyQualifiedName="prcGraficoMetasVendedor" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="b4f45ef3-8d36-4013-afe4-e33e7b44dead" name="prcGraficoMetasVendedor" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Grafico Metas Vendedor" parent="ComPeriodo" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&iniPedDtaFat = yMDtoD(&PesMetAno, &PEsMetMes, 1)
+&FinPedDtaFat = eoM(&iniPedDtaFat)
+
+&Total = 100
+&Count = 0
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+&sdtPessoa.Clear()
+
+//adiciona os Vendedores
+For Each Order EmpCod, PesRaz
+	Where EmpCod = &EmpCod
+	//Where PesSts = Status_AtivoInativo.ATIVO
+	Where PesIsVen = true
+	Where PesDtaDem.IsEmpty() or PesDtaDem.IsNull()
+	Where PesVenIntExt = Status_InternoExterno.INTERNO
+	
+	&sdtPessoaItem = new()
+	&sdtPessoaItem.PesCod = PesCod
+	RetiraCaracteresEspeciais.Call(PesRaz, &PesRaz)
+	&sdtPessoaItem.PesRaz = gxGetMLi(&PesRaz, 1, 20)
+	
+	&sdtPessoaItem.PesMeta = 0
+	For Each Order EmpCod, PesCod, PesMetAno, PesMetMes //Pega A meta para o Ano/MEs
+		Where PesMetAno = &PesMetAno
+		Where PesMetMes = &PEsMetMes
+		&sdtPessoaItem.PesMeta= PesMetVlr
+		Exit
+	EndFor
+
+	&sdtPessoa.Add(&sdtPessoaItem)
+EndFor
+
+//soma as vendas FECHADAS
+For each Order EmpCod, FilCod, PedVenCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedDtaFat >= &iniPedDtaFat and PedDtaFat <= &FinPedDtaFat
+	Where PedVenIs = true
+	Where PedVenIntExt = Status_InternoExterno.INTERNO
+	Where pedVenIntDem.IsEmpty() or pedVenIntDem.IsNull()
+	Where PedSts = Status_Pedido.FECHADO
+	Where LctTip = TipoLancamento.SaidaMercadoria
+	Where LctPagCom = Status_SimNao.Sim
+	
+	if &OldPedVencod <> PedVenCod AND &OldPedVencod <> 0
+		do 'AddTotalRealizado'
+		&PesRealizadoMoeda = 0
+	EndIF
+	
+	&PesRealizadoMoeda += PedTotProLiq 
+	&PedVenCod = PedVenCod
+	&OldPedVencod = PedVenCod 
+EndFor
+
+if &PesRealizadoMoeda > 0
+	do 'AddTotalAberto'
+EndiF
+
+&Count += 50
+If &Count > 0
+	&Percentual = round((&Count / &Total) * 100, 0)
+EndIF
+If &Percentual >= 100
+	&Percentual = 99
+EndIf
+do 'Atualiza'
+
+&OldPedVencod = 0
+//soma as vendas ABERTAS
+For each Order EmpCod, FilCod, PedVenCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedDtaEms >= &iniPedDtaFat and PedDtaEms <= &FinPedDtaFat
+	Where PedVenIs = true
+	Where PedVenIntExt = Status_InternoExterno.INTERNO
+	Where pedVenIntDem.IsEmpty() or pedVenIntDem.IsNull()
+	Where PedSts = Status_Pedido.ABERTO
+	Where LctTip = TipoLancamento.SaidaMercadoria or LctTip = TipoLancamento.OrcamentoVenda
+	
+	if &OldPedVencod <> PedVenCod AND &OldPedVencod <> 0		
+		do 'AddTotalAberto'
+		&PesRealizadoMoeda = 0
+	EndIF
+	
+	&PesRealizadoMoeda += PedTotProLiq 
+	&PedVenCod = PedVenCod
+	&OldPedVencod = PedVenCod 
+EndFor
+
+if &PesRealizadoMoeda > 0
+	do 'AddTotalAberto'
+EndiF
+
+&Percentual = 100
+&ProgressFin = serverNow()
+&ProgressLogXml = &sdtPessoa.ToJson()
+do 'Atualiza'
+
+sub 'AddTotalAberto'
+	For &sdtPessoaItem in &sdtPessoa
+		If &sdtPessoaItem.PesCod = &PedVenCod 
+			&sdtPessoaItem.PesAber = &PesRealizadoMoeda
+			Exit
+		EndIF	
+	EndFor
+EndSub
+
+sub 'AddTotalRealizado'
+	For &sdtPessoaItem in &sdtPessoa
+		If &sdtPessoaItem.PesCod = &PedVenCod 
+			&sdtPessoaItem.PesRea = &PesRealizadoMoeda
+			Exit
+		EndIF	
+	EndFor
+EndSub
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		
+		ProgressValue = &Percentual
+		ProgressLogXml = &ProgressLogXml
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressLogXml = ''
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod, in:&PesMetAno, in:&PEsMetMes ); 
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ProgressID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressID</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPessoa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGrfMetas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPessoaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPessoaItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGrfMetas.sdtGrfMetasItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesMetAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesMetAno</Value></Property><Property><Name>Description</Name><Value>Meta Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesMetAno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PEsMetMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PEsMetMes</Value></Property><Property><Name>Description</Name><Value>Meta Mês</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesMetMes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OldPedVencod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OldPedVencod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRealizadoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRealizadoMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniPedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniPedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinPedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinPedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGraficoMetasVendedor</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

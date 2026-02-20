@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="61be474e-e67a-493c-b33c-c573d96e1098" user="SRVORDIG\Administrador" versionDate="2023-02-17T12:21:31.0000000Z" lastUpdate="2023-02-10T19:33:17.0000000Z" checksum="3730f99811c07b14bdc685bae13e25e9" fullyQualifiedName="GeraBoletoApi_ZoopDuplicata" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="1e051cff-5f94-4c0a-8622-f7bdfe3ff1fd" name="GeraBoletoApi_ZoopDuplicata" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Boleto Api_Zoop" parent="Bradesco" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&IsErro = false
+&Mensagem.SetEmpty()
+&MarketPlaceID = '8aec0a32736646889676c911f341768a' 
+
+For Each Order EmpCod, FilCod, CreCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where CreCod = &CreCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreDtaVct >= serverdate()
+	Where CreCrbRegAut = Status_SimNao.Sim
+	Where CreDtaRet.IsEmpty() or CreDtaRet.IsNull()
+	Where not CreCliZoopID.IsEmpty() or not CreCliZoopID.IsNull() 
+	
+	&CreDtaVct = CreDtaVct.AddDays(60)//(aaaa-mm-dd)
+	&VencimentoVarchar = str(year(CreDtaVct)) +'-'+ padL(str(Month(CreDtaVct)),2, '0') +'-'+ padL(str(Day(CreDtaVct)),2, '0')
+	&ExpiracaoVarchar = str(year(&CreDtaVct)) +'-'+ padL(str(Month(&CreDtaVct)),2, '0') +'-'+ padL(str(Day(&CreDtaVct)),2, '0')
+
+	&CreCbrCod = CreCbrCod	
+	Do 'GetLocalCobraca'
+	
+	&AuxCreBloNro = CreBloNro
+	
+	If &ErroCobraca = 0 //Se achou a Chave Master e se achou Chave de Transação (sendo ela a mesma ou criando uma nova) então vai para Emissão
+		//########################################### GERA O NOSSO NÚMERO DO BOLETO #####################################	
+		
+		If (CreBloNro.IsEmpty() or CreBloNro.IsNull() or CreBloNro.Length() <> 16 or Substr(CreBloNro,1,3) <> '999')  // Duplicata Nosso Número
+			&CtaBanNosNro += 1
+			GerarNossoNumero.CALL('999',str(EmpCod),&CtaBanNosNro,CreDtaEms,&AuxCreBloNro,&Erro)
+			If &Erro = 0
+				CreBloNro = trim(&AuxCreBloNro)
+				commit
+				Do 'GravaNossoNumero'
+			EndIf
+		EndIf
+		//################################################### FIM NOSSO NÚMERO ##########################################
+
+		if CreCliTip = TipoPEssoa.FISICA
+			&CpfCnpj = CreCliCpf
+		Else
+			&CpfCnpj = CreCliCnpj
+		Endif
+		&CpfCnpj = RetornaSoNumeros.Udp(&CpfCnpj)
+				
+		//https://api.zoop.ws//v1/marketplaces/&MarketPlaceID/transactions
+		//BOLETO POST
+		&reference_id = &AuxCreBloNro
+		&ArquivoPost =  '{'
+		&ArquivoPost +=  '	"amount":"'+trim(STR((CreVlrDup * 100)))+'",' ////amount: Valor da transação. Transações do tipo boleto devem ser igual ou superior a 300 (R$3,00). Campo obrigatório.
+		&ArquivoPost +=  '	"currency": "BRL",' ////currency: Moeda utilizada na transação. Transações do tipo boleto aceitam apenas BRL. Campo obrigatório.
+		&ArquivoPost +=  '	"description": "VENDA SISTEMA JASPI",'
+		&ArquivoPost +=  '	"reference_id": "'+&reference_id.trim()+'",'
+		&ArquivoPost +=  '	"on_behalf_of": "'+&CbrChaMas.Trim()+'",' ////on_behalf_of: Vendedor que receberá pela venda. Campo obrigatório.
+		&ArquivoPost +=  '	"customer": "'+CreCliZoopID+'",' //customer: Pagador do boleto. Um pagador pode ser um buyer ou seller. Campo obrigatório.
+		&ArquivoPost +=  '	"payment_type": "boleto",' //payment_type: Tipo da transação. Campo obrigatório. 
+		//&ArquivoPost +=  '	"logo":	"https://api.zoop.ws/v1/marketplaces/8aec0a32736646889676c911f341768a/custom/file/logo-colored.png",' //logo: Endereço de imagem estática a ser exibida no topo do boleto. Campo opcional.
+		&ArquivoPost +=  '	"payment_method": {'
+		&ArquivoPost +=  '		"expiration_date": "'+&VencimentoVarchar.Trim()+'",'//expiration_date: Data de expiração do boleto no formato (aaaa-mm-dd). Campo opcional, caso a data de expiração não seja fornecida, o boleto será gerado com vencimento para 3 dias após a data atual.
+		&ArquivoPost +=  '		"payment_limit_date": "'+&ExpiracaoVarchar.Trim()+'",'//payment_limit_date: Data limite para o pagamento do boleto (aaaa-mm-dd). Campo opcional.
+		//&ArquivoPost +=  '		"body_instructions": ["Pedido #5132"],' //body_instructions: Instruções utilizadas na parte central do boleto. Habitualmente utilizado para descrição da fatura. Ex: "Prestação de serviços de consultoria". 
+		&ArquivoPost +=  '		"billing_instructions": {'
+		
+		&isVirgula = false
+		if &CbrMltVlr > 0
+			&Varchar = toformattedString(&CbrMltVlr)
+			&Varchar = &Varchar.Replace(',','.')
+			&ArquivoPost +=  '			"late_fee": {'//late_fee: Objeto para utilização de cobrança da multa por atraso de pagamento do boleto. Campo opcional.
+			&ArquivoPost +=  '				"mode": "PERCENTAGE",'
+			&ArquivoPost +=  '				"percentage": '+trim(&Varchar)
+			&ArquivoPost +=  '			}'
+			&isVirgula = true
+		Endif
+		
+		if &JurTaxDia > 0
+			if &isVirgula = true
+				&ArquivoPost +=  ','
+			Endif			
+			&Varchar = toformattedString(&JurTaxDia)
+			&Varchar = &Varchar.Replace(',','.')
+			&ArquivoPost +=  '			"interest": {'//interest: Objeto para utilização de cobrança de juros. Campo opcional.
+			&ArquivoPost +=  '				"mode": "DAILY_PERCENTAGE",'
+			&ArquivoPost +=  '				"percentage": '+trim(&Varchar)
+			&ArquivoPost +=  '			}'
+			&isVirgula = true
+		Endif
+		
+		//			&ArquivoPost +=  '			"discount": ['//discount: Objeto para aplicar descontos no boleto para uma ou mais datas limite. Campo opcional. 
+		//			&ArquivoPost +=  '			{'
+		//			&ArquivoPost +=  '				"mode": "FIXED",'
+		//			&ArquivoPost +=  '				"limit_date": "2018-11-09",'
+		//			&ArquivoPost +=  '				"amount": 150'
+		//			&ArquivoPost +=  '			},'
+		
+		//			&ArquivoPost +=  '			{'
+		//			&ArquivoPost +=  '				"mode": "FIXED",'
+		//			&ArquivoPost +=  '				"limit_date": "2018-11-10",'
+		//			&ArquivoPost +=  '				"amount": 100'
+		//			&ArquivoPost +=  '			}'
+		//			&ArquivoPost +=  '			]'
+		
+		&ArquivoPost +=  '		}'
+		&ArquivoPost +=  '	}'
+		&ArquivoPost +=  '}'
+		
+		&ArquivoPost = &ArquivoPost.Replace('	', '')
+		&ArquivoPost = &ArquivoPost.Replace('  ', ' ')
+		
+		HostWebServiceBoletoApi.Call('',999, &EmpWebHost, &EmpWebBaseUrl, &EmpWebPor) // 999 = zoop pagamentos
+		&HttpClient.Host = &EmpWebHost //servidor
+		&HttpClient.Secure = 1
+		&httpclient.AddHeader(!'Content-type',!'application/json')
+		&httpclient.AddHeader('authorization', 'Basic enBrX3Byb2RfQURJcWZCNGFmblZ6Q0trWkRLR0UxTnFvOg==')
+		&String = 'v1/marketplaces/'+&MarketPlaceID.trim()+'/transactions'
+		&httpclient.AddString(&ArquivoPost)
+		csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+		&HttpClient.Execute('POST',&String)
+		
+		&sdtZoop_duplicata.FromJson(&HttpClient.toString())
+		
+		//padraoUsuario.Call('G', '#REGISTROZOOP_DUP', &WWPContext.PesCod, &EmpCod, &HttpClient.toString(), &PadDtaMod)  // Grava resultado do Post só como um LOG para Consulta
+		//padraoUsuario.Call('G', '#REGISTROZOOP_DUP2', &WWPContext.PesCod, &EmpCod, &ArquivoPost, &PadDtaMod)  // Grava PARAMETRO como um LOG para Consulta
+		
+	 	//################################# sem erro de comunicação ################################################################################
+		Do Case
+			Case &HttpClient.ErrCode = 0  //HTTP_CREATED  Operação realizada com sucesso
+				&Mensagem = '201 - Registrado com sucesso!'
+				
+				&DtRegistroVar = &sdtZoop_duplicata.created_at
+				CreDtaRet = yMDtoD(val(substr(&DtRegistroVar,1,4)),val(substr(&DtRegistroVar,6,2)),val(substr(&DtRegistroVar,9,2)))
+				//CreCodBar = &SdtRetornoBradesco.cdBarras
+				CreLinDig = &sdtZoop_duplicata.payment_method.barcode
+				CreArqRetApiEco = &HttpClient.toString()
+				commit
+				
+				//ImpressaoBoletoApi_Zoop.Call(EmpCod, FilCod, CreCod, &NomeArquivo)
+				//CrePdf64ApiEco = 
+				
+				//JDF - PERA SO 1 MINUTO
+				//ImpressaoBoletoBradesco.call(&EmpCod,&CreCod,&CreCbrCod,&CbrChaTra,&CbrCtaBanAgeCod,&CbrNroCon,str(&SdtRetornoBradesco.nutituloGerado),&CbrCtaBanAgeDig)
+			Otherwise
+				&Mensagem = 'ERRO - '+trim(str(&HttpClient.ErrCode)) +': '+&HttpClient.ErrDescription
+				&IsErro = true
+		EndCase
+	EndIf
+	
+	////{
+	////    "id": "b195285b43364b519962c35c4e8fb077",
+	////    "resource": "transaction",
+	////    "status": "pending",
+	////    "amount": "10.00",
+	////    "original_amount": "10.00",
+	////    "currency": "BRL",
+	////    "description": "VENDA SISTEMA JASPI",
+	////    "payment_type": "boleto",
+	////    "transaction_number": null,
+	////    "gateway_authorizer": "ITAU",
+	////    "app_transaction_uid": null,
+	////    "refunds": null,
+	////    "rewards": null,
+	////    "discounts": null,
+	////    "pre_authorization": null,
+	////    "sales_receipt": null,
+	////    "on_behalf_of": "d33f421b268c4d3391464b0c7983b4a1",
+	////    "customer": "599468d8824740daa8dc52fab08ecab9",
+	////    "statement_descriptor": "jaspi",
+	////    "payment_method": {
+	////        "id": "e5bd7f620ed94d459b631458718a5fd4",
+	////        "resource": "boleto",
+	////        "description": "VENDA SISTEMA JASPI",
+	////        "reference_number": "2247361",
+	////        "document_number": "2247361",
+	////        "expiration_date": "2020-02-15T00:00:00+00:00",
+	////        "payment_limit_date": "2020-04-15T00:00:00+00:00",
+	////        "recipient": "jaspi",
+	////        "bank_code": "109",
+	////        "customer": "599468d8824740daa8dc52fab08ecab9",
+	////        "address": null,
+	////        "sequence": "2085759",
+	////        "url": "https://api-boleto-production.s3.amazonaws.com/8aec0a32736646889676c911f341768a/d33f421b268c4d3391464b0c7983b4a1/5e0b4e7d55065a1506911356.html",
+	////        "accepted": false,
+	////        "printed": false,
+	////        "downloaded": false,
+	////        "fingerprint": null,
+	////        "paid_at": null,
+	////        "uri": "\/v1\/marketplaces\/8aec0a32736646889676c911f341768a\/boletos\/e5bd7f620ed94d459b631458718a5fd4",
+	////        "barcode": "34191090242473617893031339210002181660000001000",
+	////        "metadata": {},
+	////        "created_at": "2019-12-31T10:34:53+00:00",
+	////        "updated_at": "2019-12-31T13:34:53+00:00",
+	////        "status": "not_paid"
+	////    },
+	////    "source": null,
+	////    "point_of_sale": {
+	////        "entry_mode": "barcode",
+	////        "identification_number": null
+	////    },
+	////    "installment_plan": null,
+	////    "refunded": false,
+	////    "voided": false,
+	////    "captured": true,
+	////    "fees": "0.00",
+	////    "fee_details": null,
+	////    "location_latitude": null,
+	////    "location_longitude": null,
+	////    "uri": "\/v1\/marketplaces\/8aec0a32736646889676c911f341768a\/transactions\/b195285b43364b519962c35c4e8fb077",
+	////    "metadata": {},
+	////    "expected_on": "1970-01-01T00:00:00+00:00",
+	////    "created_at": "2019-12-31T13:34:52+00:00",
+	////    "updated_at": "2019-12-31T13:34:53+00:00",
+	////    "reference_id": "DP_5564",
+	////    "payment_authorization": null,
+	////    "history": [
+	////        {
+	////            "id": "4f3001f90d60408c9b84dd7fc8e583be",
+	////            "transaction": "b195285b43364b519962c35c4e8fb077",
+	////            "amount": "10.00",
+	////            "operation_type": "created",
+	////            "status": "succeeded",
+	////            "response_code": null,
+	////            "response_message": null,
+	////            "authorization_code": null,
+	////            "authorizer_id": null,
+	////            "authorization_nsu": null,
+	////            "gatewayResponseTime": null,
+	////            "authorizer": null,
+	////            "created_at": "2019-12-31 13:34:52"
+	////        }
+	////    ]
+	////}
+
+when none
+	&Mensagem = 'Impossível gerar Boleto para esta Duplicata!, a Mesma NÃO pode estar vencida, e deve ser do tipo RECEBER, e com boleto online no local de Cobrança!'
+	&IsErro = true
+EndFor
+
+
+Sub 'GetLocalCobraca'
+	&ErroCobraca = 0
+	
+	For each Order EmpCod,CbrCod
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CreCbrCod
+		
+		&CtaBanNosNro    = CtaBanNosNro
+		
+		&CbrDesDia = CbrDesDia
+		&CbrQtdDiaDesc = CbrQtdDiaDesc
+		&CbrDesAnt  = CbrDesAnt
+		&CbrInsBol1 = CbrInsBol1
+		&CbrMltVlr  = CbrMltVlr
+		
+		If not CbrChaMas.Trim().IsEmpty()  // chave master NÃO esta Vazia?
+			&CbrChaMas = CbrChaMas
+		Else
+			&ErroCobraca = 1
+			&Mensagem = 'Chave master no Local de Cobrança inválida, verifique!'
+			&IsErro = true
+		EndIF
+		&CbrJurCod = CbrJurCod// Local Cobrança Juros Código
+		&JurTaxDia = 0
+		&JurTax = 0
+		Do 'Juros'
+	EndFor
+EndSub
+
+Sub 'GravaNossoNumero'
+	For each Order EmpCod,CbrCod,CbrTipImp
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CreCbrCod
+		//Where CbrTipImp = TipoImpressao.GerarBoleto  //Gerar Boleto
+		CtaBanNosNro	= &CtaBanNosNro  
+		Exit
+	EndFor
+	Commit	
+EndSub
+
+Sub 'Juros'	
+	For each Order EmpCod,JurCod,(JurAno),(JurMes)
+		Where EmpCod = &EmpCod
+		Where JurCod = &CbrJurCod
+		&JurTax = JurTax
+		if JurTax > 0
+			&JurTaxDia = ((JurTax) / 30)
+		Endif
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&CreCod, out:&IsErro, out:&Mensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CbrChaMas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaMas</Value></Property><Property><Name>Description</Name><Value>Chave Master</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaMas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrDesAnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrDesAnt</Value></Property><Property><Name>Description</Name><Value>Percentual de desconto para pagamento antecipado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrDesAnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrDesDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrDesDia</Value></Property><Property><Name>Description</Name><Value>Percentual de Desconto para pagemento em dia.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrDesDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrInsBol1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrInsBol1</Value></Property><Property><Name>Description</Name><Value>Intrução para Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrInsBol1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrJurCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrJurCod</Value></Property><Property><Name>Description</Name><Value>Juros Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrJurCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrMltVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrMltVlr</Value></Property><Property><Name>Description</Name><Value>Valor Multa</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrQtdDiaDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrQtdDiaDesc</Value></Property><Property><Name>Description</Name><Value>Qtd Dias desconto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrQtdDiaDesc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroCobraca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroCobraca</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTaxDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTaxDia</Value></Property><Property><Name>Description</Name><Value>Juros Taxa ao Dia</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>Decimals</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>AttAvgLen</Name><Value>3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="String">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>String</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtRegistroVar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtRegistroVar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>40</Value></Property><Property><Name>AttMaxLen</Name><Value>40</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CpfCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CpfCnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPost</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VencimentoVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VencimentoVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExpiracaoVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExpiracaoVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTax</Value></Property><Property><Name>Description</Name><Value>Juros Taxa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:JurTax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MarketPlaceID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MarketPlaceID</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="reference_id">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>reference_id</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isVirgula">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isVirgula</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtZoop_duplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtZoop_duplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtZoop_Duplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanNosNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanNosNro</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nosso Número</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanNosNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWPContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWPContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraBoletoApi_ZoopDuplicata</Value></Property><Property><Name>Description</Name><Value>Gera Boleto Api_Zoop</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="e20f1deb-e4fa-48f5-bc73-639ccaa10c06" user="WINJEAN\jeanfae" versionDate="2025-02-17T11:51:51.0000000Z" lastUpdate="2025-02-14T16:48:11.0000000Z" checksum="290710512e6d66bd7a1b88c9c11ff80f" fullyQualifiedName="api_erp.ProcLoadInicio_smart" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="b7d00eb6-125f-4db6-8c22-47ff52281753" name="ProcLoadInicio_smart" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Proc Load Inicio_smart" parent="api_erp.autenticacao" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&sdtAuth.status = 'J105'
+&sdtAuth.msg = 'Autenticacao não concedida'
+			
+&sdtAuth.IsOkLicenca = '1'
+&sdtAuth.IsOkAcesso  = '1'
+&sdtAuth.EmpCod = &ParEmpCod
+&sdtAuth.FilCod = &ParFilCod
+
+prcInformacaoPerfil.Call(trim(str(&sdtAuth.PesExtCod)), &sdtAuth)
+
+If upper(&sdtAuth.UserName) = 'SUPORTE.JASPI' or &sdtAuth.TipoPerfil = 3
+	&sdtAuth.TipoPerfil = 3
+	&sdtAuth.Old_Perfil = 3
+Endif
+
+If Not &sdtAuth.PesExtCod.IsEmpty() and &sdtAuth.EmpCod = 0  //login normal e direto	
+	For each order PesExtCod, EmpCod, PesCod   //Carrega Pessoa do Usuário encontrado.
+		Where PesExtCod = &sdtAuth.PesExtCod
+		
+		&PesCod = PesCod
+		if &FilCod = 0
+			&FilCod = PesFilCod	
+		Endif
+		
+		&PesExtAcs = PesExtAcs
+		
+		&sdtAuth.EmpCod = EmpCod
+		&sdtAuth.EmpRaz = EmpRaz.Trim()
+		&sdtAuth.FilCod = &FilCod
+		&sdtAuth.FilRaz = RetornaNomeCadFilial.udp(EmpCod, &FilCod)
+		
+		&sdtAuth.PesCod = PesCod
+		&sdtAuth.PesRaz = PesRaz
+		&sdtAuth.PesIsVen = PesIsVen  // Vendedor
+		&sdtAuth.PesIsFun = PesIsFun  // Funcionário
+		
+		&sdtAuth.status = 'J200'
+		&sdtAuth.msg = 'Autenticacao concedida'
+		
+		Exit
+	EndFor
+	
+	//################################################################################# CARREGA EMPRESA DO uSUÁRIO
+	For Each Order EmpCod
+		Where EmpCod = &sdtAuth.EmpCod
+		
+		If not EmpHostExt.Trim().IsEmpty()
+			If EmpHostExt.Trim() <> &HttpRequest.ServerHost
+				If &PesExtAcs <> true
+					&sdtAuth.IsOkAcesso = '0'
+					&sdtAuth.status = 'J106'
+					&sdtAuth.Msg = 'Usuário não autorizado ao acesso externo pelo IP: '+RemoteAddr()
+				EndIf
+			EndIf
+		EndIf
+		
+		VerificaLicenca_smart.Call(EmpCod, EmpChv, EmpCodSec, '', &IsOkLicenca)
+		&sdtAuth.IsOkLicenca = &IsOkLicenca
+		
+		If EmpStsImp < 100
+			&sdtAuth.Status = 'J104'
+			&sdtAuth.Msg = 'Finalizando configurações'
+			Return
+		EndIF
+		
+		Exit
+	When none
+		&sdtAuth.Status = 'J104'
+		&sdtAuth.Msg = 'Erro de implantação'
+		Return
+	EndFor
+	
+	//######################################################### Carrega dados bancários do usuário
+	If &PesCod <> 0
+		////		&Context.CtaBanCod = 0
+		////		For Each Order EmpCod, CtabanCod, CtaFunCod
+		////			Where EmpCod = &sdtAuth.EmpCod
+		////			Where CtaFunCod = &PesCod
+		////			Where CtaFunIsPad = Status_SimNao.Sim
+		////			Where CtaBanFilCod = &FilCod
+		////			where CtaFunIsCx = Status_SimNao.Sim
+		////			
+		////			&Context.CtaBanCod = CtabanCod
+		////			&Context.CtaBanNom = CtaBanNom
+		////			Exit
+		////		EndFor
+		
+		////		Do 'FilialVinculadaPessoa'
+		////		do 'EmpresaAcesso'
+		
+		////		setWWPContext.Call(&Context)
+	EndIF
+Else
+	If &sdtAuth.EmpCod <> 0
+		For Each Order EmpCod //Empresa filial
+			Where EmpCod = &sdtAuth.EmpCod
+			
+			&EmpChv = EmpChv
+			&EmpCodSec = EmpCodSec
+			
+			&sdtAuth.EmpCod = EmpCod
+			&sdtAuth.EmpRaz = EmpRaz.Trim()
+			
+			For each order EmpCod,FilCod
+				Where FilCod = &sdtAuth.FilCod when not &parFilCod.IsEmpty()
+				&sdtAuth.FilCod = FilCod
+				&sdtAuth.FilRaz = FilRaz
+				////				&sdtAuth.FilTime = FilTime
+				
+				&sdtAuth.status = 'J200'
+				&sdtAuth.msg = 'Autenticacao concedida'
+				
+				Exit
+			EndFor
+			
+			Exit
+		EndFor
+		
+		Do Case
+			Case &sdtAuth.TipoPerfil = 3 //usuario suporte
+				if &sdtAuth.PesExtCod <> 0
+					For each order SupCod
+						Where SupExtID = &sdtAuth.PesExtCod
+						
+						&sdtAuth.PesRaz = SupNom
+						&sdtAuth.PesCod = SupCod
+						
+						For each order SupCod, SupEmpCod
+							Where SupEmpCod = &sdtAuth.EmpCod
+							if SupEmpAce <> true
+								&sdtAuth.IsOkAcesso = '0'
+								&sdtAuth.EmpCod = 0
+								&sdtAuth.PesRaz = ''
+								&sdtAuth.PesCod = 0
+								&sdtAuth.EmpCod = 0
+								&sdtAuth.FilCod = 0	
+							Else
+								if not SupPesCod.IsEmpty() and not SupPesCod.IsNull()
+									&sdtAuth.PesRaz = SupNom
+									&sdtAuth.PesCod = SupPesCod
+									&sdtAuth.TipoPerfil = 1
+								Endif
+							Endif
+							
+							Exit
+						EndFor
+						
+						exit
+					EndFor
+				Else
+					&sdtAuth.PesCod = -1
+				Endif
+				
+				if &sdtAuth.PesCod > 0
+					For each order EmpCod, PesCod   //Carrega Pessoa do Usuário encontrado.
+						Where EmpCod = &sdtAuth.EmpCod
+						Where PesCod = &sdtAuth.PesCod
+						
+						if &sdtAuth.FilCod = 0
+							&sdtAuth.FilCod = PesFilCod	
+						Endif
+						
+						&sdtAuth.EmpRaz = EmpRaz.Trim()
+						
+						&sdtAuth.FilRaz = RetornaNomeCadFilial.udp(EmpCod, &sdtAuth.FilCod)
+						
+						&sdtAuth.PesRaz = PesRaz //nome
+						&sdtAuth.PesIsVen = PesIsVen  // Vendedor
+						&sdtAuth.PesIsFun = PesIsFun  // Funcionário
+						
+						//imagemusuario
+						retornaConfiguracoesPastas.Call(EmpCod, &sdtAuth.FilCod, &SdtConfiguracoesPasta )
+						RetornaTipoAnexo.Call(EmpCod, '#IMAGEM_PESSOA#', &PesAnxTipCod)
+						
+						&sdtAuth.img = 'SEMIMAGEM'
+						
+						For Each Order EmpCod, PesAnxCod
+							//							Where EmpCod = &EmpCod
+							//							Where PesCod = &PesCod
+							where PesAnxTipCod = &PesAnxTipCod
+							//							&PesAnxCod = PesAnxCod
+							&PesAnxExt = PesAnxExt
+							if PesAnxMod.IsEmpty() or PesAnxMod.IsNull()
+								PesAnxMod = serverdate()
+								commit
+							Endif
+							
+							//							&PesAnxMod = PesAnxMod
+							if not PesAnxArq.IsEmpty() and not PesAnxArq.IsNull()
+								&link = pathToUrl(PesAnxArq)
+							Else
+								&link = &SdtConfiguracoesPasta.PastaDiretorioFisico.Trim() +'anexos\'+ trim(str(EmpCod)) + '\' + trim(PesAnxGuidNom)+'_'+trim(PesAnxGuid.ToString()) +'.'+ trim(PesAnxGuidExt)
+							Endif
+							
+							&link = &link.Replace('\', '/')
+							
+							&BlobFile.FromURL(&link)
+							
+							if &BlobFile.IsEmpty()
+								&sdtAuth.img = 'SEMIMAGEM'
+							Else
+								&blob = &BlobFile
+								
+								&longVarchar = &blob.ToBase64String()								
+								&sdtAuth.img = &longVarchar
+							Endif
+							
+							
+							
+							Exit
+						EndFor
+					
+						Exit
+					EndFor
+					
+					//######################################################### Carrega dados bancários do usuário
+					////&Context.CtaBanCod = 0
+					////For Each Order EmpCod, CtabanCod, CtaFunCod
+					////	Where EmpCod = &sdtAuth.EmpCod
+					////	Where CtaFunCod = &PesCod
+					////	Where CtaFunIsPad = Status_SimNao.Sim
+					////	Where CtaBanFilCod = &FilCod
+					////	Where CtaFunIsCx = Status_SimNao.Sim
+					////
+					////	&Context.CtaBanCod = CtabanCod
+					////	&Context.CtaBanNom = CtaBanNom
+					////	Exit
+					////EndFor
+					
+					////For each Order EmpCod, FilCod
+					////	Where EmpCod = &sdtAuth.EmpCod
+					////	
+					////	&Filials = new()
+					////	&Filials.FilCodVin = FilCod
+					////	&Filials.FilRazVin = FilRaz
+					////	&Context.Filials.Add(&Filials)						
+					////EndFor
+					
+					////Do 'FilialVinculadaPessoa'
+					////do 'EmpresaAcesso'
+					////setWWPContext.Call(&Context)
+					
+				Else					
+					////For Each Order EmpCod, CtabanCod, CtaBanFilCod
+					////	Where EmpCod = &sdtAuth.EmpCod
+					////	Where CtaBanFilCod = &FilCod
+					////	&Context.CtaBanCod = CtabanCod
+					////	&Context.CtaBanNom = CtaBanNom
+					////	Exit
+					////EndFor
+					
+					&sdtAuth.PesIsVen = True  // Vendedor
+					&sdtAuth.PesIsFun = True  // Funcionário
+					
+					////Do 'FilialVinculadaSuporteContador'
+					////do 'EmpresaAcessoSuporteContador'
+					
+					////setWWPContext.Call(&Context)
+				Endif
+				
+			CAse &sdtAuth.TipoPerfil = 2 //contador
+				//Contador
+				
+				For each order CrtExtId
+					Where CrtExtId = &sdtAuth.PesExtCod
+					&sdtAuth.PesRaz = CrtRaz
+					&sdtAuth.PesCod = ((CrtCod + 10000)*-1) ///Contador
+					exit
+				EndFor
+				
+				&sdtAuth.PesIsVen = True  // Vendedor
+				&sdtAuth.PesIsFun = True  // Funcionário
+				
+				////Do 'FilialVinculadaSuporteContador'
+		EndCAse
+		
+		VerificaLicenca_smart.Call(&sdtAuth.EmpCod, &EmpChv, &EmpCodSec, '', &IsOkLicenca)
+		&sdtAuth.IsOkLicenca = &IsOkLicenca
+	EndIf
+EndIf
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&parEmpCod, in:&parFilCod, inout:&sdtAuth);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOkLicenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOkLicenca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ParFiLCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtAcs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtAcs</Value></Property><Property><Name>Description</Name><Value>Acesso Externo permitido ?</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtAcs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpChv</Value></Property><Property><Name>Description</Name><Value>Empresa Chave Liberação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCodSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCodSec</Value></Property><Property><Name>Description</Name><Value>Código Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCodSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAuth">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAuth</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAuth, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpRequest</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="link">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>link</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="blob">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>blob</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property><Property><Name>idATTEXT</Name><Value>jpeg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="image">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>image</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Image</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxExt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxExt</Value></Property><Property><Name>Description</Name><Value>Extesao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxExt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxTipCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxTipCod</Value></Property><Property><Name>Description</Name><Value>Tipo Anexo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxTipCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BlobFile">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BlobFile</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:BlobFile</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="longVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>longVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ProcLoadInicio_smart</Value></Property><Property><Name>Description</Name><Value>Proc Load Inicio_smart</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

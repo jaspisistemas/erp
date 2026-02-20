@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="8da77125-38dc-420b-82a4-3656faad838d" user="WIN-JEAN\jean.fae" versionDate="2023-06-15T18:37:30.0000000Z" lastUpdate="2023-06-14T20:39:33.0000000Z" checksum="22a3d5c596d15f6c7e622d8cb2df1b91" fullyQualifiedName="GravaAgrupamentoTotal_Faturar" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="9eb0140d-5759-410c-b91d-2c2929e9ecf3" name="GravaAgrupamentoTotal_Faturar" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Agrupamento Total Faturar" parent="AgruparPedido" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+For &sdtPedidosItem in &sdtPedidos
+	if &sdtPedidosItem.Localizado = 'N'
+		&Index = &sdtPedidos.IndexOf(&sdtPedidosItem)
+		&sdtPedidos.Remove(&Index)
+	Endif
+EndFor
+
+//Pedido Destino
+&DestinoPedCod = 0
+&PedVlrLiq = 0
+&PedVlrFrt = 0
+
+&PedObsNfe = 'NOTA REF. OS PEDIDOS: '
+&Cidade = ''
+For &sdtPedidosItem in &sdtPedidos
+	if &sdtPedidosItem.Localizado <> 'N'
+		if &DestinoPedCod = 0
+			For Each Order EmpCod, FilCod, PedCod
+				Where EmpCod = &sdtPedidosItem.EmPCod
+				Where FilCod = &sdtPedidosItem.FiLCod
+				Where PedCod = &sdtPedidosItem.PedCod
+				
+				&destinoFilCod = FilCod
+				&EmpCod = EmpCod
+				
+				//ADICIONA CAMPOS ALTERADOS
+				&sdtGravaPedido.PedCliCod = PedCliCod
+				&sdtGravaPedido.LctCod = LctCod
+				
+				&sdtGravaPedido.PedDtaEms = Serverdate()
+				&sdtGravaPedido.TabCod = TabCod
+				&sdtGravaPedido.TabPrmCod = TabPrmCod
+				
+				&sdtGravaPedido.TabColCod = TabColCod
+				
+				//TRANSPORTE
+				&sdtGravaPedido.PedTraRedCod = PedTraRedCod
+				&sdtGravaPedido.PedTipFrt = PedTipFrt
+				
+				&sdtGravaPedido.PedTraSaiCod = PedTraRedCod
+				&sdtGravaPedido.PedTipSaiFrt = PedTipFrt
+				
+				//FROM JSON NAO MUDAR
+				&sdtGravaPedido.PedObsAna = &sdtPedidos.ToJson()
+				
+				&sdtGravaPedido.PedFatFilCod = PedFatFilCod
+				
+				&sdtGravaPedido.PedPrpCod = PedPrpCod
+				
+				&sdtGravaPedido.PedStsDigBlk = false
+				&sdtGravaPedido.PedStsGer = Pedido_Gerado.AgruparFaturar
+				
+				//PROC, GRAVA PEDIDO
+				GravaPedidoVenda.Call(TrnMode.Insert, EmpCod, FilCod, &DestinoPedCod, &sdtGravaPedido, &FunPesCod, &WwpContextUserName)
+				
+				Exit
+			EndFor
+			
+			AtualizaEstoqueGerencialCompra.Call(&EmpCod, &destinoFilCod, &DestinoPedCod, &PedDtaFat, 1,  Status_Pedido.CANCELADO)
+			
+			&PedObsNfe += trim(str(&sdtPedidosItem.PedCod))
+		Else
+			&PedObsNfe += ', ' + trim(str(&sdtPedidosItem.PedCod))
+		Endif
+		
+		if &sdtPedidosItem.PedCliCidCod > 0
+			if &CidCod(&sdtPedidosItem.PedCliCidCod) = 0
+				&Cidade += ', '+ trim(&sdtPedidosItem.PedCliCidNom)
+				&CidCod(&sdtPedidosItem.PedCliCidCod) = 1
+			EndIf
+		Endif
+	   
+		&PedVlrLiq += &sdtPedidosItem.PedVlrLiq
+		&PedVlrFrt += &sdtPedidosItem.PedVlrFrt
+		
+		For Each Order EmpCod, FilCod, PedCod, PedItmCod
+			Where EmpCod = &sdtPedidosItem.EmPCod
+			Where FilCod = &sdtPedidosItem.FiLCod
+			Where PedCod = &sdtPedidosItem.PedCod
+			where PedQtd > 0
+			
+			&sdtProdutoLote.Clear()
+			RetornaQuantosLotesAdicionados.Call(EmpCod, FilCod, PedCod, PedItmCod, &InformacaoLotes, &sdtProdutoLote)
+			
+			GravaItemPedidoCompra_Agrupamento.Call(&EmpCod, &destinoFilCod, &DestinoPedCod, &PedItmCod, ProCod, ProGraCod, PedQtd, PedVlrUntComDsc, 0, 0, 0, 0, 0, PedQtdEmb, PedProEmbQtd, PedItmCmp, &sdtProdutoLote, &inseridoMensagem, &AlteradoMensagem, &WwpContextUserName)
+			
+		EndFor
+	Endif
+EndFor
+
+AtualizaTotaisPedido.Call(&EmpCod, &destinoFilCod, &DestinoPedCod, 0, 'C')
+
+For Each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmPCod
+	Where FilCod = &destinoFilCod
+	Where PedCod = &DestinoPedCod
+	
+	&PedVlrDscGlb.SetEmpty()
+	&PedVlrOut.SetEmpty()
+	Do Case
+		CAse &PedVlrLiq < PedVlrLiq
+			&PedVlrDscGlb = PedVlrLiq - &PedVlrLiq
+		
+		Case &PedVlrLiq > PedVlrLiq
+			&PedVlrOut = &PedVlrLiq - PedVlrLiq
+	EndCase
+	
+	if &PedVlrFrt >= &PedVlrOut and &PedVlrOut > 0
+		PedFrtFix = &PedVlrOut
+	Else
+		PedVlrOut = &PedVlrOut
+	Endif
+
+	PedVlrDscGlb = &PedVlrDscGlb
+	PedObsNfe = &PedObsNfe.Trim() + &Cidade.Trim()
+	
+	Exit
+EndFor
+
+Commit
+
+if &PedVlrDscGlb > 0 or &PedVlrOut > 0
+	AtualizaTotaisPedido.Call(&EmpCod, &destinoFilCod, &DestinoPedCod, 0, 'C')
+Endif
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(inout:&sdtPedidos, in:&FunPesCod, in:&WwpContextUserName, out:&Mensagem, out:&IsErroPedido, out:&DestinoPedCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtPedidos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPedidosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPedidosItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPedidos.sdtPedidosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="destinoFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>destinoFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErroPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErroPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtProdutoLote">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtProdutoLote</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutoLote</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inseridoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inseridoMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AlteradoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AlteradoMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InformacaoLotes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InformacaoLotes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGravaPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGravaPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGravaPedido</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrLiq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrOut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrOut</Value></Property><Property><Name>Description</Name><Value>Outros Valores</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrOut</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrDscGlb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrDscGlb</Value></Property><Property><Name>Description</Name><Value>Desconto Global</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrDscGlb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrFrt</Value></Property><Property><Name>Description</Name><Value>Valor Frete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedObsNfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedObsNfe</Value></Property><Property><Name>Description</Name><Value>Observação NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedObsNfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Cidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Cidade</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidCod</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>99999999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WwpContextUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WwpContextUserName</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:wwpContextUserName</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaAgrupamentoTotal_Faturar</Value></Property><Property><Name>Description</Name><Value>Grava Agrupamento Total Faturar</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

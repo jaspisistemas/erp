@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="ad744dd4-4a9b-40e2-aada-d3bdb24ea0e2" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2022-05-24T17:46:42.0000000Z" checksum="a5d2881450983a37991dacb2c70b864e" fullyQualifiedName="prcAtualizaDadosUninfe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="8a746cd2-6b99-4de3-aad1-07f6f6bbc658" name="prcAtualizaDadosUninfe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Atualiza Dados Uninfe" parent="ConfPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&IsCriar = &parIsCriar
+
+RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &SdtConfiguracoesPasta)
+
+For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	
+	&FilRaz = FilRaz +' '+ trim(Str(FilCodPas))
+	&FilCpj = retornaSoNumeros.Udp(FilCpj)
+	&FilCidUfeCod = FilCidUfeCod
+	
+	&FilVctCer = FilVctCer
+	
+	&FilAmbEms = FilAmbEms
+	&FilTipEms = FilTipEms
+	
+	&FilCerNom = FilCerNom
+	&FiLCerPsw = FilCerPsw
+	
+	&FilIdQrCode = FilIdQrCode
+	&FilSenQrCode = FilSenQrCode
+	
+	&FilCerA1A3 = FilCerA1A3
+			
+	Exit
+EndFor
+
+if &IsCriar = true //CASO SEJA EMRPESA NOVA
+	//para pegar a primeira empresa configurada no uninfe.
+	prcRetornaPrimeiraFilialCertificado.Call(&PrimeiraEmpresaSdtConfiguracoesPasta)
+Else
+	&Directory.Source = &sdtConfiguracoesPasta.PastaNFprocessamento
+	if not &Directory.Exists()		
+		&IsCriar = true 
+		//para pegar a primeira empresa configurada no uninfe.
+		prcRetornaPrimeiraFilialCertificado.Call(&PrimeiraEmpresaSdtConfiguracoesPasta)
+	Else
+		RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &PrimeiraEmpresaSdtConfiguracoesPasta)
+	Endif
+Endif
+
+if &FilCerA1A3 = 'A1' and not &FiLCerPsw.IsEmpty() and not &FilCerNom.IsEmpty() and &FilVctCer > serverdate() //A3 NAO DISPONIVEL
+	
+	//GERA ARQUIVO FISICO NA PRIMEIRA PASTA DO UNINFE, PARA CRIAR EMPRESA SE NAO TEM
+	&CaminhoCertificado = format('%1%2', &SdtConfiguracoesPasta.PastaDiretorioCertificado , trim(&FilCerNom))
+	
+	&Nome_enviar = &PrimeiraEmpresaSdtConfiguracoesPasta.PastaNFenvio+ 'uninfe-alt-con.xml'
+	
+	&XMLWriter.Open(&Nome_enviar) // Abrir o arquivo XML
+	&XMLWriter.WriteStartDocument('UTF-8')
+	&XMLWriter.WriteStartElement('altConfUniNFe')
+	
+	if &IsCriar = true //CASO SEJA EMPRESA NOVA
+		&XMLWriter.WriteStartElement('DadosEmpresa')
+		&XMLWriter.WriteAttribute('Servico', '0')
+		&XMLWriter.WriteAttribute('CNPJ', &FilCpj)
+		&XMLWriter.WriteElement('Nome', &FilRaz.Trim())
+		&XMLWriter.WriteEndElement() //DadosEmpresa
+		&XMLWriter.WriteElement('Nome', &FilRaz.Trim())
+	Endif
+
+	&XMLWriter.WriteElement('PastaXmlEnvio', &SdtConfiguracoesPasta.PastaNFenvio)
+	&XMLWriter.WriteElement('PastaXmlRetorno', &SdtConfiguracoesPasta.PastaNFretorno)
+	&XMLWriter.WriteElement('PastaXmlEnviado', &SdtConfiguracoesPasta.PastaNFEnviado)
+	&XMLWriter.WriteElement('PastaXmlErro', &SdtConfiguracoesPasta.PastaNFerro)
+	
+	&Mensagem = &sdtConfiguracoesPasta.PastaNFenvio
+	&Mensagem = &Mensagem.Replace('envio', 'backup')
+	&XMLWriter.WriteElement('PastaBackup', &Mensagem)
+	
+	&Mensagem = &sdtConfiguracoesPasta.PastaNFenvio
+	&Mensagem = &Mensagem.Replace('envio', 'EnvioEmLote')
+	&XMLWriter.WriteElement('PastaXmlEmLote', &Mensagem)
+	
+	&Mensagem = &sdtConfiguracoesPasta.PastaNFenvio
+	&Mensagem = &Mensagem.Replace('envio', 'Validar')
+	&XMLWriter.WriteElement('PastaValidar', &Mensagem)
+	
+	&Mensagem = &sdtConfiguracoesPasta.PastaNFenvio
+	&Mensagem = &Mensagem.Replace('envio', 'DownloadNFe')
+	&XMLWriter.WriteElement('PastaDownloadNFeDest', &Mensagem)
+	
+	&XMLWriter.WriteElement('UnidadeFederativaCodigo', RetornaCodigoSiglaEstado.Udp(0, &FilCidUfeCod) )
+	
+	&XMLWriter.WriteElement('AmbienteCodigo', iif(&FilAmbEms = TAmb.Producao, '1', '2') )
+	//&FilTipEms
+	
+	&XMLWriter.WriteElement('UsaCertificado','true')
+	&XMLWriter.WriteElement('CertificadoInstalado','false')
+	
+	if not &FiLCerPsw.IsEmpty()
+		&XMLWriter.WriteElement('CertificadoArquivo', &CaminhoCertificado.Trim())
+		&XMLWriter.WriteElement('CertificadoSenha', &FiLCerPsw.Trim())
+	Endif
+	
+	&XMLWriter.WriteElement('DiasLimpeza', '15')
+	&XMLWriter.WriteElement('TempoConsulta', '2')
+	
+	&XMLWriter.WriteElement('ArqNSU', 'True')
+	
+	if not &FilSenQrCode.IsEmpty() and not &FilIdQrCode.IsEmpty()
+		&XMLWriter.WriteElement('IdentificadorCSC', &FilSenQrCode)
+		&XMLWriter.WriteElement('TokenCSC', padl(trim(str(&FilIdQrCode)), 6, '0'))
+	Endif
+
+	&XMLWriter.WriteEndElement()//altConfUniNFe	
+	&XMLWriter.Close()
+Endif
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&parIsCriar);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaminhoCertificado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoCertificado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCerNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCerNom</Value></Property><Property><Name>Description</Name><Value>Nome do Certificado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCerNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLWriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLWriter</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FiLCerPsw">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FiLCerPsw</Value></Property><Property><Name>Description</Name><Value>Senha do Certificado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCerPsw</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilSenQrCode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilSenQrCode</Value></Property><Property><Name>Description</Name><Value>Senha QR Code</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilSenQrCode</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilIdQrCode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilIdQrCode</Value></Property><Property><Name>Description</Name><Value>ID QR Code</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilIdQrCode</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_enviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_enviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAmbEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAmbEms</Value></Property><Property><Name>Description</Name><Value>Ambiente Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAmbEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilTipEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilTipEms</Value></Property><Property><Name>Description</Name><Value>Tipo Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilTipEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCerA1A3">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCerA1A3</Value></Property><Property><Name>Description</Name><Value>A1 ou A3</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCerA1A3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilVctCer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilVctCer</Value></Property><Property><Name>Description</Name><Value>Vencimento Certificado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilVctCer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrimeiraEmpresaSdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrimeiraEmpresaSdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsCriar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsCriar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parIsCriar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parIsCriar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Directory">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Directory</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Directory</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcAtualizaDadosUninfe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

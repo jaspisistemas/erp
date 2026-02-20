@@ -1,0 +1,894 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="a3be529e-3058-45c0-82b5-ecf9e218a1af" user="WINJEAN\jeanfae" versionDate="2026-01-21T14:58:39.0000000Z" lastUpdate="2026-01-20T12:22:41.0000000Z" checksum="04f03694460ea9e893f112c4185a730d" fullyQualifiedName="GravaDuplicatasAReceber1" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="5c1d4967-5bc5-439c-8142-653cc662f5cf" name="GravaDuplicatasAReceber1" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Duplicatas AReceber1" parent="PedPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+//Novo Grava duplicatas.
+//so baixa no caixa se tiver data de pagamento na temporaria.
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon082_DataEmissaoDuplicata, &TCon082_DataEmissaoDuplicata)
+RetornaConfSistema.call(&EmpCod, &FilCod, domConfSistema.TCon020_ClientePadraoVista,&TCon020_ClientePadraoVista)
+
+For Each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	
+	Do CAse 
+		Case &TCon082_DataEmissaoDuplicata = 'N'
+			&PedTmpDupDtaFat = serverdate()
+		CAse not PedTmpDupDtaFat.IsEmpty()
+			&PedTmpDupDtaFat = PedTmpDupDtaFat
+		CAse not PedDtaFat.IsEmpty()
+			&PedTmpDupDtaFat = PedDtaFat
+		Otherwise
+			&PedTmpDupDtaFat = PedDtaEms
+	EndCAse
+	
+	For Each Order EmpCod, FilCod, PedCod, PedTmpDupNro //Temporaria DP
+		Where PedTmpSts = Status_SimNao.Nao //Status Abertas
+		//&IsDeleta = false
+		Do CAse
+			//DUPLICATA
+			Case PedTmpFrpPgtoTip = TipoDuplicata.DUPLICATA
+			
+				For Each Order EmpCod, FilCod, CreCod //Duplicatas
+					Where CreCod = PedTmpCreCod and PedTmpCreCod <> 0 //ja cadastradas
+					
+					&CreCod = CreCod
+					
+					if PedTmpDupVlr = 0 //Elimina
+						prcDeletaDuplicatareferenciada.Call(EmpCod, FilCod, CreCod)
+						
+						CreSts = Status_Duplicata.CANCELADA //deletar
+						//&IsDeleta = true
+					else
+						CrePedCod = PedCod
+						if PedFatFilCod.IsEmpty()
+							CreFilPgt = 1
+						Else
+							CreFilPgt = PedFatFilCod
+						Endif
+						
+						if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+							CreCliCod = PedTmpCreCliCod
+							CreNovCliRaz = PedTmpNovCliRaz
+						EndIF
+						
+						CreDtaVct = PedTmpDupVct
+						
+						&OrigemCbrCtaBanCod = RetornaContaLocalCobranca.UDP(EmpCod, CreCbrCod)
+						&DestinoCbrCtaBanCod = RetornaContaLocalCobranca.UDP(EmpCod, PedTmpDupCbrCod)
+						if &OrigemCbrCtaBanCod <> &DestinoCbrCtaBanCod
+							CreBloNro.SetEmpty()
+							CreDtaRet.SetEmpty()
+							
+							&CreCobObs = '#ALTERADO LOCAL COBRANCA JASPI# BLOQUETO ANTERIOR:' + trim(CreBloNro) + ' DATA RETORNO: ' + trim(toformattedString(CreDtaRet))
+							GravaCObranca.Call(EmpCod, FilCod, CreCod, &CreCobObs, 0,0, serverdate() ,'', TipoObservacaoDuplicata.INTERNA)
+						EndIF
+						
+						CreCbrCod = PedTmpDupCbrCod
+						CreDupNro = PedTmpDupNro
+						CreDtaEms = &PedTmpDupDtaFat
+						CreVlrDup = PedTmpDupVlr
+						CreVlrSdo = PedTmpDupVlr
+						CreRecPag = ReceberPagar.Receber
+						CreFunCodVal = PedTmpPesCod
+						
+						if PedTmpPlanCod.IsEmpty()
+							RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+							RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+						Else
+							&PlanCod = PedTmpPlanCod
+						EndiF
+						CrePlanCod = &PlanCod
+					Endif				
+					
+					Exit
+				When None
+					if PedTmpDupVlr > 0
+						UltimoCodigoEmpresa.Call(domParCod.DUPLICATA, &EmpCod, &FilCod, &CreCod)
+						
+						new            
+							EmpCod = &EmpCod			
+							FilCod = &FilCod
+							CreCod = &CreCod
+							do 'AddSDTDividirConta'
+							CreRecPag = ReceberPagar.Receber
+							CreFunCodVal = PedTmpPesCod
+							
+							if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+								CreCliCod = PedTmpCreCliCod
+								CreNovCliRaz = PedTmpNovCliRaz
+							Else
+								CreCliCod = PedCliCod
+								CreNovCliRaz = PedNovCliRaz
+							EndIF
+							
+							if PedFatFilCod.IsEmpty()
+								CreFilPgt = 1
+							Else
+								CreFilPgt = PedFatFilCod
+							Endif
+							
+							CreDupNro = PedTmpDupNro
+							CreDtaEms = &PedTmpDupDtaFat
+							CreVlrDup = PedTmpDupVlr
+							CreVlrSdo = PedTmpDupVlr
+							CreDtaVct = PedTmpDupVct
+							CreCbrCod = PedTmpDupCbrCod
+							CrePedCod = PedCod
+							CreBloNro = '' 
+							CreVenCod = PedVenCod
+
+							CreFrpPgtoCod = PedTmpFrpPgtoCod
+							
+							CreSts = Status_Duplicata.ATIVO
+							CreOriDup = OrigemDuplicata.FechamentoPedido
+							
+							if PedTmpPlanCod.IsEmpty()
+								RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+								RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+							Else
+								&PlanCod = PedTmpPlanCod
+							EndiF
+							CrePlanCod = &PlanCod
+						EndNew
+						
+						PedTmpCreCod = &CreCod
+					Else
+						//&IsDeleta = true
+					EndIF
+				EndFor
+				
+//				If &IsDeleta = true
+//					delete
+//				Else
+					Commit
+					AtualizaSaldoDuplicata.Call(&EmpCod, &CreCod, &FilCod)
+//				EndIF
+				
+				//DINHEIRO
+			Case PedTmpFrpPgtoTip = TipoDuplicata.DINHEIRO or PedTmpFrpPgtoTip = TipoDuplicata.PIX or PedTmpFrpPgtoTip = TipoDuplicata.DEPOSITO
+				
+					For Each Order EmpCod, FilCod, CreCod //Duplicatas
+						Where CreCod = PedTmpCreCod and PedTmpCreCod <> 0 //ja cadastradas
+						
+						&CreCod = CreCod
+						
+						if PedTmpDupVlr = 0 //Elimina
+							prcDeletaDuplicatareferenciada.Call(EmpCod, FilCod, CreCod)
+							CreSts = Status_Duplicata.CANCELADA //deletar
+						else
+							CrePedCod = PedCod
+							CreDtaVct = PedTmpDupVct
+							CreCbrCod = PedTmpDupCbrCod
+							CreDupNro = PedTmpDupNro
+							CreDtaEms = &PedTmpDupDtaFat
+							CreVlrDup = PedTmpDupVlr
+							CreVlrSdo = PedTmpDupVlr
+							CreRecPag = ReceberPagar.Receber
+							CreFunCodVal = PedTmpPesCod
+							if PedFatFilCod.IsEmpty()
+								CreFilPgt = 1
+							Else
+								CreFilPgt = PedFatFilCod
+							Endif
+							
+							if PedTmpPlanCod.IsEmpty()
+								RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+								RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+							Else
+								&PlanCod = PedTmpPlanCod
+							EndiF
+							CrePlanCod = &PlanCod
+							
+							commit
+							
+							if not PedTmpDtaPag.IsEmpty() and not PedTmpDtaPag.IsNull() //Faz a baixa no caixa
+								&sdtMovimento.Clear()
+								
+								&sdtMovimentoItem = new()
+								&sdtMovimentoItem.MovDtaPgt = PedTmpDtaPag
+								&sdtMovimentoItem.MovCtaBanCod = PedTmpCtaBanCod
+								
+								&sdtMovimentoItem.MovDoc = ''
+								&sdtMovimentoItem.MovDtaCon = PedTmpDtaPag
+								&sdtMovimentoItem.MovCreDeb = 'C'
+								If val(&TCon020_ClientePadraoVista) = PedCliCod
+									
+									&sdtMovimentoItem.MovCpl = 'RECBTO DP.CLI.' + trim(str(PedCliCod)) + ' - CONSUMIDOR[' + trim(substr(PedCliCodRaz_Nov,1, 20))+']' 
+								Else
+									&sdtMovimentoItem.MovCpl = 'RECBTO DP.CLI.' + trim(str(PedCliCod)) + ' - ' + trim(substr(PedCliCodRaz,1, 20))
+								EndIf
+								&sdtMovimentoItem.MovHor = servernow()
+								&sdtMovimentoItem.CrePagVlrJur = 0
+								&sdtMovimentoItem.CrePagVlrDsc = 0
+								&sdtMovimentoItem.MovItmVlr = PedTmpDupVlr
+								&sdtMovimentoItem.PlanCod = PedTmpPlanCod
+								&sdtMovimentoItem.MovCreFilCod = &FilCod
+								&sdtMovimentoItem.MovCreCod = PedTmpCreCod							
+								&sdtMovimento.Add(&sdtMovimentoItem)
+								
+								GravaMovimentoItem.Call(&EmpCod, &sdtMovimento)
+							Endif
+						Endif
+						
+						Exit
+					When None
+						if PedTmpDupVlr > 0
+							UltimoCodigoEmpresa.Call(domParCod.DUPLICATA, &EmpCod, &FilCod, &CreCod)
+							
+							new            
+								EmpCod = &EmpCod			
+								FilCod = &FilCod
+								CreCod = &CreCod
+								do 'AddSDTDividirConta'
+								CreRecPag = ReceberPagar.Receber
+								CreFunCodVal = PedTmpPesCod
+								
+								if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+									CreCliCod = PedTmpCreCliCod
+									CreNovCliRaz = PedTmpNovCliRaz
+								Else
+									CreCliCod = PedCliCod
+									CreNovCliRaz = PedNovCliRaz
+								EndIF
+								
+								if PedFatFilCod.IsEmpty()
+									CreFilPgt = 1
+								Else
+									CreFilPgt = PedFatFilCod
+								Endif
+								
+								CreDupNro = PedTmpDupNro
+								CreDtaEms = &PedTmpDupDtaFat
+								CreVlrDup = PedTmpDupVlr
+								CreVlrSdo = PedTmpDupVlr
+								CreSts = Status_Duplicata.ATIVO
+								CreOriDup = OrigemDuplicata.FechamentoPedido
+								CreDtaVct = PedTmpDupVct
+								CreCbrCod = PedTmpDupCbrCod
+								CrePedCod = PedCod
+								CreBloNro = '' 
+								CreVenCod = PedVenCod
+								
+								CreFrpPgtoCod = PedTmpFrpPgtoCod
+								
+								if PedTmpPlanCod.IsEmpty()
+									RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+									RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+								Else
+									&PlanCod = PedTmpPlanCod
+								EndiF
+								CrePlanCod = &PlanCod
+							EndNew
+						
+							PedTmpCreCod = &CreCod
+							
+							commit
+							
+							if not PedTmpDtaPag.IsEmpty() and not PedTmpDtaPag.IsNull() //Faz a baixa no caixa
+								&sdtMovimento.Clear()
+								
+								&sdtMovimentoItem = new()
+								&sdtMovimentoItem.MovDtaPgt = PedTmpDtaPag
+								&sdtMovimentoItem.MovCtaBanCod = PedTmpCtaBanCod
+								
+								&sdtMovimentoItem.MovDoc = ''
+								&sdtMovimentoItem.MovDtaCon = PedTmpDtaPag
+								&sdtMovimentoItem.MovCreDeb = 'C'
+								If val(&TCon020_ClientePadraoVista) = PedCliCod
+									&sdtMovimentoItem.MovCpl = 'RECBTO DP.CLI.' + trim(str(PedCliCod)) + ' - CONSUMIDOR[' + trim(substr(PedCliCodRaz_Nov,1, 20))+']' 
+								Else
+									&sdtMovimentoItem.MovCpl = 'RECBTO DP.CLI.' + trim(str(PedCliCod)) + ' - ' + trim(substr(PedCliCodRaz,1, 20))
+								EndIf
+								&sdtMovimentoItem.MovHor = servernow()
+								&sdtMovimentoItem.CrePagVlrJur = 0
+								&sdtMovimentoItem.CrePagVlrDsc = 0
+								&sdtMovimentoItem.MovItmVlr = PedTmpDupVlr
+								&sdtMovimentoItem.PlanCod = PedTmpPlanCod
+								&sdtMovimentoItem.MovCreFilCod = &FilCod
+								&sdtMovimentoItem.MovCreCod = &CreCod
+								
+								&sdtMovimento.Add(&sdtMovimentoItem)
+								
+								GravaMovimentoItem.Call(&EmpCod, &sdtMovimento)
+							Endif
+						Endif
+					EndFor
+					
+					AtualizaSaldoDuplicata.Call(&EmpCod, &CreCod, &FilCod)
+				
+				//CARTAO
+			Case PedTmpFrpPgtoTip = TipoDuplicata.CARTAOD or PedTmpFrpPgtoTip = TipoDuplicata.CARTAOC
+				
+				For Each Order EmpCod, FilCod, CreCod //Duplicatas
+					Where CreCod = PedTmpCreCod and PedTmpCreCod <> 0 //ja cadastradas
+					
+					&CreCod = CreCod
+					
+					If PedTmpDupVlr = 0 //Elimina
+						prcDeletaDuplicatareferenciada.Call(EmpCod, FilCod, CreCod)
+						CreSts = Status_Duplicata.CANCELADA//deletar
+						//&IsDeleta = true
+					Else
+						CrePedCod = PedCod
+						if PedFatFilCod.IsEmpty()
+							CreFilPgt = 1
+						Else
+							CreFilPgt = PedFatFilCod
+						Endif
+						CreCarNroAut = PedTmpDupCarNroAut
+						CreCarArqc = PedTmpDupCarArqc
+						CreDtaVct = PedTmpDupVct
+						CreCbrCod = PedTmpDupCbrCod
+						CreDupNro = PedTmpDupNro
+						CreDtaEms = &PedTmpDupDtaFat
+						CreVlrDup = PedTmpDupVlr
+						CreVlrSdo = PedTmpDupVlr
+						CreCarTax = PedTmpDupTxa
+						CreCarBanCod = PedTmpDupBanCarCod
+						CreCarCreDeb = PedTmpDupCreDeb
+						CreRecPag = ReceberPagar.Receber
+						CreFunCodVal = PedTmpPesCod
+						CreCarBanNom = PedTmpTitNom
+						
+						if PedTmpPlanCod.IsEmpty()
+							RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+							RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+						Else
+							&PlanCod = PedTmpPlanCod
+						EndiF
+						CrePlanCod = &PlanCod
+					Endif
+					
+					Exit
+				When None
+					if PedTmpDupVlr > 0
+						UltimoCodigoEmpresa.Call(domParCod.DUPLICATA, &EmpCod, &FilCod, &CreCod)
+						
+						new
+							EmpCod = &EmpCod			
+							FilCod = &FilCod
+							CreCod = &CreCod
+							do 'AddSDTDividirConta'
+							CreRecPag = ReceberPagar.Receber
+							CreFunCodVal = PedTmpPesCod
+							
+							if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+								CreCliCod = PedTmpCreCliCod
+								CreNovCliRaz = PedTmpNovCliRaz
+							Else
+								CreCliCod = PedCliCod
+								CreNovCliRaz = PedNovCliRaz
+							EndIF
+							
+							if PedFatFilCod.IsEmpty()
+								CreFilPgt = 1
+							Else
+								CreFilPgt = PedFatFilCod
+							Endif
+							
+							CreDupNro = PedTmpDupNro
+							CreDtaEms = &PedTmpDupDtaFat
+							CreVlrDup = PedTmpDupVlr
+							CreVlrSdo = PedTmpDupVlr
+							CreDtaVct = PedTmpDupVct
+							CreCbrCod = PedTmpDupCbrCod
+							CrePedCod = PedCod
+							CreBloNro = '' 
+							CreVenCod = PedVenCod
+							
+							CreFrpPgtoCod = PedTmpFrpPgtoCod
+							
+							CreCarTax = PedTmpDupTxa
+							CreCarBanCod = PedTmpDupBanCarCod
+							CreCarCreDeb = PedTmpDupCreDeb
+							CreCarNroAut = PedTmpDupCarNroAut
+							CreCarArqc = PedTmpDupCarArqc
+							CreCarBanNom = PedTmpTitNom
+							
+							CreSts = Status_Duplicata.ATIVO
+							CreOriDup = OrigemDuplicata.FechamentoPedido
+							if PedTmpPlanCod.IsEmpty()
+								RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+								RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+							Else
+								&PlanCod = PedTmpPlanCod
+							EndiF
+							CrePlanCod = &PlanCod
+						EndNew					
+						
+						PedTmpCreCod = &CreCod
+					Else
+						//&IsDeleta = true							
+					EndIF
+				EndFor
+				
+//				If &IsDeleta = true
+//					delete
+//				Else
+					Commit
+					AtualizaSaldoDuplicata.Call(&EmpCod, &CreCod, &FilCod)
+//				EndIF
+			
+				
+				//CHEQUE TERCEIROS
+			Case PedTmpFrpPgtoTip = TipoDuplicata.CHEQUET //CHEQUE
+				
+				For Each Order EmpCod, FilCod, CreCod //cheque
+					Where CreCod = PedTmpCreCod and PedTmpCreCod <> 0 //ja cadastradas
+					
+					&CreCod = CreCod
+					
+					if PedTmpDupVlr = 0 //Elimina						
+						&CheCod = CreCheCod
+						do 'DeletaCheque'
+						prcDeletaDuplicatareferenciada.Call(EmpCod, FilCod, CreCod)
+						CreSts = Status_Duplicata.CANCELADA//deletar
+						//&IsDeleta = true						
+					else
+						CreRecPag = ReceberPagar.Receber
+						CreFunCodVal = PedTmpPesCod
+						
+						if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+							CreCliCod = PedTmpCreCliCod
+							CreNovCliRaz = PedTmpNovCliRaz
+						Else
+							CreCliCod = PedCliCod
+							CreNovCliRaz = PedNovCliRaz
+						EndIF			
+						
+						CreDupNro = 'CHQ-'+PedTmpDupNro
+						CreDtaEms = &PedTmpDupDtaFat
+						if PedFatFilCod.IsEmpty()
+							CreFilPgt = 1
+						Else
+							CreFilPgt = PedFatFilCod
+						Endif
+						
+						CreVlrDup = PedTmpDupVlr
+						CreVlrSdo = PedTmpDupVlr
+						CreDtaVct = PedTmpDupVct
+						CreCbrCod = PedTmpDupCbrCod
+						CreVenCod = PedVenCod
+						
+						CreFrpPgtoCod = PedTmpFrpPgtoCod
+						
+						CreSts = Status_Duplicata.ATIVO
+						
+						if PedTmpPlanCod.IsEmpty()
+							RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+							RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+						Else
+							&PlanCod = PedTmpPlanCod
+						EndiF
+						CrePlanCod = &PlanCod
+						
+						&CheBanCod = PedTmpBanCod
+						&CheAgeCod = PedTmpAgeCod
+						&CheCon = PedTmpConCod
+						&CheNro = val(PedTmpDupNro)
+						&CheVlr = PedTmpDupVlr
+						&CheDtaEmi = &PedTmpDupDtaFat
+						&CheDtaVct = PedTmpDupVct
+						&CheTitNom = PedTmpTitNom
+						&CheTitCpf = PedTmpTitCpf
+						&CheTitRg = PedTmpTitRg
+						&CheTel = PedTmpTitFon
+						&CheCtaBanCod = PedTmpCtaBanCod
+						&CheObs = PedTmpObs
+						
+						&CheMot = MotivoCheque.EMITIDO
+						
+						if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+							&CheCreCliCod = PedTmpCreCliCod
+						Else
+							&CheCreCliCod = PedCliCod
+						EndIF
+						
+						
+						&CheCod = CreCheCod
+						do 'AtualizaCheque'
+					Endif
+					
+					Exit
+				When None
+					if PedTmpDupVlr > 0
+						UltimoCodigoEmpresa.Call(domParCod.DUPLICATA, &EmpCod, &FilCod, &CreCod)
+						
+						//GRAVA CHEQUE
+						&CheCod = 0
+						For Each Order EmpCod, (CheCod)
+							&CheCod = CheCod
+							Exit
+						EndFor
+						&CheCod += 1
+						
+						New
+							EmpCod = &EmpCod
+							CheCod = &CheCod
+							CheTip = TipoCheque.Terceiro
+							TalCod = 0 //SEM TALAO
+							TalCtabanCod = 0 //SEM CONTA
+							CheBanCod = PedTmpBanCod
+							CheAgeCod = PedTmpAgeCod
+							CheCon = PedTmpConCod
+							CheNro = val(PedTmpDupNro)
+							CheVarNro = 'CHQ-'+ trim(PedTmpDupNro)
+							CheVlr = PedTmpDupVlr
+							CheDtaEmi = serverdate()
+							CheDtaVct = PedTmpDupVct
+							CheTitNom = PedTmpTitNom
+							CheTitCpf = PedTmpTitCpf
+							CheTitRg = PedTmpTitRg
+							CheTel = PedTmpTitFon
+							CheMot = MotivoCheque.EMITIDO
+							CheObs = PedTmpObs
+							CheCtaBanCod = PedTmpCtaBanCod
+							
+							if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+								CheCreCliCod = PedTmpCreCliCod
+							Else
+								CheCreCliCod = PedCliCod
+							EndIF
+							
+							CheCreCod = &CreCod
+							CheCreFilCod = &FilCod
+							
+							&CheMot = MotivoCheque.EMITIDO
+							
+							RetornaSoNumeros.Call(CheCon, &CheCon)							
+							CheBanAgeCon = trim(CheBanCod) +'/'+ trim(str(CheAgeCod)) + '/'+ trim(&CheCon) +'/'+ trim(str(CheNro))
+						EndNEw
+						
+						//GRAVA DUPLICATA
+						&sdtPagamentoDuplicata.Clear()
+						
+						new            
+							EmpCod = &EmpCod			
+							FilCod = &FilCod
+							CreCod = &CreCod
+							do 'AddSDTDividirConta'
+							CreCheCod = &CheCod
+							CreRecPag = ReceberPagar.Receber
+							CreFunCodVal = PedTmpPesCod
+							&sdtPagamentoDuplicataItem.MovCpl = trim(Str(PedTmpCreCliCod)) + ' - ' + trim(PedTmpNovCliRaz)
+							if not PedTmpCreCliCod.IsEmpty() and Not PedTmpCreCliCod.IsNull()
+								CreCliCod = PedTmpCreCliCod
+								CreNovCliRaz = PedTmpNovCliRaz
+								&sdtPagamentoDuplicataItem.CreCliCod = PedTmpCreCliCod
+								&sdtPagamentoDuplicataItem.CreCliCodRaz = PedTmpNovCliRaz
+							Else
+								CreCliCod = PedCliCod
+								CreNovCliRaz = PedNovCliRaz
+								&sdtPagamentoDuplicataItem.CreCliCod = PedCliCod
+								&sdtPagamentoDuplicataItem.CreCliCodRaz = PedNovCliRaz
+							EndIF
+							
+							if PedFatFilCod.IsEmpty()
+								CreFilPgt = 1
+							Else
+								CreFilPgt = PedFatFilCod
+							Endif
+							
+							CreDupNro = 'CHQ-'+PedTmpDupNro
+							CreDtaEms = &PedTmpDupDtaFat
+							CreVlrDup = PedTmpDupVlr
+							CreVlrSdo = PedTmpDupVlr
+							CreDtaVct = PedTmpDupVct
+							CreCbrCod = PedTmpDupCbrCod
+							CrePedCod = PedCod
+							CreBloNro = '' 
+							CreVenCod = PedVenCod
+							
+							CreFrpPgtoCod = PedTmpFrpPgtoCod
+							
+							CreSts = Status_Duplicata.ATIVO
+							CreOriDup = OrigemDuplicata.FechamentoPedido
+							
+							if PedTmpPlanCod.IsEmpty()
+								RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon044_PlanoRecCliente, &TCon044_PlanoRecCliente)
+								RetornaCodigoPlanoCOntas.Call(&EmpCod, &TCon044_PlanoRecCliente, &PlanCod)
+							Else
+								&PlanCod = PedTmpPlanCod
+							EndiF
+							CrePlanCod = &PlanCod
+							&sdtPagamentoDuplicataItem.CrePlanCod = &PlanCod
+						EndNew
+						PedTmpCreCod = &CreCod
+						
+						//NAVEGA CHEQUE. PEGA DADOS DO CHEQUE
+						&sdtPagamentoDuplicataItem.CreCheCod = &CheCod
+						&sdtPagamentoDuplicataItem.FilCod = &FilCod
+						&sdtPagamentoDuplicataItem.EmpCod = EmpCod
+						&sdtPagamentoDuplicataItem.CreVlrSdo = PedTmpDupVlr
+						&sdtPagamentoDuplicataItem.CreVlrPgt = PedTmpDupVlr
+						&sdtPagamentoDuplicataItem.CreSts = Status_Duplicata.ATIVO
+						&sdtPagamentoDuplicataItem.CreTipBxa = TipoDuplicataBaixa.Total
+						&sdtPagamentoDuplicataItem.CreCod = &CreCod
+						&sdtPagamentoDuplicataItem.CreDupNro = 'CHQ-'+PedTmpDupNro
+						
+						&sdtPagamentoDuplicataItem.CreDtaEms = &PedTmpDupDtaFat
+						&sdtPagamentoDuplicataItem.CreDtaVct = PedTmpDupVct					
+						
+						&MovItmCpl = trim(PedTmpTitNom)
+						&sdtPagamentoDuplicata.Add(&sdtPagamentoDuplicataItem)
+						
+						//BAIXAR A DP. CHEQUE				
+						&outMovCod = 0
+						GravaFinanceiroDuplicata.Call(&EmpCod, PedTmpCtaBanCod, serverdate(), serverdate(), TipoMovimento.RecebimentoCheque, &MovItmCpl ,PedTmpDupVlr,false,&SdtPagamentoDuplicata, TipoRecibo.Receber, &outMovCod)
+					Else
+						//&IsDeleta = true
+					EndIF
+				EndFor
+				
+				AtualizaSaldoDuplicata.Call(&EmpCod, &CreCod, &FilCod)
+		EndCase
+	EndFor
+
+	Commit
+	
+	PedStsFinIsPar = false
+	PedStsFin = Status_Financeiro.FECHADO
+	RetornaTotalDuplicatasDoPedido.Call(&EmpCod, &FilCod, &PedCod, &TotalDuplicataMoeda)
+	
+	RetornaTotalCreditoDoPedido.Call(EmpCod, FilCod, PedCod, &TotalCredito)//isso busca e utiliza somente nas ordem de carregamento 
+	&TotalDuplicataMoeda = &TotalCredito+&TotalDuplicataMoeda
+	
+	Do Case
+		Case &TotalDuplicataMoeda <> PedVlrFin and &TotalDuplicataMoeda > 0
+			PedStsFin = Status_Financeiro.ABERTO
+			PedStsFinIsPar = true
+		Case &TotalCredito = PedVlrFin  // se a ordem de carregamento recebeu o crédito de um pedido pago e não gerou nehuma duplicata então o financeiro fica cancelado
+			PedStsFin = Status_Financeiro.CANCELADO
+			PedStsFinIsPar = false
+	EndCase
+	
+EndFor
+
+commit
+
+For Each ORder EmpCod, FilCod, PedCod, PedItmCod, PedProPagItm
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	Where PedProPagAdi.IsEmpty() or PedProPagAdi.IsNull()
+	PedProPagAdi = &SdtDividirContaDuplicatas.ToXml()
+EndFor
+
+commit
+
+
+PedNovStsCod_FORMULA.Call(&EmpCod, &FilCod, &PedCod)
+
+Sub 'AddSDTDividirConta'
+	&SdtDividirContaDuplicatasItem = new()
+	&SdtDividirContaDuplicatasItem.EmpCod = &EmpCod
+	&SdtDividirContaDuplicatasItem.FilCod = &FilCod
+	&SdtDividirContaDuplicatasItem.CreCod = &CreCod
+	&SdtDividirContaDuplicatas.Add(&SdtDividirContaDuplicatasItem)
+EndSub
+
+Sub 'DeletaCheque'
+	For Each Order EmpCod, CheCod
+		Where EmpCod = &EmpCod
+		Where CheCod = &CheCod
+		//CheMot = MotivoCheque.CANCELADO
+		delete
+	Endfor
+EndSub
+					
+
+Sub 'AtualizaCheque'
+	For Each Order EmpCod, CheCod
+		Where EmpCod = &EmpCod
+		Where CheCod = &CheCod
+		
+		CheBanCod = &CheBanCod
+		CheAgeCod = &CheAgeCod
+		CheCon = &CheCon
+		CheNro = &CheNro
+		CheVarNro = 'CHQ-'+ trim(str(&CheNro))
+		CheVlr = &CheVlr
+		CheDtaEmi = &CheDtaEmi
+		CheDtaVct = &CheDtaVct
+		CheTitNom = &CheTitNom
+		CheTitCpf = &CheTitCpf
+		CheTitRg = &CheTitRg
+		CheTel = &CheTel
+		CheCtaBanCod = &CheCtaBanCod
+		CheObs = &CheObs
+		
+		CheCreCliCod = &CheCreCliCod
+		
+		RetornaSoNumeros.Call(CheCon, &CheCon)							
+		CheBanAgeCon = trim(CheBanCod) +'/'+ trim(str(CheAgeCod)) + '/'+ trim(&CheCon) +'/'+ trim(str(CheNro))
+							
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTmpDupDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTmpDupDtaFat</Value></Property><Property><Name>Description</Name><Value>Temporaria Data Faturamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTmpDupDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMovimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMovimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMovimento</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMovimentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMovimentoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMovimento.sdtMovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon044_PlanoRecCliente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon044_PlanoRecCliente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon082_DataEmissaoDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon082_DataEmissaoDuplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheCod</Value></Property><Property><Name>Description</Name><Value>Cheque Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheBanCod</Value></Property><Property><Name>Description</Name><Value>Cheque Banco</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheAgeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheAgeCod</Value></Property><Property><Name>Description</Name><Value>Cheque Agência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheAgeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheObs</Value></Property><Property><Name>Description</Name><Value>Cheque Obs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheCreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheCreCliCod</Value></Property><Property><Name>Description</Name><Value>Responsavel</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheCreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheTel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheTel</Value></Property><Property><Name>Description</Name><Value>Fone Responsável</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheTel</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheTitRg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheTitRg</Value></Property><Property><Name>Description</Name><Value>Cheque DI/RG</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheTitRg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheTitCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheTitCpf</Value></Property><Property><Name>Description</Name><Value>Cheque CPF/CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheTitCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheTitNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheTitNom</Value></Property><Property><Name>Description</Name><Value>Cheque Títular</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheTitNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheDtaVct</Value></Property><Property><Name>Description</Name><Value>Cheque Vencimento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheDtaEmi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheDtaEmi</Value></Property><Property><Name>Description</Name><Value>Cheque Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheDtaEmi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheVlr</Value></Property><Property><Name>Description</Name><Value>Cheque Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheNro</Value></Property><Property><Name>Description</Name><Value>Cheque Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheCon</Value></Property><Property><Name>Description</Name><Value>Cheque Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDuplicataMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDuplicataMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentoDuplicataItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentoDuplicataItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata.SdtPagamentoDuplicataItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentoDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentoDuplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCpl</Value></Property><Property><Name>Description</Name><Value>Movimento Complemento Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon020_ClientePadraoVista">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon020_ClientePadraoVista</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtDividirContaDuplicatas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtDividirContaDuplicatas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDividirContaDuplicatas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtDividirContaDuplicatasItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtDividirContaDuplicatasItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDividirContaDuplicatas.sdtDividirContaDuplicatasItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OrigemCbrCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OrigemCbrCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoCbrCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoCbrCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCobObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCobObs</Value></Property><Property><Name>Description</Name><Value>Cobrança Obs</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCobObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheMot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheMot</Value></Property><Property><Name>Description</Name><Value>Cheque Motivo </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheMot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CheCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CheCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Che Cta Ban Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CheCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalCredito">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalCredito</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaDuplicatasAReceber1</Value></Property><Property><Name>Description</Name><Value>Grava Duplicatas AReceber1</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

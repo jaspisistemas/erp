@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06acaad3-3dbb-4c3d-9822-e27e37423136" user="SRVORDIG\Administrador" versionDate="2025-04-04T01:57:21.0000000Z" lastUpdate="2025-01-10T18:28:29.0000000Z" checksum="1e76b463540bc4f3da962d4a930269ba" fullyQualifiedName="DeletaMovimentoComDependencias" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="736dfe51-da67-46d5-9b24-1b30976f5414" name="DeletaMovimentoComDependencias" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Deleta Movimento Com Dependencias" parent="Procedimentos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&sdtDeleteMovimentoItem.FromXml(&webSession.Get('DuplicataPagamento'))
+
+If &IsEliminaTransferencia = True
+	//#################################  TRANSFERÊNCIAS #######################################
+	Do 'TransIdentifica'
+EndIf
+
+
+//#################################  MOVIMENTO  #######################################
+For Each Order EmpCod,MovCod
+	Where EmpCod = &EmpCod
+	Where MovCod = &MovCod
+	
+	For each Order EmpCod,MovCod,MovItmCod
+		MovItmSts = Status_Caixa.Cancelado
+		
+		if MovItmIsCon = Status_SimNao.Sim
+			For each order EmpCod, LanBanDoc
+				where LanBanDoc = MovItmDoc
+				where LanBanData = MovItmDtaCon
+				where CtabanCod = MovCtaBanCod
+				
+				LanBanStatus = StatusConciliacao.Pendente
+			EndFor
+		endif
+	EndFor
+	
+	AtualizaSaldoConta.Call(TrnMode.Delete,EmpCod,MovCtaBanCod,MovDtaCon,MovCreDeb,MovVlr,&dataVazia,0,'')
+	
+	
+	MovSts = Status_Caixa.Cancelado
+	
+	Exit
+EndFor
+
+Commit
+
+
+If &sdtDeleteMovimentoItem.Count > 0
+	Do Case
+		Case &IsEliminaPgtoDP = true
+			//#################################  PAGAMENTOS #######################################
+			For &sdtDeleteMovimentoItemItem in &sdtDeleteMovimentoItem
+				For each Order EmpCod,CreCod
+					Where EmpCod = &EmpCod
+					Where CreCod = &sdtDeleteMovimentoItemItem.MovCreCod
+					Where FilCod = &sdtDeleteMovimentoItemItem.MovCreFilCod
+					
+					For each Order EmpCod,CreCod,CrePagCod
+						Where CrePagCod = &sdtDeleteMovimentoItemItem.MovCrePagCod
+						CrePagSts = Status_Caixa.Cancelado
+					EndFor
+					
+					Exit
+				EndFor
+				
+				AtualizaSaldoDuplicata.Call(&EmpCod,&sdtDeleteMovimentoItemItem.MovCreCod,&sdtDeleteMovimentoItemItem.MovCreFilCod)
+				
+			EndFor
+			
+			Commit
+			
+			For &sdtDeleteMovimentoItemItem in &sdtDeleteMovimentoItem
+				prcAtualizaStatusCheque.Call(&EmpCod, &sdtDeleteMovimentoItemItem.MovCreFilCod, &sdtDeleteMovimentoItemItem.MovCreCod)
+			EndFor
+			
+			
+		Case &IsEliminaFolhaPgto = true
+			For &sdtDeleteMovimentoItemItem in &sdtDeleteMovimentoItem
+				DeletarPagamentoFolha.Call(&EmpCod,&sdtDeleteMovimentoItemItem.MovFunAno,&sdtDeleteMovimentoItemItem.MovFunMes,&sdtDeleteMovimentoItemItem.MovFunCod, &MovCod, 0)
+			EndFor
+			
+		Case &IsEliminaAdiantamentos = true
+			For &sdtDeleteMovimentoItemItem in &sdtDeleteMovimentoItem
+//				DeletarPagamentoFolha.Call(&EmpCod,&sdtDeleteMovimentoItemItem.MovFunAno,&sdtDeleteMovimentoItemItem.MovFunMes,&sdtDeleteMovimentoItemItem.MovFunCod, &MovCod, 0)
+			EndFor
+			
+	EndCase
+EndIf
+
+Sub 'TransIdentifica'
+
+	&IsDestino = False
+	&IsOrigem = False
+	For each Order EmpCod,MovCod  //Destino
+		Where EmpCod = &EmpCod
+		Where MovCod = &MovCod
+		Where MovCreDeb = 'C'
+		&DstMovCod    = MovCod		
+		&MovTrnOriCod = MovTrnOriCod
+		&MovTrnOriCodItm = MovTrnOriCodItm
+		&IsDestino = true
+	When none
+		For each Order EmpCod,MovCod  //Origem
+			Where EmpCod = &EmpCod
+			Where MovCod = &MovCod
+			Where MovCreDeb = 'D'
+			&OriMovCod    = MovCod
+			&IsOrigem = True
+			&OriMovTrnOriCod = MovTrnOriCod
+			&OriMovTrnOriCodItm = MovTrnOriCodItm
+		EndFor		
+	EndFor
+	
+	If &IsDestino = true
+		Do 'TransOrigem'
+	Else
+		DO 'TransDestino'
+	EndiF
+
+	Do 'Delete'
+EndSub
+
+Sub 'TransOrigem'
+	For each Order EmpCod,MovCod
+		Where EmpCod = &EmpCod
+		Where MovCod = &MovTrnOriCod
+		&OriMovCod    = MovCod
+	EndFor
+EndSub
+
+Sub 'TransDestino'
+	For each Order EmpCod,MovCod
+		Where EmpCod = &EmpCod
+		Where MovCod = &OriMovTrnOriCod
+		&DstMovCod    = MovCod
+	EndFor
+	
+EndSub
+
+Sub 'Delete'
+	
+	For each Order EmpCod,MovCod
+		Where EmpCod = &EmpCod
+		Where MovCod = &OriMovCod
+		
+		For each Order  EmpCod,MovCod,MovItmCod
+			
+			MovItmSts = Status_Caixa.Cancelado
+		EndFor
+		
+		AtualizaSaldoConta.Call(TrnMode.Delete,EmpCod,MovCtaBanCod,MovDtaCon,MovCreDeb,MovVlr,&dataVazia,0,'')
+		
+		MovSts = Status_Caixa.Cancelado
+	EndFor
+	Commit
+	
+	For each Order EmpCod,MovCod
+		Where EmpCod = &EmpCod
+		Where MovCod = &DstMovCod
+		
+		For each Order  EmpCod,MovCod,MovItmCod
+			MovItmSts = Status_Caixa.Cancelado
+		EndFor		
+		AtualizaSaldoConta.Call(TrnMode.Delete,EmpCod,MovCtaBanCod,MovDtaCon,MovCreDeb,MovVlr,&dataVazia,0,'')
+		MovSts = Status_Caixa.Cancelado
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&MovCod,in:&IsEliminaTransferencia,in:&IsEliminaFolhaPgto,in:&IsEliminaPgtoDP,in:&IsEliminaAdiantamentos);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDeleteMovimentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDeleteMovimentoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDeleteMovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDeleteMovimentoItemItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDeleteMovimentoItemItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDeleteMovimentoItem.sdtDeleteMovimentoItemItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="webSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>webSession</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dataVazia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dataVazia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DstMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DstMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDestino">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDestino</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOrigem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOrigem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTrnOriCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTrnOriCod</Value></Property><Property><Name>Description</Name><Value>Movimento Transferência Origem Capa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTrnOriCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTrnOriCodItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTrnOriCodItm</Value></Property><Property><Name>Description</Name><Value>Movimento Transferência Origem Item </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTrnOriCodItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriMovTrnOriCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriMovTrnOriCod</Value></Property><Property><Name>Description</Name><Value>Movimento Transferência Origem Capa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTrnOriCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriMovTrnOriCodItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriMovTrnOriCodItm</Value></Property><Property><Name>Description</Name><Value>Movimento Transferência Origem Item </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTrnOriCodItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEliminaTransferencia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEliminaTransferencia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEliminaPgtoDP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEliminaPgtoDP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEliminaFolhaPgto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEliminaFolhaPgto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEliminaAdiantamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEliminaAdiantamentos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPagamentoDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPagamentoDuplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>DeletaMovimentoComDependencias</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

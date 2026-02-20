@@ -1,0 +1,859 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="e1eccebd-7db7-4118-9009-40b276f2471b" user="WINJEAN\jeanfae" versionDate="2024-10-10T20:50:36.0000000Z" lastUpdate="2024-10-10T13:46:42.0000000Z" checksum="7a0f9128c1251f2e33e6780330b8b8d9" fullyQualifiedName="FechamentoFolha" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="abb2be70-a62a-44af-b6cf-f12e16e164d3" name="FechamentoFolha" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Fechamento Folha de Pagamento" parent="RecHumPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//in:&IsPagar13,in:&Tipo13,in:&IsPagarFerias,in:&TipoFer,in:&IsCobrarContSindical,in:&IsAbono,in:&AbonoVlr,in:&AbonoDtaReg
+
+&DtaIni = YMDtoD(&FPagAno,&FPagMes,1)
+&DtaFin = eom(&DtaIni)
+
+insertRotinaAtualizarOperacoesFolha.Call(&EmpCod,Status_SimNao.Nao)
+
+For each Order EmpCod, PesCod 
+	Where EmpCod = &EmpCod
+	Where PesIsFun = True when &PesCod = 0
+	Where PesSts = Status_AtivoInativo.ATIVO when &PesCod = 0
+	Where PesSalTip = 'M' or PesSalTip.IsNull() or PesSalTip.IsEmpty() when &PesCod = 0
+	Where PesCod = &PesCod when &PesCod <> 0
+	Where PesFunFilCod = &PesFunFilCod when not &PesFunFilCod.IsEmpty() 
+	
+	if PesSalTip.IsEmpty() or PesSalTip.IsNull()
+		prcAtualizaMensalista.Call(EmpCod, 0)
+	Endif
+	&FPagCod = 0
+	prcAlgumLancamentoPagamentoFolha.Call(EmpCod, PesCod, &FPagAno, &FPagMes, &FPagCod, &IstemAlgumLancamento)
+	
+	if &FPagCod = 0 and PesSalTotRec > 0
+		
+		&PesIsSocPro = PesIsSocPro
+		&PesSalFix = PesSalFix
+		&PesVlrOutAcr = PesVlrOutAcr
+		&PesVlrBon = PesVlrBon
+		&PesVlrSalTotCon = PesVlrSalTotCon		
+		&PesPerInsVlr =  PesPerInsVlr
+		&PesPerPerVlr = PesPerPerVlr
+		&PesVlrRef = PesVlrRef
+		&PesVlrTrp = PesVlrTrp
+		
+		&FPagIsErro = false
+		&sdtPagamentosFolhaContas.Clear()
+		&sdtItensFolha.Clear()
+		&SdtMovimentoItem.Clear()
+		&sdtPagamentoFolhaAdiantamentos.Clear()
+		&TotalLancamento = 0
+		&FPagLcfCod = 0
+		&TotalAdiantamentos = 0		
+		do 'getOperacoesFolha'
+		
+		if &sdtItensFolha.Count > 0
+			
+			if &isAdiantamentos = true
+				&TotalAdiantamentos = 0
+				RetornaAdiantamentosPagamentoFolha.Call(&EmpCod, 0, &FPagAno, &FPagMes, PesCod, &sdtPagamentoFolhaAdiantamentos, &SdtMovimentoItem)
+				
+				for &SdtMovimentoItemItem in &SdtMovimentoItem					
+					&sdtPagamentoFolhaAdiantamentosItem = new()
+					&sdtPagamentoFolhaAdiantamentosItem.FPagAdiMovCod = &SdtMovimentoItemItem.MovCod
+					&sdtPagamentoFolhaAdiantamentosItem.FPagAdiMovItmCod = &SdtMovimentoItemItem.MovItmCod
+					&sdtPagamentoFolhaAdiantamentosItem.FPagAdiMovVlr = &SdtMovimentoItemItem.MovItmVlr
+					&TotalAdiantamentos += &SdtMovimentoItemItem.MovItmVlr
+					&sdtPagamentoFolhaAdiantamentos.Add(&sdtPagamentoFolhaAdiantamentosItem)
+				EndFor				
+					
+				if &TotalAdiantamentos > 0
+					&FPagLcfCod = 95 //Adiantamentos
+					do 'getOperacoesFolha'
+				Endif
+			Endif
+		
+			//Contas
+			&FPagCtaTip = PesTipFol
+			&sdtPagamentosFolhaContas.Clear()
+			&sdtPagamentosFolhaContasItem = new()
+			&sdtPagamentosFolhaContasItem.FPagCtaTip = PesTipFol
+			&sdtPagamentosFolhaContasItem.FPagCtaBanCod = PesCtaBanCod
+			&sdtPagamentosFolhaContasItem.FPagCtaVlr = &TotalLancamento
+			&sdtPagamentosFolhaContasItem.FPagCtaNroDoc = &FPagCtaNroDoc
+			&sdtPagamentosFolhaContas.Add(&sdtPagamentosFolhaContasItem)
+			
+			do 'validaLancamento'
+			prcGravaPagamentoFolha.Call(&EmpCod, 0, TipoPagamentoFolha.FolhaMensal, PesCod, &FPagAno, &FPagMes, &FPagIsErro, &FPagCod)
+			prcGravaPagamentoFolhaItem.call(&EmpCod, &FPagCod, &sdtItensFolha, &sdtPagamentosFolhaContas, &sdtPagamentoFolhaAdiantamentos)
+		Endif
+	
+	EndIf
+EndFor
+
+Sub 'validaLancamento'
+	
+	For &sdtItensFolhaItem in &sdtItensFolha
+		Do CAse
+			CAse &sdtItensFolhaItem.PlanCod.IsEmpty() and &sdtItensFolhaItem.LcfCreDeb = 'C' and (&sdtItensFolhaItem.FPagLcfCod = 1 or &sdtItensFolhaItem.FPagLcfCod = 22 or &sdtItensFolhaItem.FPagLcfCod = 23)		
+				//Msg('Existe um erro na operação: '+&sdtItensFolhaItem.FPagLcfCod.ToString() +', as operações do tipo Crédito precisam conter plano de contas!')
+				&FPagIsErro = true
+				exit
+			Case &sdtItensFolhaItem.FPagItemVlr <= 0
+				//Msg('Existe um erro na operação: '+&sdtItensFolhaItem.FPagLcfCod.ToString() +', Valor informado não pode ser menor ou igual a zero!')
+				&FPagIsErro = true
+				exit
+		EndCAse	
+	EndFor
+
+	Do CAse
+		Case &FPagCtaTip = TipoFolha.ChequePropio
+			&FPagIsErro = true
+	EndCAse
+	
+	prcValidaPAgamentoAdiantamentos.Call(&EmpCod, 0, &sdtPagamentoFolhaAdiantamentos,&IsErroAdiantamentos, &MensagemAdiantamentos)
+
+	Do CAse
+		CAse &TotalLancamento < 0
+			//Msg('Atenção Total dos lançamentos não pode ser negativo.')
+			&FPagIsErro = true
+			
+		Case &FPagIsErro = true
+			//parou o processo
+			
+		case &IsErroAdiantamentos= true
+			//msg(&MensagemAdiantamentos)
+			&FPagIsErro = true
+			
+		case &sdtItensFolha.Count = 0
+			//msg('ATENÇÃO! Necessário ter no mínimo um item para efetuar o lançamento!')
+			&FPagIsErro = true
+			
+		//CAse &TotalLancamento <> &TotalPagamento
+			//msg('Total de Lançamentos a Pagar diferente do total de Pagamentos informados!')
+			//&FPagIsErro = true
+						
+		//CAse &IsPagamentoMultiplo = true and &sdtPagamentosFolhaContas.Count = 1
+			//msg('Selecionado opção pagamento múltiplo e não informado mais de uma conta, favor alterar para pagamento Único!')
+	EndCAse
+EndSub
+
+
+Sub 'getOperacoesFolha'
+	
+	For Each ORder EmpCod, LcfCod
+		Where EmpCod = &EmpCod
+		Where LcfCod = &FPagLcfCod when not &FPagLcfCod.IsEmpty()
+		Where LcfVlrPad <> 'X' and not LcfVlrPad.IsEmpty() and not LcfVlrPad.IsNull() when &FPagLcfCod.IsEmpty()
+		
+		&LcfCod = LcfCod
+		&FPagItemVlr = 0
+		&LcfCreDeb = LcfCreDeb
+		
+		Do case
+			Case LcfCod = 1 and &PesIsSocPro =  true
+				&FPagItemVlr = 0
+			CAse LcfCod = 95
+				&FPagItemVlr = &TotalAdiantamentos
+				&TotalAdiantamentos = 0
+			case ((LcfCod = 1 or LcfCod = 22) and (LcfVlrPad.IsEmpty() or LcfVlrPad.IsNull() or LcfVlrPad = 'X')) or LcfVlrPad = 'A' //Salário Fixo
+				&FPagItemVlr = &PesSalFix
+				&PesSalFix = 0
+				&PesVlrSalTotCon = 0
+			Case LcfVlrPad = 'B' //Salário TOTAL
+				&FPagItemVlr = &PesVlrSalTotCon
+				&PesSalFix = 0
+				&PesVlrSalTotCon = 0
+			Case LcfVlrPad = 'C' //BONIFICACAO
+				if &IsBonificacao = true
+					&FPagItemVlr = &PesVlrBon
+				Endif
+				&PesVlrBon = 0
+			Case LcfVlrPad = 'D' //OUTROS ACRESC.
+				if &IsOutrosAcrescimos= true
+					&FPagItemVlr = &PesVlrOutAcr
+				Endif		
+				&PesVlrOutAcr = 0
+			Case LcfVlrPad = 'E' //PERICULOSIDADE
+				If &IsPericulosidade = true
+					&FPagItemVlr = &PesPerPerVlr
+				Endif
+				&PesPerPerVlr = 0
+			Case LcfVlrPad = 'F' //INSALUBRIDADE
+				if &IsInsalubridade
+					&FPagItemVlr = &PesPerInsVlr
+				Endif
+				&PesPerInsVlr = 0
+			Case LcfVlrPad = 'G' //VALE TRANSPORTE
+				if &IsValeTransporte= true
+					&FPagItemVlr = &PesVlrTrp
+				Endif
+				&PesVlrTrp = 0
+			Case LcfVlrPad = 'H' //VALE REFEICAO
+				If &IsValeAlimentacao
+				&FPagItemVlr = &PesVlrRef
+				Endif
+				&PesVlrRef = 0
+		EndCase	
+		
+		if &FPagItemVlr > 0
+			do 'addsdtItens'
+		Endif
+	
+	EndFor
+EndSub
+
+
+Sub 'addsdtItens'	
+	&IsAchou = false
+	For &sdtItensFolhaItem in &sdtItensFolha
+		if &sdtItensFolhaItem.FPagLcfCod = &LcfCod
+			&IsAchou = true
+			&sdtItensFolhaItem.FPagItemVlr = &FPagItemVlr
+			//Exit tirei para poder somar tudo.
+		EndIf
+		
+		if &sdtItensFolhaItem.LcfCreDeb = 'C'
+			&TotalLancamento += &sdtItensFolhaItem.FPagItemVlr
+		Else
+			&TotalLancamento -= &sdtItensFolhaItem.FPagItemVlr
+		Endif
+	EndFor	
+	
+	if &IsAchou = false
+		&sdtItensFolhaItem = new()
+		&sdtItensFolhaItem.FPagLcfCod = &LcfCod
+		&sdtItensFolhaItem.LcfCreDeb = &LcfCreDeb
+		&sdtItensFolhaItem.FPagItemVlr = &FPagItemVlr
+		&sdtItensFolha.Add(&sdtItensFolhaItem)
+		
+		if &LcfCreDeb = 'C'
+			&TotalLancamento += &FPagItemVlr
+		Else
+			&TotalLancamento -= &FPagItemVlr
+		Endif
+	Endif
+EndSub
+
+//For each Order EmpCod,FolAno,FolMes,FolSts
+//	Where EmpCod = &EmpCod
+//	Where FolAno = &FPagAno
+//	Where FolMes = &FolMes
+//	Where FolSts = Status_Folha.Aberto
+//	Where FolFunCod = &PesCod when not &PesCod.IsEmpty()
+//	&IsNotDel = false
+//	
+////	For each Order EmpCod,FolAno,FolMes,GerLcfCod
+////		If GerGerTip = 'A'
+////			AbreFechaAdiantamento.Call(EmpCod,FolAno,FolMes,FolFunCod,0,Status_AbertoFechado.Aberto)
+////			delete			
+////		Else
+////			&IsNotDel = True
+////		Endif
+////	EndFor
+//	
+//	For each Order EmpCod,FolAno,FolMes,ConLcfCod
+//		If ConGerTip = 'A'
+//			
+//			AbreFechaAdiantamento.Call(EmpCod,FolAno,FolMes,FolFunCod,0,Status_AbertoFechado.Aberto)
+//			delete
+//		Else
+//			&IsNotDel = True
+//		Endif
+//	EndFor
+//
+//	If &IsNotDel = False
+//		Delete  
+//	EndIf
+//EndFor
+//
+//&FolhaPgto.Clear()
+//For each Order EmpCod,PesIsFun,PesSts,PesCod
+//	Where EmpCod = &EmpCod
+//	Where PesIsFun = True
+//	Where PesSts = Status_AtivoInativo.ATIVO
+//	Where PesCod = &PesCod when not &PesCod.IsEmpty()
+//	
+//	&PesDtaDem.SetEmpty()
+//	&DemAno = 0
+//	&DemMes = 0
+//	&DemDia = 0
+//	&Error = 0
+//	&FunPesCod = PesCod
+//	&FunPesRaz = PesRaz
+//	If not PesDtaAdm.IsEmpty()
+//		&PesDtaAdm = PesDtaAdm
+//		&AdmDia = day(PesDtaAdm)
+//		&AdmMes = month(PesDtaAdm)
+//		&AdmAno = year(PesDtaAdm)
+//		
+//		&PesDtaDem = PesDtaDem
+//		&DemAno = Year(PesDtaDem)  //ano da demissão
+//		&DemMes = Month(PesDtaDem) //mês da demissão
+//		&DemDia = Day(PesDtaDem)
+//		&PesSalTotRec = PesSalTotRec
+//		
+//		
+//		&BasCal   = 0
+//		&valordia = 0
+//		&DemDiasTrabalhados = 0
+//		&DiasTrabalhados = 0
+//		&valordia = 0 
+//		&BasCal = 0
+//		&FolRef = ''
+//		Do 'CalculoParaPgto'
+//		
+//		
+//		Do Case
+//			Case &Error = 0
+//				If  PesSalTotRec > 0					
+////					&FolCtaBanCod = PesCtaBanCod
+////					&FolCtaTip = PesTipFol
+//					&FolFunCod = PesCod
+//					Do 'GravaCapaFolha'
+//					If PesIsSocPro = False
+//						&LcfCod = 1               // 1 - Salário Mensal 
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					Else
+//						&LcfCod = 22               // 22 - Pró Labore	
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndiF
+//				
+//					
+//					If not PesPerIns.IsEmpty()     // % Insalubridade
+//						&BasCal = PesPerInsVlr
+//						&LcfCod = 5				   // 5 - Adicional de Insalubridade
+//						&FolRef = trim(str(PesPerIns))
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If not PesPerPer.IsEmpty()     // % Periculosidade
+//						&BasCal = PesPerPerVlr
+//						&LcfCod = 6               // 6 - Adicional de Periculosidade
+//						&FolRef = trim(str(PesPerPer))
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If not PesVlrTrp.IsEmpty()     // Vale Transporte
+//						&PerVlrTrp = (0.06 * &PesSalTotRec) // valor de 6% sobre o salário base 
+//						
+//						If &PerVlrTrp > PesVlrTrp
+//							&BasCal = PesVlrTrp
+//						Else
+//							&BasCal = &PerVlrTrp
+//						EndIf
+//						
+//						&LcfCod = 19               // 19 - Vale-Transporte
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If not PesVlrRef.IsEmpty()     // Vale Refeição
+//						&BasCal = PesVlrRef
+//						&LcfCod = 20               // 20 - Vale Refeição
+//						
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If not PesSalFam.IsEmpty()     // Salário Familia
+//						&BasCal = PesSalFam
+//						&LcfCod = 2               // 2 - Salário Família
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If &IsCobrarContSindical = true and not PesDtaReg.IsEmpty()
+//						&BasCal = (&BaseInss / 30)
+//						&LcfCod = 97               // 97 - Contribuição Sindical
+//						&FolRef = '30'
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If &IsPagar13 = True   // 13° Salário 
+//						Do Case
+//							Case &Tipo13 = 9
+//								&BasCal = &BaseInss //salario cheio
+//								&LcfCod = 9	 // 9 - Décimo Terceiro Salário – Adiantamento
+//							Case &Tipo13 = 10
+//								&BasCal = (&BaseInss / 2)
+//								&LcfCod = 10 // 10 - Décimo Terceiro Salário - 1ª parcela
+//							Case &Tipo13 = 11
+//								&BasCal = (&BaseInss / 2)
+//								&LcfCod = 11 // 11 - Décimo Terceiro Salário - 2ª parcela
+//						EndCase				
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					
+//					If &IsPagarFerias = True
+//						
+//					EndIf
+//					
+//					If &IsAbono = True and PesDtaReg <= &AbonoDtaReg and not PesDtaReg.IsEmpty()
+//						&BasCal = &AbonoVlr
+//						&FolRef = trim(str(&FolMes))
+//						&LcfCod = 8              // 8 - Abono Salárial
+//						Do 'GetOperacaoFolha'
+//						Do 'ValidaBaseCalculo'
+//						Do 'GravaFolhaContabil'
+//					EndIf
+//					
+//					If &isAdiantamentos = true 
+//						Do 'BuscaAdiantamentos'
+//						If &MovItmVlr > 0			
+//							&BasCal = &MovItmVlr
+//							&FolRef = trim(str(&count))
+//							&LcfCod = 95
+//							Do 'GetOperacaoFolha'
+//							Do 'ValidaBaseCalculo'
+//							Do 'GravaFolhaContabil'
+//						EndIf
+//					EndIf
+//				
+//					If not PesDtaReg.IsEmpty()
+//						RetornaINSSFuncionario.Call(EmpCod,&BaseInss,PesIsSocPro,PesFunFilCod,&InssTax,&inssPesVlrSalCat)
+//						If &inssPesVlrSalCat > 0
+//							&BasCal = &inssPesVlrSalCat
+//							&LcfCod = 99
+//							&FolRef = &InssTax.ToFormattedString()
+//							Do 'GetOperacaoFolha'
+//							Do 'GravaFolhaContabil'
+//						EndIf
+//						
+//						RetornaIRRFFuncionario.call(EmpCod,&BaseIrrf,PesFunQtdDep,&inssPesVlrSalCat,&IrrfTax,&IrrfPesVlrSalCat)
+//						If &IrrfPesVlrSalCat > 0
+//							&BasCal = &IrrfPesVlrSalCat
+//							&LcfCod = 98
+//							&FolRef = &IrrfTax.ToFormattedString()
+//							Do 'GetOperacaoFolha'
+//							Do 'GravaFolhaContabil'
+//						EndIf
+//						
+//						Do 'AtualizaBase'
+//					EndIf
+//				ELSE
+//					MSG('Funcionário '+&FunPesCod.ToString().Trim() + ' - '+&FunPesRaz.Trim()+' sem salário cadastrado!')
+//				EndIf
+//				
+//				
+//				If PesSalTotRec > 0
+//					&FolhaPgtoItem = new()
+//					&FolhaPgtoItem.EmpCod = &EmpCod
+//					&FolhaPgtoItem.FolFunCod = &FolFunCod
+//					&FolhaPgtoItem.FolAno = &FPagAno
+//					&FolhaPgtoItem.FolMes = &FolMes
+//					&FolhaPgto.Add(&FolhaPgtoItem)
+//				EndIf
+//				
+//				&BaseInss = 0
+//				&BaseIrrf = 0
+//				&BaseFgts = 0
+//				&IrrfPesVlrSalCat = 0
+//				&inssPesVlrSalCat = 0
+//		EndCase
+//	Else
+//		msg('Funcionário '+&FunPesCod.ToString().Trim()+ ' - '+&FunPesRaz.Trim()+' sem data de admissão!')
+//	EndIf
+//EndFor
+//
+//&WebSession.Set('FolhaPagamento',&FolhaPgto.ToXml())
+//
+//Sub 'GravaCapaFolha'
+//	New
+//		EmpCod = &EmpCod
+//		FolAno = &FPagAno
+//		FolMes = &FolMes
+//		FolFunCod = &FolFunCod
+//		FolSts = Status_Folha.Aberto
+////		FolCtaBanCod = &FolCtaBanCod
+////		FolCtaTip = &FolCtaTip
+//		FolLctDtaHor = ServerNow()
+//	Endnew
+//EndSub
+//
+//Sub 'GetOperacaoFolha'
+//	For each Order EmpCod,LcfCod
+//		Where EmpCod = &EmpCod
+//		Where LcfCod = &LcfCod
+//		&OpeLcfCod   = LcfCod
+//		&OpeLcfNom   = LcfNom
+//		&OpeLcfIsInss = LcfIsInss
+//		&OpeLcfIsIRRF = LcfIsIRRF
+//		&OpeLcfIsFgts = LcfIsFgts
+//		Exit
+//	EndFor
+//EndSub
+//
+//Sub 'GravaFolhaContabil'
+//	New
+//		ConLcfCod = &OpeLcfCod
+//		ConFolVlrItm = &BasCal
+//		ConFolRef = &FolRef 
+//		ConGerTip = 'A'
+//	EndNew
+//	Commit
+//	AtualizaTotaisFolhaContabil.call(&EmpCod,&FPagAno,&FolMes,&FolFunCod)	
+//EndSub
+//
+////Sub 'GravaFolhaGerencial'
+////	New
+////		GerLcfCod = &OpeLcfCod
+////		GerFolVlrItm = &BasCal
+////		GerFolRef = &FolRef
+////		GerGerTip = 'A'
+////	EndNew
+////	Commit
+////AtualizaTotaisFolhaGerencial.call(&EmpCod,&FPagAno,&FolMes,&FolFunCod)	
+////EndSub
+//
+//Sub 'ValidaBaseCalculo'
+//	If &OpeLcfIsInss = Status_SimNao.Sim
+//		&BaseInss += &BasCal
+//	EndIf
+//	If &OpeLcfIsIRRF = Status_SimNao.Sim
+//		&BaseIrrf += &BasCal
+//	EndIf
+//	If &OpeLcfIsFgts = Status_SimNao.Sim
+//		&BaseFgts += &BasCal
+//	EndIf
+//EndSub
+//
+//Sub 'AtualizaBase'
+//	For each Order EmpCod,FolAno,FolMes,FolFunCod
+//		Where EmpCod = &EmpCod
+//		Where FolAno = &FPagAno
+//		Where FolMes = &FolMes
+//		Where FolFunCod = &FolFunCod
+//		FolFxaIRRF = &IrrfTax
+//		FolBasFgts = &BaseFgts
+//		FolBasInss = &BaseInss
+//		FolBasIRRF = &BaseIrrf
+//		Exit
+//	EndFor
+//EndSub
+//
+//Sub 'BuscaAdiantamentos'
+//	Do 'GETConfig'
+//	&count = 0
+//	
+//	&MovItmVlr = 0
+//	&SdtAdiantamentoCaixa.Clear()
+//	For each Order EmpCod,MovTip,MovCreDeb,MovFunCod,MovFunSts,MovFunAno,MovFunMes
+//		Where EmpCod = &EmpCod
+//		Where MovTip = TipoMovimento.Adiantamento
+//		Where MovCreDeb = 'D'
+//		Where MovFunCod = &FolFunCod
+//		Where MovFunAno <= &FPagAno
+//		Where MovFunMes <= &FolMes
+//		Where MovFunSts = Status_AbertoFechado.Aberto
+//		&count +=1
+//		&MovItmVlr += MovItmVlr
+//		
+//		&SdtAdiantamentoCaixaItem = new()
+//		&SdtAdiantamentoCaixaItem.EmpCod    = &EmpCod
+//		&SdtAdiantamentoCaixaItem.FolAno    = &FPagAno
+//		&SdtAdiantamentoCaixaItem.FolMes    = &FolMes
+//		&SdtAdiantamentoCaixaItem.FolFunCod = &FolFunCod
+//		&SdtAdiantamentoCaixaItem.FolMovCod = MovCod
+//		&SdtAdiantamentoCaixa.Add(&SdtAdiantamentoCaixaItem)
+//	EndFor
+//	Do 'PostAdianta'
+//EndSub
+//
+//Sub 'PostAdianta'
+//	&FolMovCod= 0
+//	//Grava os decontos de Adiatamentos caso descontados
+//	For &SdtAdiantamentoCaixaItem In &SdtAdiantamentoCaixa
+//		&FolMovCod = &SdtAdiantamentoCaixaItem.FolMovCod
+//		If &FolMovCod <> 0
+//			AbreFechaAdiantamento.Call(&EmpCod,&FPagAno,&FolMes,&FolFunCod,&FolMovCod,Status_AbertoFechado.Fechado)  //fechar Adintamentos
+//		EndIf	
+//	EndFor
+//	
+//EndSub
+//
+//Sub 'GETConfig'
+//
+//	//######################### Configurações de parâmetro para lançamento de origem (DÉBITO)#########
+//
+//	RetornaConfSistema.Call(&EmpCod, &Filcod, domConfSistema.TCon014_PlanoAdiantamento, &cfgVlr)
+//	&PlanHie = trim(&cfgVlr)
+//	Do 'CodigoHierarquia'
+//EndSub
+//
+//Sub 'CodigoHierarquia'
+//
+//	For each Order EmpCod,PlanHie,PlanCod
+//		Where EmpCod = &EmpCod
+//		Where PlanHie = &PlanHie
+//		&PlanCod = PlanCod    // Retorna Código do Planbo de Contas Origem
+//		Exit
+//	When none
+//		msg('ATENÇÃO! Não existe código do plano cadastrado na configuração CONF41 ou está inválido, verifique!')
+//	EndFor
+//
+//EndSub
+//
+//Sub 'CalculoParaPgto' 
+//	If &PesDtaDem.IsEmpty()
+//		If (&FolMes = &AdmMes and &FPagAno = &AdmAno) //admissão no mes de geração da folha
+//			&DiasTrabalhados = eom(&PesDtaAdm) - &PesDtaAdm
+//			&valordia = (&PesSalTotRec / 30)  // divisão por 30 dias
+//			&BasCal = &valordia * &DiasTrabalhados
+//			&FolRef = str(&DiasTrabalhados * 7.33)  // 220 hrs mensais dividido por 30  = 7,33 horas por dia * os dias trabalhados
+//		Else
+//			Do Case
+//				Case &FPagAno > &AdmAno 
+//					&BasCal = &PesSalTotRec
+//					&FolRef = '220' //220 hrs mensais
+//				Case &FPagAno = &AdmAno
+//				If &FolMes > &AdmMes
+//					&BasCal = &PesSalTotRec
+//					&FolRef = '220' //220 hrs mensais
+//				Else
+//					&Error = 1 //funcionario não registrado antes deste período
+//				EndIf
+//			
+//			Otherwise
+//				&Error = 1 //funcionario não registrado antes deste período
+//			EndCase
+//		EndIf
+//	Else
+//		If &FolMes = &DemMes and &FPagAno = &DemAno
+//			&DemDiasTrabalhados = &DemDia
+//			&valordia = (&PesSalTotRec / 30)  // divisão por 30 dias
+//			&BasCal = &valordia * &DemDiasTrabalhados
+//			&FolRef = str(&DemDiasTrabalhados * 7.33)  // 220 hrs mensais dividido por 30  = 7,33 horas por dia * os dias trabalhados
+//		Else
+//			Do Case
+//				Case &FPagAno < &DemAno 
+//					&Error = 1
+//				Case &FPagAno  = &DemAno and &DemMes < &FolMes
+//					&Error = 1 
+//				Otherwise
+//					&Error = 1 //funcionario não registrado antes deste período
+//			EndCase
+//		EndIf				
+//	EndIf
+//EndSub
+//
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&PesCod,in:&PesFunFilCod, in:&FPagAno,in:&FPagMes,in:&isAdiantamentos,in:&IsValeTransporte,in:&IsValeAlimentacao,in:&IsInsalubridade,in:&IsPericulosidade,in:&IsBonificacao,in:&IsOutrosAcrescimos);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DtaFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaFin</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaIni</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isAdiantamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isAdiantamentos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LcfCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LcfCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LcfCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFunFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFunFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Contabil</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFunFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagAno</Value></Property><Property><Name>Description</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagAno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagMes</Value></Property><Property><Name>Description</Name><Value>Mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagMes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IstemAlgumLancamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IstemAlgumLancamento</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesSalFix">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesSalFix</Value></Property><Property><Name>Description</Name><Value>Pessoa Salário Fixo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesSalFix</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesVlrOutAcr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesVlrOutAcr</Value></Property><Property><Name>Description</Name><Value>Outros Acréscimos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesVlrOutAcr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesVlrBon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesVlrBon</Value></Property><Property><Name>Description</Name><Value>Bonificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesVlrBon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesVlrSalTotCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesVlrSalTotCon</Value></Property><Property><Name>Description</Name><Value>Pessoal Salario Total Folha Contabil</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesVlrSalTotCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesPerInsVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesPerInsVlr</Value></Property><Property><Name>Description</Name><Value>Pessoal Insalubridade Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPerInsVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesPerPerVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesPerPerVlr</Value></Property><Property><Name>Description</Name><Value>Pessoa Periculosidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPerPerVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesVlrRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesVlrRef</Value></Property><Property><Name>Description</Name><Value>Vale Refeição</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesVlrRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesVlrTrp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesVlrTrp</Value></Property><Property><Name>Description</Name><Value>Vale Transporte</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesVlrTrp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtItensFolha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtItensFolha</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtItensFolha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagLcfCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagLcfCod</Value></Property><Property><Name>Description</Name><Value>FPag Lcf Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagLcfCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtItensFolhaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtItensFolhaItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtItensFolha.sdtItensFolhaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagItemVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagItemVlr</Value></Property><Property><Name>Description</Name><Value>Valor Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagItemVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentosFolhaContas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentosFolhaContas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPagamentosFolhaContas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentoFolhaAdiantamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentoFolhaAdiantamentos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPagamentoFolhaAdiantamentos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LcfCreDeb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LcfCreDeb</Value></Property><Property><Name>Description</Name><Value>Crédito/Débito</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LcfCreDeb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalLancamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalLancamento</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagCtaNroDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagCtaNroDoc</Value></Property><Property><Name>Description</Name><Value>FPag Cta Nro Doc</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagCtaNroDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentosFolhaContasItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentosFolhaContasItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPagamentosFolhaContas.sdtPagamentosFolhaContasItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItemItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItemItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem.SdtMovimentoItemItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPagamentoFolhaAdiantamentosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPagamentoFolhaAdiantamentosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPagamentoFolhaAdiantamentos.sdtPagamentoFolhaAdiantamentosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalAdiantamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalAdiantamentos</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOutrosAcrescimos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOutrosAcrescimos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsValeTransporte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsValeTransporte</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsValeAlimentacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsValeAlimentacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBonificacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBonificacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPericulosidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPericulosidade</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsInsalubridade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsInsalubridade</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagIsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagIsErro</Value></Property><Property><Name>Description</Name><Value>Erro na Folha</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagIsErro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FPagCtaTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FPagCtaTip</Value></Property><Property><Name>Description</Name><Value>FPag Cta Tip</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FPagCtaTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErroAdiantamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErroAdiantamentos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MensagemAdiantamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MensagemAdiantamentos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesIsSocPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesIsSocPro</Value></Property><Property><Name>Description</Name><Value>Pessoa Socio Proprietário</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesIsSocPro</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>FechamentoFolha</Value></Property><Property><Name>Description</Name><Value>Fechamento Folha de Pagamento</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="WIN-JEAN\jean.fae" versionDate="2023-07-17T20:16:05.0000000Z" lastUpdate="2023-07-14T13:24:31.0000000Z" checksum="15a40a4b61c279f1fc12c9c69b74a2af" fullyQualifiedName="Rentabilidade" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="40508c38-be0a-4571-8e43-ae8de48b0003" name="Rentabilidade" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Relatório de Rentabilidade" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&PercentualTotal = 0
+For each Order EmpCod,PedSts,LctAtuEst,LctTip,ProGraRefPadL,GrupHiePadL
+	Where EmpCod = &EmpCod
+	where FilCod = &FilCod
+	Where PedSts = Status_Pedido.FECHADO
+	Where LctAtuEst = Status_EntradaSaida.Saida
+	Where (GrupHie = &GrupHie or GrupHie like &auxGrupHie) when not &GrupHie.IsEmpty()
+	Where LctTip = TipoLancamento.SaidaMercadoria
+	Where PedDtaFat >= &PedDtaFat and PedDtaFat <= &PedDtaFat_Go
+	Where LctCod = &LctCod when not &LctCod.IsEmpty()
+	Where LctGerFin = &LctGerFin when not &LctGerFin.IsEmpty()
+	Where PedCliCod = &PesCod When not &PesCod.IsEmpty()
+	Where PedVenCod = &PedVenCod when not &PedVenCod.IsEmpty()
+	Where ProCod = &ProCod when not &ProCod.IsEmpty()
+	where PedQtd > 0
+	where ProTipDef = Definicao.SERVICO when &TipoProduto = 'S' 
+	where ProTipDef <> Definicao.SERVICO when &TipoProduto = 'P' 
+	Where ProSts <> Status_Produto.EXCLUIDO
+	&PercentualTotal +=1
+EndFor
+
+If &PercentualTotal = 0
+	&Percentual = 100
+	&ProgressLogXml = 'Nenhum registro encontrado para o período informado!'
+Else
+	&ProgressLogXml = ''
+	&Percentual = 0
+	&ProgressIni = serverNow()
+	&PerCount = 0
+EndIf
+
+
+do 'Atualiza'
+
+&auxGrupHie = &GrupHie+'.'
+&PedQtd = 0
+&CountPro = 0
+&PedVlrCus = 0
+&PedVlrLiq = 0
+&TempRent = 0
+
+For each Order EmpCod,TempUsr,TempRent
+	Where EmpCod = &EmpCod
+	Where TempUsr = &usrCod
+
+	delete
+EndFor
+Commit
+
+
+If &PercentualTotal > 0
+	
+	For each Order EmpCod,PedSts,LctAtuEst,LctTip,GrupHiePadL,ProGraRefPadL    
+		Where EmpCod = &EmpCod
+		where FilCod = &FilCod
+		Where PedSts = Status_Pedido.FECHADO
+		Where LctAtuEst = Status_EntradaSaida.Saida
+		Where (GrupHie = &GrupHie or GrupHie like &auxGrupHie) when not &GrupHie.IsEmpty()
+		Where LctTip = TipoLancamento.SaidaMercadoria
+		Where PedDtaFat >= &PedDtaFat and PedDtaFat <= &PedDtaFat_Go
+		Where LctCod = &LctCod when not &LctCod.IsEmpty()
+		Where LctGerFin = &LctGerFin when not &LctGerFin.IsEmpty()
+		Where PedCliCod = &PesCod When not &PesCod.IsEmpty()
+		Where PedVenCod = &PedVenCod when not &PedVenCod.IsEmpty()
+		Where ProCod = &ProCod when not &ProCod.IsEmpty()
+		where PedQtd > 0
+		where ProTipDef = Definicao.SERVICO when &TipoProduto = 'S' 
+		where ProTipDef <> Definicao.SERVICO when &TipoProduto = 'P' 
+		Where ProSts <> Status_Produto.EXCLUIDO
+		
+		//Pedido Produto - Soma todos os produto calculando ,vlr liq, custo, rent vlr, rent %.
+		If ProGraRefPadL <> &TempProGraRef
+			If not &tempProGraRef.IsEmpty()
+				
+				If &PedVlrCus > 0
+					&TempProPerRet = ((&PedVlrLiq * 100) / &PedVlrCus) - 100
+				Else
+					&TempProPerRet = 0
+				EndIf
+				
+				&TempProVlrRet = &PedVlrLiq - &PedVlrCus
+				If &TempProPerRet > 0
+					&TempProPerRet = &TempProPerRet
+				Else
+					&TempProPerRet = 0
+				EndIf
+				
+				
+				Do 'AddProduto'
+				&PedQtd = 0
+				&CountPro = 0
+				&PedVlrCus = 0
+				&PedVlrLiq = 0
+				&TempProPerRet = 0
+				&TempProVlrRet = 0
+			EndIf
+		EndIf
+		
+		&TempProGraRef = ProGraRefPadL
+		&AddProGraRef = ProGraRef
+		&TempProCod = ProCod
+		&TempProNom = ProNomGra
+		&PedQtd    += PedQtd
+		&CountPro  += 1
+		&PedVlrCus += round((PedVlrCus * PedQtd),2)
+		&PedVlrLiq += PedVlrItmComDsc
+		&TempGrupCod = GrupCod
+		&TempGrupNom = GrupNom
+		&tempGrupCodNom = GrupCodNom
+		&TempGrupHie = GrupHie
+		&TempGrupPaiCod = GrupPaiCod
+		&TempGrupPaiHie = GrupPaiHie
+		
+		&X +=1
+		If &X > 500
+			&PerCount += 500
+			&X=1
+			Do 'Percentual'
+			do 'Atualiza'
+		EndIf
+		
+	EndFor
+	
+	
+	//###################### ultimo produto - calcula
+	If &PedVlrCus > 0
+		&TempProPerRet = ((&PedVlrLiq * 100) / &PedVlrCus) - 100
+	Else
+		&TempProPerRet = 0
+	EndIf
+	
+	&TempProVlrRet = &PedVlrLiq - &PedVlrCus
+	If &TempProPerRet > 0
+		&TempProPerRet = &TempProPerRet
+	Else
+		&TempProPerRet = 0
+	EndIf
+	Do 'AddProduto'
+	//###############################################
+	//&PerCount += &X
+	//Do 'Percentual'
+	&Percentual = 100
+	&ProgressFin = serverNow()
+	do 'Atualiza'
+	
+EndIf
+
+Sub 'AddProduto'
+	If &TempProNom.Trim().IsEmpty()
+		&TempProNom = 'Produto vendido mais não encontrado no cadastro.'
+	EndIf
+	
+	If &IsSintetico = false
+		
+		&TempRent+=1
+		
+		New		
+			EmpCod = &EmpCod
+			TempUsr = &usrCod
+			TempRent = &TempRent
+			tempProQtd = &CountPro
+			TempQuantidade = &PedQtd
+			TempProCod = &TempProCod
+			TempProGraRef = &AddProGraRef
+			TempProGraRefPadL = &TempProGraRef
+			TempProNom = &TempProNom			
+			TempProVlrCus = &PedVlrCus
+			TempPedVlrLIq = &PedVlrLiq
+			TempProVlrRet = &TempProVlrRet
+			TempProPerRet = &TempProPerRet
+			TempGrupCod = &TempGrupCod
+			TempGrupNom = &TempGrupNom	
+			TempGruphie = &TempGrupHie
+			TempGrupCodNom = &TempGrupCodNom
+			TempGrupPaiHie = &TempGrupPaiHie
+		EndNew
+		
+		Commit
+	EndIf
+	//depois de adicionador o produto usa recursividade para adicionar e calcular os totais do sub grupo e grupo passando o grupo do produto &TempGrupCod
+	CarregaSdtCategorias.Call(&EmpCod, &TempGrupCod,&PedVlrLiq,&PedQtd,&CountPro,&PedVlrCus, &usrCod,&TempRent,0,0)
+	
+	do 'GetUltimoCodigo'// JDF - TEM QUE DEIXAR POIS LA DENTRO do CarregasdtCategorias ele tambem grava
+EndSub
+
+Sub 'GetUltimoCodigo'
+	&TempRent = 0
+	For each Order EmpCod,TempUsr,(TempRent)
+		Where EmpCod = &EmpCod
+		Where TempUsr = &usrCod
+		&TempRent = TempRent
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+		ProgressLogXml = &ProgressLogXml 
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+			ProgressLogXml = &ProgressLogXml 
+		Endnew
+	endfor
+
+	commit
+EndSub
+
+sub 'Percentual'
+	&PerCount += 1
+	If &PerCount > 0
+		&Percentual = round((&PerCount / &PercentualTotal) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Layout>
+          <Bands>
+            <PrintBlock>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Cabecalho</Value></Property><Property><Name>RPT_ID</Name><Value>1</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>33</Value></Property></Properties>
+            </PrintBlock>
+          </Bands>
+          <Properties><Property><Name>RPT_PAPER_SIZE</Name><Value>A4</Value></Property><Property><Name>RPT_RIGHT_MARGIN</Name><Value>36</Value></Property><Property><Name>RPT_ATT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property><Property><Name>RPT_TXT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+        </Layout>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId,in:&EmpCod,in:&FilCod,in:&PedDtaFat,in:&PedDtaFat_Go,in:&ProCod,in:&GrupHie,in:&LctCod,in:&LctGerFin,in:&PesCod,in:&PedVenCod,in:&IsSintetico,in:&UsrCod, in:&TipoProduto, in:&ConsiderarMenorque);
+//output_file(&Pgmname, 'PDF');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSintetico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSintetico</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat_Go">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat_Go</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctGerFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctGerFin</Value></Property><Property><Name>Description</Name><Value>Lançamento Gera Financeiro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctGerFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxGrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxGrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountPro</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Codigo8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrCus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrCus</Value></Property><Property><Name>Description</Name><Value>Produto Valor Custo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrCus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrLiq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempGrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempGrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempGrupPaiHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempGrupPaiHie</Value></Property><Property><Name>Description</Name><Value>Pai Hierarquia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupPaiHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempGrupCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempGrupCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempProNom</Value></Property><Property><Name>Description</Name><Value>Produto Descrição</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempRent">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempRent</Value></Property><Property><Name>Description</Name><Value>Temp Rent</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TempRent</Value></Property></Properties>
+        </Variable>
+        <Variable Name="usrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>usrCod</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Codigo8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempGrupPaiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempGrupPaiCod</Value></Property><Property><Name>Description</Name><Value>Pai Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupPaiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempGrupNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempGrupNom</Value></Property><Property><Name>Description</Name><Value>Temp Grup Nom</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TempGrupNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="X">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>X</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PerCount">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PerCount</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PercentualTotal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PercentualTotal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tempGrupCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tempGrupCodNom</Value></Property><Property><Name>Description</Name><Value>Temp Grup Cod Nom</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TempGrupCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempProPerRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempProPerRet</Value></Property><Property><Name>Description</Name><Value>Temp Pro Per Ret</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TempProPerRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempProVlrRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempProVlrRet</Value></Property><Property><Name>Description</Name><Value>Temp Pro Vlr Ret</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TempProVlrRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempProGraRefPadL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempProGraRefPadL</Value></Property><Property><Name>Description</Name><Value>CodPadL</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraRefPadL</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TempProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TempProGraRef</Value></Property><Property><Name>Description</Name><Value>Temp Pro Gra Ref</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TempProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AddProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AddProGraRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoProduto</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ConsiderarMenorque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ConsiderarMenorque</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Rentabilidade</Value></Property><Property><Name>Description</Name><Value>Relatório de Rentabilidade</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

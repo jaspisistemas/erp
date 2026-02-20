@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d183d056-97f1-42a2-9afe-59e72b2c343c" user="WIN-ITALO\Italo" versionDate="2023-08-25T18:57:25.0000000Z" lastUpdate="2023-08-25T17:29:47.0000000Z" checksum="ac7bba736f9f5adfc34e8bd8c7531d03" fullyQualifiedName="ppJASPI_Master" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="07f74cda-372b-42b8-a144-fec42f562542" name="ppJASPI_Master" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="pp JASPI_Master" parent="WindowsApps" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+Compilacao.Call(true, &Compilacao, &IsExecutaUpdate, &DisEmpVer, &DisEmpCmp)
+if &IsExecutaUpdate = true
+	msg('Inicializando Reorgs', status)
+	JaspiReorg.Call('UpdateSistema', false, &Compilacao)
+EndIf
+
+&WinAppGUID = GUID.FromString('784189df-359a-4c0e-8e1c-dd442cd0eb21')
+&WinAppGUIDAppJaspi = GUID.FromString('3c982730-aa2b-4745-826f-c666c8141449')
+&WinAppPathAppJaspi = ''
+&WinAppNomFisAppJaspi = ''
+&LogGUID = GUID.NewGuid()
+
+if &ProcessManager.IsCurrentProcessAdmin()
+	msg('Bem-vindo, adm', status)
+else
+	msg('Permissão insuficiente. Inicie como administrador.', status)
+	do 'EncerrandoEm5s'
+endif
+
+Do 'InsereDadosIniciais'
+
+Do 'LogAtivos'
+
+SyncronizaInstanciaAtual(&LogGUID,'AppJaspi',&WinAppGUID,&WinAppInsLog,&WinAppInsGUID,&isContinuar)
+
+Do 'LogAtivos'
+
+if not &isContinuar
+	do 'EncerrandoEm5s'
+endif
+
+&count = 0
+do while true
+	do 'SyncronizaAppJaspi'
+	
+	for each order WinAppGUID
+		where WinAppGUID = &WinAppGUIDAppJaspi
+		where WinAppInsSts = Status_Instancia.ATIVO
+			or WinAppInsSts = Status_Instancia.DESLIGAR
+		msg(WinAppNom + ' tudo certo já . . . ', status)
+	when none
+		msg('AppJaspiMaster, iniciando AppJaspi . . . ', status)
+		&ProcessManager.StartProcess(&WinAppPathAppJaspi,'"Iniciado via AppMaster"')
+		GravaLogDevNew(0,&LogGUID,&Pgmname,'Iniciando', 'AppJaspi')
+	endfor
+	
+	msg('Dormingo ' + trim(str(&count)) + ' . . . ', status)
+	&sleep = sleep(5)
+	&count += 1
+	
+	do 'DoAppContinuaAtivo'
+	
+enddo
+
+Sub 'InsereDadosIniciais'
+
+	&path = &ProcessManager.GetCurrentLocation()
+	msg('-----------------------------------', status)
+	msg('Local: ' + &path, status)
+
+	if not &path.IsEmpty()
+		for &sdtWinAppItem in dpWindowsAppDados(&path)
+			for each Order WinAppGUID
+				where WinAppGUID = &sdtWinAppItem.WinAppGUID
+				msg('Já cadastrado: ' + WinAppNom, status)
+				exit
+			when none
+				msg('Cadastrando ' + &sdtWinAppItem.WinAppNom, status)
+				New
+					WinAppGUID         = &sdtWinAppItem.WinAppGUID         //
+					WinAppNom          = &sdtWinAppItem.WinAppNom          //
+					WinAppNomFis       = &sdtWinAppItem.WinAppNomFis       //
+					WinAppPath         = &sdtWinAppItem.WinAppPath         //
+					WinAppIsHabilitado = &sdtWinAppItem.WinAppIsHabilitado //
+					WinAppMaxIns       = &sdtWinAppItem.WinAppMaxIns       //
+				EndNew
+			endfor
+		
+			if &sdtWinAppItem.WinAppGUID = &WinAppGUIDAppJaspi
+				&WinAppPathAppJaspi = &sdtWinAppItem.WinAppPath
+				&WinAppNomFisAppJaspi = &sdtWinAppItem.WinAppNomFis
+			endif
+		endfor
+		commit
+		msg('-----------------------------------', status)
+	else
+		msg('Local atual veio incorreto', status)
+		msg('-----------------------------------', status)
+		do 'EncerrandoEm5s'
+	endif
+
+EndSub
+
+Sub 'SyncronizaAppJaspi'
+	&now = now()
+	&segundos = &now.Difference(&ultSyncProcessos)
+	
+	if &segundos < 0
+		&segundos *= -1
+	endif
+	
+	if &segundos > 30 // 10 minutos = 300 segundos
+		msg('Syncronizando AppJaspi', status)
+		SyncronizaInativaInstancia(&LogGUID,&WinAppGUIDAppJaspi,'AppJaspiMaster')
+		msg('Syncronizando AppJaspi: tudo pronto', status)
+		&ultSyncProcessos = now()
+	endif
+EndSub
+
+Sub 'DoAppContinuaAtivo'
+	AppContinuaAtivo(&WinAppGUID,&WinAppInsGUID,&IsContinuar)
+	
+	if not &IsContinuar
+		msg('Instância não mais ativa', status)
+		do 'EncerrandoEm5s'
+	endif
+Endsub
+
+Sub 'EncerrandoEm5s'
+	msg('Encerrando em 5s', status)
+	&sleep = sleep(5)
+	return
+EndSub
+
+Sub 'LogAtivos'
+	GravaLogDevNew(0,&LogGUID,&Pgmname,'LogAtivos', 'Iniciando')
+	for each order WinAppGUID, WinAppInsGUID
+		where WinAppInsSts = Status_Instancia.ATIVO
+		GravaLogDevNew(0,&LogGUID,&Pgmname,'Instância ativa', WinAppNom + ' | ' + trim(str(WinAppInsPID)))
+	endfor
+	GravaLogDevNew(0,&LogGUID,&Pgmname,'LogAtivos', 'Finalizado')
+EndSub
+
+Sub 'subException_handler'
+	
+	&WinAppLog = '[EXCEPTION] Finalizado pelo ' + &Pgmname
+	msg(&WinAppInsLog, status)
+	
+EndSub
+
+Sub 'subError_handler'
+	
+	&WinAppLog = '[ERROR] Finalizado pelo ' + &Pgmname
+	msg(&WinAppInsLog, status)
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DeOndeVeio);
+
+Exception_handler('subException_handler');
+
+Error_handler('subError_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DisEmpCmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DisEmpCmp</Value></Property><Property><Name>Description</Name><Value>Compilacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCmp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DisEmpVer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DisEmpVer</Value></Property><Property><Name>Description</Name><Value>Versao ERP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpVer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExecutaUpdate">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExecutaUpdate</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DeOndeVeio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DeOndeVeio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsContinuar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsContinuar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="now">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>now</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:DateTime</Value></Property></Properties>
+        </Variable>
+        <Variable Name="path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProcessManager">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProcessManager</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:ProcessManager</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtWinAppItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtWinAppItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtWindowsApp</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property></Properties>
+        </Variable>
+        <Variable Name="segundos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>segundos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sleep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sleep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ultSyncProcessos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ultSyncProcessos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:DateTime</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppGUID</Value></Property><Property><Name>Description</Name><Value>Win App GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppGUIDAppJaspi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppGUIDAppJaspi</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppInsGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppInsGUID</Value></Property><Property><Name>Description</Name><Value>Instância GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppInsGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppInsLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppInsLog</Value></Property><Property><Name>Description</Name><Value>Log</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppInsLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppLog</Value></Property><Property><Name>Description</Name><Value>Win App Log</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppInsLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppNomFisAppJaspi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppNomFisAppJaspi</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppNomFis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WinAppPathAppJaspi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WinAppPathAppJaspi</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WinAppPath</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ppJASPI_Master</Value></Property><Property><Name>IsMain</Name><Value>True</Value></Property><Property><Name>CALL_PROTOCOL</Name><Value>CLINE</Value></Property><Property><Name>AppTitle</Name><Value>App Jaspi</Value></Property><Property><Name>IntegratedSecurityLevel</Name><Value>SecurityNone</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

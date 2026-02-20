@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7b03c6cc-2c8a-4de0-a1d8-7bb7f1dcab1b" user="WINJEAN\jeanfae" versionDate="2025-02-24T13:59:13.0000000Z" lastUpdate="2025-02-21T11:34:08.0000000Z" checksum="6a578a691d9db7100712e7b68f28d9a5" fullyQualifiedName="api_erp.get_wwpedidosVenda" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="9759bfeb-07bf-41f5-af93-84540728adab" name="get_wwpedidosVenda" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="get_wwpedidos Venda" parent="api_erp.vendas" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	&Pagina = &parPaginaSelecionada
+	&QtdRegistros = &parQtdRegistros
+	if &QtdRegistros.IsEmpty()
+		&QtdRegistros = 15
+	Endif
+	if &Pagina.IsEmpty()
+		&Pagina = 1
+	Endif
+
+	&wwPedidos.qtd = 0
+
+	&wwPedidos.pA = '0'
+	&wwPedidos.pT = '0'
+	&wwPedidos.p1 = '0'
+	&wwPedidos.p2 = '0'
+	&wwPedidos.p3 = '0'
+	&wwPedidos.p4 = '0'
+	&wwPedidos.p5 = '0'
+	&IsPaginaOk = false
+	
+	if not &parPedSts.IsEmpty() and &parPedSts <> 'T'
+		&PedSts.FromString(&parPedSts)
+	Endif
+	if not &parPedStsFin.IsEmpty() and &parPedStsFin <> 'T'
+		&PedStsFin.FromString(&parPedStsFin)
+	Endif	
+	
+	TimestampToDate.Call(&PedDtaEmsIniTmpSec, &PedDtaEmsIni)
+	TimestampToDate.Call(&PedDtaEmsFinTmpSec, &PedDtaEmsFin)
+		
+	For Each 
+		Order EmpCod, FilCod, (PedDtaEms), (PedCod) when &Ordem = 'ED' or &Ordem.IsEmpty()
+		Order EmpCod, FilCod, PedDtaEms, PedCod when &Ordem = 'ES'
+		
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where PedCod = &PedCod When not &PedCod = 0
+		Where (PedSts = &PedSts or ((&parPedSts.IsEmpty() or &parPedSts = 'T') and PedSts <> Status_Pedido.CANCELADO)) or &PedCod <> 0
+		Where (PedStsFin = &PedStsFin or &PedStsFin.IsEmpty()) or &PedCod <> 0
+		Where PedDtaEms >= &PedDtaEmsIni and PedDtaEms <= &PedDtaEmsFin when &PedCod = 0
+		Where PedCliCod = &PedCliCod when not &PedCliCod.IsEmpty() and &PedCod = 0
+		Where PedCliRaz like &PedCliRaz when not &PedCliRaz.IsEmpty() and &PedCod = 0
+		Where PedFatFilCod = &PedFatFilCod or (PedFatFilCod.IsNull() or PedFatFilCod.IsEmpty() and &PedFatFilCod = 1) when not &PedFatFilCod.IsEmpty()
+		Where (LctTip = TipoLancamento.OrcamentoVenda or LctTip = TipoLancamento.SaidaMercadoria) and PedStsGer <> Pedido_Gerado.AgruparFaturar
+		Where LctAtuSal = Status_entradaSaida.Saida
+		Where PedBlq = Status_SimNao.Nao
+		
+		if &IsPaginaOk = false
+			if &TestaPagina = true
+				if &QtdPaginas = &Pagina
+					
+					&IsPaginaOk = true
+				Else
+					&wwPedidos.qtd = 0
+					&wwPedidos.Pedidos.Clear()
+					&TestaPagina = false
+				Endif
+			Endif
+			
+			if &IsPaginaOk = false
+				
+				&wwPedidos.qtd += 1
+				&wwPedidosItem = new()
+				&wwPedidosItem.FilCod = FilCod
+				&wwPedidosItem.PedCod = PedCod
+				
+				&wwPedidos.Pedidos.Add(&wwPedidosItem)
+			Endif
+		Endif
+		
+		&QtdLInhasPagina += 1
+		if (&QtdLinhasPagina = &QtdRegistros)
+			&QtdPaginas += 1
+			&TestaPagina = true
+			&QtdLInhasPagina = 0
+		Endif
+		
+	EndFor
+
+	if &QtdLInhasPagina > 0 or &QtdPaginas > 0
+		if &QtdLInhasPagina > 0
+			&QtdPaginas += 1
+			&QtdLInhasPagina = 0
+		Endif
+		
+		if &Pagina > &QtdPaginas
+			&Pagina = &QtdPaginas
+		Endif
+		
+		&wwPedidos.pA = trim(str(&Pagina))
+		&wwPedidos.pT = trim(str(&QtdPaginas))
+		retornaPaginasGrid.Call(&Pagina, &QtdPaginas, &wwPedidos.p1, &wwPedidos.p2, &wwPedidos.p3, &wwPedidos.p4, &wwPedidos.p5)
+		
+		For &wwPedidosItem in &wwPedidos.Pedidos
+			For Each Order EmpCod, FilCod, PedCod
+				Where EmpCod = &wwpContext.EmpCod
+				Where FilCod = &wwPedidosItem.FilCod
+				Where PedCod = &wwPedidosItem.PedCod
+				
+				&wwPedidosItem.LctCod = LctCod
+				&wwPedidosItem.LctNom = LctNom
+				&wwPedidosItem.PedCliCod = PedCliCod
+				&wwPedidosItem.PedCliRaz = PedCliRaz
+				&wwPedidosItem.PedCod = PedCod
+				&wwPedidosItem.PedDtaEms = trim(PedDtaEms.ToFormattedString())
+				&wwPedidosItem.PedDtaFat = trim(PedDtaFat.ToFormattedString())
+				&wwPedidosItem.PedDtaPrv = trim(PedDtaPrv.ToFormattedString())
+				
+				&wwPedidosItem.PedSts = PedSts
+				&wwPedidosItem.PedStsFin = PedStsFin
+				
+				&wwPedidosItem.PedNovStsNom = PedNovStsNom
+				&wwPedidosItem.PedNovStsFinNom = PedNovStsFinNom
+				
+				&Varchar = trim(PedVlrLiq.ToFormattedString())
+				retiraZerosDepoisVirgulaxCasas.Call(2,&Varchar,&Varchar)
+				&wwPedidosItem.PedVlrLiq = &Varchar
+				
+				if &PedNovStsCod <> PedNovStsCod
+					&PedNovStsCod = PedNovStsCod
+					&StsCod = PedNovStsCod
+					do 'getStatusCor'
+					&EstoqueStsHex = &StsHex
+					&wwPedidosItem.StsHex = &EstoqueStsHex
+				Else
+					&wwPedidosItem.StsHex = &EstoqueStsHex
+				Endif
+				
+				if &PedNovStsFinCod <> PedNovStsFinCod
+					&PedNovStsFinCod = PedNovStsFinCod
+					&StsCod = PedNovStsFinCod
+					do 'getStatusCor'
+					&FinanceiroStsFinHex = &StsHex
+					&wwPedidosItem.StsFinHex = &FinanceiroStsFinHex
+				Else
+					&wwPedidosItem.StsFinHex = &FinanceiroStsFinHex
+				Endif
+				
+			EndFor
+		EndFor
+	
+	Endif
+
+
+Else
+	&wwPedidos.sts = 'E001'
+	&wwPedidos.Obs = 'Acesso não Concedido!'
+Endif
+
+Sub 'getStatusCor'
+	For Each Order EmpCod, StsCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where StsCod = &StsCod
+		
+		&StsHex = StsHex
+		&StsHex = &StsHex.ToLower()
+		exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&FilCod, in:&Ordem, in:&parPedSts, in:&PedCod, in:&PedCliCod, in:&PedCliRaz, in:&PedDtaEmsIniTmpSec, in:&PedDtaEmsFinTmpSec, in:&PedFatFilCod, in:&parPedStsFin, in:&parQtdRegistros, in:&parPaginaSelecionada, out:&wwPedidos);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwPedidos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwPedidos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwPedidos, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ordem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ordem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parPedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parPedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwPedidosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwPedidosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwPedidos.PedidosItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdRegistros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdRegistros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEmsIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEmsIni</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEmsFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEmsFin</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEmsIniTmpSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEmsIniTmpSec</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEmsFinTmpSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEmsFinTmpSec</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliRaz</Value></Property><Property><Name>Description</Name><Value>Cliente Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parQtdRegistros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parQtdRegistros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parPaginaSelecionada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parPaginaSelecionada</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Pagina">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Pagina</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPaginaOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPaginaOk</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TestaPagina">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TestaPagina</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdPaginas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdPaginas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdLInhasPagina">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdLInhasPagina</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StsCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:StsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StsHex">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StsHex</Value></Property><Property><Name>Description</Name><Value>Cor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedNovStsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedNovStsCod</Value></Property><Property><Name>Description</Name><Value>Codigo Status</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedNovStsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedNovStsFinCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedNovStsFinCod</Value></Property><Property><Name>Description</Name><Value>Novo Status Financeiro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedNovStsFinCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstoqueStsHex">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstoqueStsHex</Value></Property><Property><Name>Description</Name><Value>Cor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:StsHex</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinanceiroStsFinHex">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinanceiroStsFinHex</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedFatFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedFatFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Faturamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedFatFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsFin</Value></Property><Property><Name>Description</Name><Value>Pedido Financeiro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parPedStsFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parPedStsFin</Value></Property><Property><Name>Description</Name><Value>Pedido Financeiro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>get_wwpedidosVenda</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,422 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:36:21.0000000Z" checksum="d0abe3a4c1e24085537a46507c085c1f" fullyQualifiedName="prcNovoEFrete_Motorista" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="d6f57c0c-b488-43a3-825a-92f66d8ad326" name="prcNovoEFrete_Motorista" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Novo EFrete_Motorista" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[// O conteúdo da tag Integrador deve ser uma CONSTANTE, pois é ela quem identifica seu sistema de gestão,
+//Suporte e-FRETE:	Seguem credenciais para uso em ambiente de homologação:
+//Integrador:		JASPI SISTEMAS DE INFORMÁTICA
+//CNPJ:				21826923000177
+//Usuário:			usuario@jaspi
+//Senha:			usuario#jaspi
+//Hash:				b754b48e-8c22-4cfc-bb0a-3524a76284c9
+
+LoadWWPContext(&Context)
+//Config do Servidor
+HostWebServiceEfrete.Call(&EmpWebHost, &ExecuteUrl, '', '', &Hash)
+&ExecuteUrl			+= 'motoristas/gravar'
+
+&HttpClient.Host	= 	&EmpWebHost
+&HttpClient.Secure	= 	1
+	
+//Header do JSON
+&HttpClient.AddHeader(!'Content-Type', !'application/json')
+&HttpClient.AddHeader(!'Accept-Encoding', !'gzip, deflate, br')
+
+&IsCelular			= False
+&IsTelefoneFixo		= False
+&IsOk 				= True
+&Mensagem 			= 'Os seguintes campos são obrigatórios e NÃO estão preenchidos: '
+Do 'GetMotorista'
+
+If &IsOk		
+	
+	//Corpo do Xml
+	&XmlBody	=	'{'
+	&XmlBody	+=	'          "CPF": "'			+	Trim(&XMLPesCPF) 	+'",'
+	&XmlBody	+=	'          "Nome": "'			+	Trim(&XMLPesRaz)	+'",'
+	&XmlBody	+=	'          "CNH": "'			+	Trim(&XMLPesCnh)	+'",'
+	&XmlBody	+=	'          "DataNascimento": "'	+	Trim(&XMLPesDtaNas) +'",'
+	If Not &XMLPesMaeNom.IsEmpty()
+		&XmlBody+=	'          "NomeDeSolteiraDaMae": "'+Trim(&XMLPesMaeNom)+'",'
+	EndIf
+	&XmlBody	+=	'          "Endereco": {'
+	&XmlBody	+=	'              "Bairro": "'	+ 	Trim(&XMLPesBai) 	+'",'
+	&XmlBody	+=	'              "Rua": "'	+	Trim(&XMLPesLog)	+'",'
+	&XmlBody	+=	'              "Numero": "'	+	Trim(&XMLPesNro)	+'",'
+	If Not &XMLPesCpl.IsEmpty()
+		&XmlBody+=	'              "Complemento": "'+	Trim(&XMLPesCpl)+'",'
+	EndIf
+	&XmlBody	+=	'              "CEP": "'			+ 	Trim(&XMLPesCep)			+'",'
+	&XmlBody	+=	'              "CodigoMunicipio": "'+ 	Trim(Str(&XMLPesCidIbge))	+'"'
+	&XmlBody	+=	'          },'
+	&XmlBody	+=	'          "Telefones":'
+	&XmlBody	+=	'          {'
+	&XmlBody	+=	'              "Celular": {'
+	&XmlBody	+=	'                   "DDD": "'	+	Trim(Str(&XMLPesDD))+'",'
+	&XmlBody	+=	'                   "Numero": "'+ 	Trim(&XMLPesFonNum)	+'"'
+	If &IsTelefoneFixo = True
+		&XmlBody+=	'               },'
+	Else
+		&XmlBody+=	'               }'
+	EndIf
+	If &IsTelefoneFixo = True
+		&XmlBody+=	'               "Fixo": {'
+		&XmlBody+=	'                   "DDD": "'	+	Trim(Str(&XMLFixoPesDD))+'",'
+		&XmlBody+=	'                   "Numero": "'+ 	Trim(&XMLFixoPesFonNum)	+'"'
+		&XmlBody+=	'               }'
+	EndIf
+	&XmlBody	+=	'          },'
+	If Not &Token.IsEmpty()
+		&XmlBody	+=	'          "Token": "'+Trim(&Token)+'",'
+	EndIf
+	&XmlBody	+=	'          "Integrador": "'+ &Hash.Trim() +'",'
+	&XmlBody	+=	'          "Versao": 2'
+	&XmlBody	+=	'}'				
+	
+	//Realiza o Envio ao WebService	
+	&HttpClient.AddString(Trim(&XmlBody))
+	&HttpClient.Execute('POST',&ExecuteUrl)
+	
+	padraoUsuario.Call('G', '#EFRETEMOTORISTA', &Context.PesCod, &Context.EmpCod, &XmlBody, &PadDtaMod)
+	
+	If &HttpClient.StatusCode = 200
+		&XmlBody 		= &HttpClient.ToString()
+		&PosicaoSucesso = StrSearch(&XmlBody, '"Sucesso"')
+		&PosicaoSucesso = &PosicaoSucesso + 11
+		
+		&Status = SubStr(&XmlBody, &PosicaoSucesso, 4)
+		
+		If &Status = 'true'
+			Msg(DVMessageGetBasicNotificationMsg.Udp(!"Successo!", 'Motorista gravado/alterado com sucesso!', DVMessageType.success, "", DVMessageBoolean.True,""))
+			Do 'AtualizaMotorista'
+			&StatusRet = 200
+		Else	
+			&PosicaoSucesso = StrSearch(&XmlBody, '"Mensagem"')
+			&PosicaoSucesso = &PosicaoSucesso + 13
+			
+			&PosicaoFinal	= StrSearch(&XmlBody, '"Codigo"')
+			&PosicaoFinal	= &PosicaoFinal - &PosicaoSucesso - 8
+			&Status			= SubStr(&XmlBody, &PosicaoSucesso, &PosicaoFinal)
+			&StatusRet 		= 0
+			Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro Motorista!", 'Ocorreu um erro ao salvar o motorista. ERRO: '+ Trim(&Status), DVMessageType.error, "", DVMessageBoolean.True,""))
+		EndIf
+		padraoUsuario.Call('G', '#EFRETEMOTORISTARESPOSTA', &Context.PesCod, &Context.EmpCod, &XmlBody, &PadDtaMod)
+	Else
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro Motorista!", &HttpClient.StatusCode.ToString() + ":" + &HttpClient.ErrDescription, DVMessageType.error, "", DVMessageBoolean.True,""))
+	EndIf
+Else
+	Msg(DVMessageGetBasicNotificationMsg.Udp(!"Atenção!", Trim(&Mensagem), DVMessageType.regular, "", DVMessageBoolean.True,""))	
+EndIf
+
+Sub 'GetMotorista'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod	= &Context.EmpCod
+		Where PesCod	= &parmPesCod
+		
+		//Motorista
+		If PesCpf.IsEmpty() Or PesCpf.IsNull()
+			&Mensagem 	+= 'CPF do Motorista; '
+			&IsOk		= False
+		Else
+			&XMLPesCPF		= RetornaSoNumeros.Udp(PesCpf)
+		EndIf
+		
+		If PesRaz.IsEmpty() Or PesRaz.IsNull()
+			&Mensagem 	+= 'Nome do Motorista; '
+			&IsOk 		= False
+		Else
+			&XMLPesRaz		= PesRaz
+		EndIf
+	
+		If PesCnh.IsEmpty() Or PesCnh.IsNull()
+			&Mensagem 	+= 'CNH do Motorista; '
+			&IsOk 		= False
+		Else
+			&XMLPesCnh		= PesCnh
+		EndIf
+		
+		If PesDtaNas.IsEmpty() Or PesDtaNas.IsNull()
+			&Mensagem 	+= 'Dta. Nasc. do Motorista; '
+			&IsOk 		= False
+		Else
+			&AnoNascimento	= SubStr(ToFormattedString(PesDtaNas), 7, 4)
+			&MesNascimento 	= SubStr(ToFormattedString(PesDtaNas), 4, 2)
+			&DiaNascimento	= SubStr(ToFormattedString(PesDtaNas), 1, 2)
+			&XMLPesDtaNas	= &AnoNascimento+'-'+&MesNascimento+'-'+&DiaNascimento
+		EndIf
+	
+		&XMLPesMaeNom	= PesMaeNom
+		
+		//Endereço
+		If PesBai.IsEmpty() Or PesBai.IsNull()
+			&Mensagem 	+= 'Bairro de residência do Motorista; '
+			&IsOk 		= False
+		Else
+			&XMLPesBai		= PesBai 
+		EndIf
+		
+		If PesLog.IsEmpty() Or PesLog.IsNull()
+			&Mensagem 	+= 'Rua de residência do Motorista; '
+			&IsOk 		= False
+		Else
+			&XMLPesLog		= PesLog 
+		EndIf
+		
+		If PesNro.IsEmpty() Or PesNro.IsNull()
+			&Mensagem 	+= 'Nro. da residência do Motorista; '
+			&IsOk 		= False
+		Else
+			&XMLPesNro		= PesNro 
+		EndIf
+		
+		&XMLPesCpl		= PesCpl
+		
+		If PesCep.IsEmpty() Or PesCep.IsNull()
+			&Mensagem 	+= 'CEP de residência do Motorista; '
+			&IsOk 		= False
+		Else
+			&XMLPesCep		= PesCep 
+		EndIf
+	
+		If PesCidIBGE.IsEmpty() Or PesCidIBGE.IsNull()
+			&Mensagem 	+= 'Código do Municipio de residência; '
+			&IsOk 		= False
+		Else
+			&XMLPesCidIbge	= PesCidIBGE 
+		EndIF
+		
+		For Each Order EmpCod, PesCod, PesFonCod
+			Do Case
+				Case PesFonTpo = TipoTelefone.CELULAR or PesFonTpo = TipoTelefone.CELULAR_WHATS
+					
+					If PesFonNum.IsEmpty()	Or PesFonNum.IsNull()
+						&Mensagem 	+= 'Informações de número para contato;'
+						&IsOk 		= False
+					Else
+						&XMLPesDD			= Val(SubStr(RetornaSoNumeros.Udp(PesFonNum), 1, 2))
+						&XMLPesFonNum		= SubStr(RetornaSoNumeros.Udp(PesFonNum), 3, 20)
+					EndIf
+					
+				Case PesFonTpo = TipoTelefone.COMERCIAL or PesFonTpo = TipoTelefone.RESIDENCIAL or PesFonTpo = TipoTelefone.OUTROS
+					If PesFonNum.IsEmpty() Or PesFonNum.IsNull()
+						&Mensagem 	+= 'Informações de número para contato;'
+						&IsOk 		= False
+					Else
+						&IsTelefoneFixo		= True
+						&XMLFixoPesDD		= Val(SubStr(RetornaSoNumeros.Udp(PesFonNum), 1, 2))
+						&XMLFixoPesFonNum	= SubStr(RetornaSoNumeros.Udp(PesFonNum), 3, 20)
+					EndIf
+					
+			EndCase
+		EndFor
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'AtualizaMotorista'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod = &Context.EmpCod
+		Where PesCod = &parmPesCod
+		
+		PesStsEfr = Status_EFrete.Homologado
+		Commit
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&Token, In:&parmPesCod, Out:&StatusRet);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlBody</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesCnh">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesCnh</Value></Property><Property><Name>Description</Name><Value>CNH</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCnh</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesCPF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesCPF</Value></Property><Property><Name>Description</Name><Value>Pessoa Cpf</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesDtaNasc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesDtaNasc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesDtaNas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesDtaNas</Value></Property><Property><Name>Description</Name><Value>Data Nascimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_LONG</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesMaeNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesMaeNom</Value></Property><Property><Name>Description</Name><Value>Nome Mãe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesMaeNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesBai">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesBai</Value></Property><Property><Name>Description</Name><Value>Pessoa Bairro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesBai</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesLog</Value></Property><Property><Name>Description</Name><Value>Pessoa Logradouro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesNro</Value></Property><Property><Name>Description</Name><Value>Pessoa Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesCpl</Value></Property><Property><Name>Description</Name><Value>Pessoa Complemento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesCep</Value></Property><Property><Name>Description</Name><Value>Pessoa CEP</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesCidIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesCidIbge</Value></Property><Property><Name>Description</Name><Value>cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesFon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesFon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLPesDD">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLPesDD</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLFixoPesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLFixoPesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLFixoPesDD">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLFixoPesDD</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTelefoneFixo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTelefoneFixo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumPesCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumPesCpf</Value></Property><Property><Name>Description</Name><Value>Pessoa Cpf</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoNascimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoNascimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MesNascimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MesNascimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiaNascimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiaNascimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoSucesso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsStatus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsStatus</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsCelular">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsCelular</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoFinal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOk</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEnviarCertificado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEnviarCertificado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hash</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcNovoEFrete_Motorista</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

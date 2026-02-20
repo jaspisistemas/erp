@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="cba4b3ec-83b0-4c0c-ad5a-5dc2cde041ae" user="WINJEAN\jeanfae" versionDate="2025-10-28T12:45:29.0000000Z" lastUpdate="2025-10-27T13:10:26.0000000Z" checksum="c9bc4b7474d1803492c9e80fa568c40f" fullyQualifiedName="prcRetornaValidacoesCredito" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="51b22c81-b135-4d10-ae65-669ad5ffefce" name="prcRetornaValidacoesCredito" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Retorna Validacoes Credito" parent="Delivery" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//Restricao no cliente 
+For Each Order EmpCod, PesCod
+	Where EmpCod = &EmpCod
+	Where PesCod = &PedCliCod
+	
+	Do CAse
+		CAse not PesEnvSpc.IsNull() and not PesEnvSpc.IsEmpty()
+			&SdtCreditos.RestricaoMensagem = 'ENVIADO AO SPC!'
+			&SdtCreditos.IsTemRestricao = true
+		Case PesVenAprz = 'N'
+			&SdtCreditos.RestricaoMensagem = 'RESTRIÇÃO VENDA À PRAZO!' 
+			&SdtCreditos.IsTemRestricao = true
+	EndCase
+	
+	&sdtCreditos.PesCliCrd = PesCliCrd
+	
+	Exit
+EndFor
+
+//SOMA DUPLICATAS VENCIDA
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon038_QtdDiasDupVencida, &CfgVlr)
+&Dias = val(&CfgVlr)
+&BaseData = serverdate() - &Dias
+
+//CLIENTE COM DEBITOS
+For Each Order  EmpCod, CreCliCod, CreRecPag
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CreFrpPgtoTip <> TipoDuplicata.CARTAOD and CreFrpPgtoTip <> TipoDuplicata.CARTAOC
+	Where CreCliCod = &PedCliCod
+	Where CreDtaVct < &BaseData
+	Where CreVlrSdo  > 0
+	&SdtCreditos.VencidasMensagem = 'DUPLICATAS VENCIDAS!' 
+	&SdtCreditos.IsTemVencidas = true
+	
+	exit
+EndFor
+
+if &sdtCreditos.PesCliCrd > 0
+	//SOMA DUPLICATAS EM ABERTO
+	For Each Order  EmpCod, CreCliCod, CreRecPag
+		Where EmpCod = &EmpCod
+		Where CreRecPag = ReceberPagar.Receber
+		Where CreSts <> Status_Duplicata.CANCELADA
+		Where CreFrpPgtoTip <> TipoDuplicata.CARTAOD and CreFrpPgtoTip <> TipoDuplicata.CARTAOC
+		Where CreCliCod = &PedCliCod
+		Where CreVlrSdo  > 0
+		
+		&sdtCreditos.PesCliCrdUti += CreVlrSdo
+	EndFor
+	
+	//CALCULA SALDO DISPONIVEL
+	&SdtCreditos.PesCliSdo = &sdtCreditos.PesCliCrd - &sdtCreditos.PesCliCrdUti
+
+	if &SdtCreditos.PesCliSdo <= 0 
+		&SdtCreditos.LimiteMensagem = 'LIMITE ATINGIDO!'
+		&SdtCreditos.IsLimiteAtingido = true
+	Endif
+Endif
+
+//PEGA OS VINCULOS
+retornaVinculos.Call(&EmpCod, &PedCliCod, &sdtVinculos)
+
+For &sdtVinculosItem in &sdtVinculos
+	If &sdtVinculosItem.PesCod <> &PedCliCod	
+		&CollPedCliCod.Add(&sdtVinculosItem.PesCod)
+		&SdtCreditos.isTemVinculos = true
+		if &SdtCreditos.VinculosMensagem.IsEmpty()
+			&SdtCreditos.VinculosMensagem = 'CLIENTES VINCULADOS'
+		EndIf
+		
+		if &sdtVinculosItem.PesIsMat = true
+			&SdtCreditos.VinculosMensagem += NewLine() + '[MATRIZ] ' + trim(str(&sdtVinculosItem.PesCod)) + ' - ' + trim(&sdtVinculosItem.PesRaz)
+		Else
+			&SdtCreditos.VinculosMensagem += NewLine() + '[VINCULO] ' + trim(str(&sdtVinculosItem.PesCod)) + ' - ' + trim(&sdtVinculosItem.PesRaz)
+		Endif
+	EndIF
+EndFor
+
+//VERIFICA RESTRICOES VINCULOS
+For Each Order EmpCod, PesCod
+	Where EmpCod = &EmpCod
+	Where PesCod in &CollPedCliCod
+	
+	Do CAse
+		CAse not PesEnvSpc.IsNull() and not PesEnvSpc.IsEmpty()
+			&SdtCreditos.IsTemRestricaoVinculos = true
+			Exit
+		Case PesVenAprz = 'N'
+			&SdtCreditos.IsTemRestricaoVinculos = true
+			Exit
+	EndCase
+EndFor
+
+if &sdtCreditos.IsTemRestricaoVinculos = false //nao tem restricao  nos vinculos,  veja os debitos.
+	//VERIFICA DUPLICATAS VENCIDAS VINCULOS
+	For Each Order  EmpCod, CreCliCod, CreRecPag
+	Where EmpCod = &EmpCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreSts <> Status_Duplicata.CANCELADA
+	Where CreFrpPgtoTip <> TipoDuplicata.CARTAOD and CreFrpPgtoTip <> TipoDuplicata.CARTAOC
+	Where CreCliCod in &CollPedCliCod
+	Where CreDtaVct < &BaseData
+	Where CreVlrSdo  > 0
+	&SdtCreditos.IsTemRestricaoVinculos = true
+	
+	exit
+EndFor
+Endif
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCliCod, inout:&SdtCreditos);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtCreditos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtCreditos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtCreditos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BaseData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BaseData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmAbertoCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmAbertoCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtVinculos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtVinculos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtVinculos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtVinculosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtVinculosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtVinculos.sdtVinculosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CollPedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CollPedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcRetornaValidacoesCredito</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

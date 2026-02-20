@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="e20f1deb-e4fa-48f5-bc73-639ccaa10c06" user="WINJEAN\jeanfae" versionDate="2025-02-07T14:24:25.0000000Z" lastUpdate="2025-02-05T11:11:15.0000000Z" checksum="024461f525ffe17290b59bb9e24d0422" fullyQualifiedName="api_erp.prcAutenticarUsuario" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="9966b15e-0002-421f-b423-0074545a826e" name="prcAutenticarUsuario" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Autenticar Usuario" parent="api_erp.autenticacao" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+//TRATAR A VERSAO DO APPP
+//vApi
+//vApiNew
+//linkBaixaApp
+
+// 'J100' //recebido parametros
+// 'J101' //erro usuario adm
+// 'J102' //redefinir senha
+// 'J103' //Erro do GAM
+// 'J104' //Erro IMPLANTACAO
+// 'J105' //nao usuario
+// 'J106' //Usuário não autorizado ao acesso externo pelo IP: '+RemoteA
+// 'J200' // SUCESSO
+// 'J999 ou J998' //'log in my eggs'
+
+if not &CodigoAcesso.IsEmpty() and &CodigoAcesso.Length() > 50
+	&Pass = prcCode.Udp()
+	if &CodigoAcesso like '%'+&Pass
+		
+		&index = &CodigoAcesso.IndexOf(&Pass, 1)
+		&Index -= 1
+		//Pega valor do usuairo
+		&Usuario = Substr(&CodigoAcesso, 1, &Index)
+		
+		&Index += 51
+		//pega valor da senha
+		&Senha = Substr(&CodigoAcesso, &Index, 100)
+	
+		&sdtAuth.status = 'J100'
+		&sdtAuth.msg = 'recebido codigo acesso' // &Usuario + '***'+&Senha
+		
+		do 'authentic'
+	Else
+		//Tentativa Login invalida retornar 
+		
+		&sdtAuth.status = 'J998'
+		&sdtAuth.msg = 'Falha na instalação, reinstalação necessária'
+	Endif
+Else
+	&sdtAuth.status = 'J999'
+	&sdtAuth.msg = 'Falha na instalação, reinstalação necessária'
+Endif
+
+sub 'authentic'
+	&sdtAuth.IsOkAcesso = '0'
+	&sdtAuth.IsOkLicenca = '0'
+	
+	if upper(&Usuario) = 'ADMJASPI' //se for este usuario ele seta a senha vazia pra nao acessar com admjaspi
+		&sdtAuth.status = 'J101'
+		&sdtAuth.msg = 'aqui não é local para isso'
+	Else			
+		//Lembrar usuario	
+		&AdditionalParameter.RememberUserType = GAMRememberUserTypes.None	
+		
+		//Tipo Autenticacao
+		&LogOnTo = 'local'
+		&AdditionalParameter.AuthenticationTypeName = &LogOnTo			
+		
+		// CASO MUDE, OU IMPLEMENTE ALGO AQUI, TERÁ DE SER MUDADO NO AlterarSenhaPasso2 //////////////////////////////////////////////////////
+		&LoginOK = GAMRepository.Login(&Usuario, &Senha, &AdditionalParameter, &Errors )
+		
+		If &LoginOK = true
+			
+			&sdtAuth.status = 'J200'
+			&sdtAuth.msg = 'Autenticacao concedida'
+			&sdtAuth.IsOkAcesso = '1'
+	
+			&sdtAuth.UserName = &GAMUser.GetName()
+			&sdtAuth.PesExtCod = val(&GAMUser.GetExternalId())
+			If upper(&sdtAuth.UserName) = 'SUPORTE.JASPI'
+				&sdtAuth.TipoPerfil = 3	
+				&sdtAuth.PesCod = -1
+				&sdtAuth.PesRaz = 'ADMINISTRADOR SISTEMA'
+			Else
+				prcInformacaoPerfil.Call(trim(str(&sdtAuth.PesExtCod)), &sdtAuth)
+			Endif
+			&sdtAuth.Old_Perfil = &sdtAuth.TipoPerfil
+			
+			Do Case
+				Case &sdtAuth.TipoPerfil = 1
+					ProcLoadInicio_smart.Call(0, 0, &sdtAuth)
+					
+				Case &sdtAuth.TipoPerfil = 2 //Contador
+					//Deve escolher empresa para acessar, ou predefinir uma empresa padrao login
+					////WWContador.Link(&GAMUser.GetExternalId())
+					
+				Case &sdtAuth.TipoPerfil = 3 //suporte
+					//retorna empresa padrao
+					
+					
+					&QtdEmpCod = RetQtdEmp.udp()
+					If &QtdEmpCod > 1 //caso nao tenha empresa padrao usuario escolhe
+						//Deve escolher empresa para acessar, ou predefinir uma empresa padrao login
+						//WWAdmin.Link()
+					Else
+						For Each ORder EmpCod, FilCod //ou logar na primeira se tem so 1.
+							ProcLoadInicio_smart.Call(EmpCod, FilCod, &sdtAuth)
+							Exit
+						EndFor
+					EndIF
+			EndCase
+			
+			//inicializa			
+			
+			&wwpContext.EmpCod = &sdtAuth.EmpCod
+			//&wwpContext.EmpRaz = &sdtAuth.EmpRaz //NAO PRECISA
+			&wwpContext.FilCod = &sdtAuth.FilCod
+			//&wwpContext.FilRaz = &sdtAuth.FilRaz //NAO PRECISA
+			//&wwpContext.FilTime //NAO PRECISA
+			&wwpContext.PesCod = &sdtAuth.PesCod
+			//&wwpContext.PesRaz = &sdtAuth.PesRaz //NAO PRECISA
+			&wwpContext.PesIsVen = &sdtAuth.PesIsVen
+			&wwpContext.PesIsFun = &sdtAuth.PesIsFun
+			//&wwpContext.CtaBanCod //NAO PRECISA
+			//&wwpContext.CtaBanNom //NAO PRECISA
+			&wwpContext.UserName = &sdtAuth.UserName
+			&wwpContext.PesExtCod = &sdtAuth.PesExtCod
+			//&wwpContext.DeviceRandon //VAI GRAVAR DENTRO DO prcInicializaDevice
+			//&wwpContext.BrowserVersion
+			&wwpContext.TipoPerfil = &sdtAuth.TipoPerfil
+			&wwpContext.Old_Perfil = &sdtAuth.Old_Perfil
+			prcInicializaDevice.Call(&DeviceId, &wwpContext, &DevRandon)
+			&sdtAuth.DevRandon = &DevRandon
+			
+		Else		
+			If &Errors.Count > 0 
+				
+				Do Case
+					Case (&Errors.Item(1).Code = GAMErrorMessages.UserPasswordExpired   OR  &Errors.Item(1).Code = GAMErrorMessages.UserPasswordMustBeChanged)
+						&sdtAuth.status = 'J102'
+						&sdtAuth.msg = 'Redefina a senha'
+					Otherwise						
+						Do 'DisplayMessages'
+				EndCase
+			EndIf
+		Endif
+	Endif
+	
+EndSub
+
+
+Sub 'DisplayMessages'
+	&sdtAuth.msg = ''
+	For &Error in &Errors
+		If &Error.Code <> GAMErrorMessages.SessionExpired	
+			&sdtAuth.status = 'J103'
+			&sdtAuth.msg += Format(!"%1 (GAM%2)", &Error.Message, &Error.Code)
+		Endif
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&CodigoAcesso, in:&DeviceId, out:&sdtAuth);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Senha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Senha</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>IsPassword</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Usuario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Usuario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>IsPassword</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CodigoAcesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CodigoAcesso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>IsPassword</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Pass">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Pass</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>IsPassword</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAuth">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAuth</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAuth, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogOnTo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogOnTo</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GAMUserIdentification, GeneXusSecurityCommon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AdditionalParameter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AdditionalParameter</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMLoginAdditionalParameters, GeneXusSecurity</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>Decimals</Name><Value>60</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>AttAvgLen</Name><Value>60</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Errors">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Errors</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LoginOK">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LoginOK</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Error">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Error</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GAMUser">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GAMUser</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMUser, GeneXusSecurity</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DeviceId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DeviceId</Value></Property><Property><Name>Description</Name><Value>Device Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DeviceId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcAutenticarUsuario</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

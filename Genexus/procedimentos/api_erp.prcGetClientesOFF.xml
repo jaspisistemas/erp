@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="60f6a223-5413-466d-85dc-3681ba141704" user="WINJEAN\jeanfae" versionDate="2025-07-14T14:27:14.0000000Z" lastUpdate="2025-07-11T14:09:47.0000000Z" checksum="8de462c9b8709be31aa527ba0ebb8bc4" fullyQualifiedName="api_erp.prcGetClientesOFF" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="b75e4e14-c4ee-49f4-84a4-f508a77e81b4" name="prcGetClientesOFF" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Get Clientes OFF" parent="api_erp.clientes" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&LogGUID = guid.NewGuid()
+
+&SdtClientesOFF.QtdItens = 0 //QUANTOS ITENS VAI RETORNAR
+&SdtClientesOFF.UltPesCod = 0 //Ultimo Codigo Adicionado
+&SdtClientesOFF.TemMais = 'N' //TEM MAIS
+
+&SdtClientesOFF.qtdFone = 0
+&SdtClientesOFF.qtdEmail = 0
+&qtdMax = 200
+
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	if &wwpContext.TipoPerfil <> 3 //ADM
+		RetornaAutorizacaoDescontoMaximo.Call(&wwpContext.EmpCod, &wwpContext.PesCod, &IsAutorizadoDescontoMaximo)
+	Else
+		&IsAutorizadoDescontoMaximo = true
+	Endif
+	
+	//VENDA A VISTA OFFLINE
+	For each order EmpCod, AppCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where AppCod = TipoAplicativo.FORCAVENDAS
+		
+		&VistaPesCod = AppCon009
+		
+		Exit
+	EndFor
+
+	if &VistaPesCod.IsEmpty()
+		//VENDA A VISTA ONLINE
+		RetornaConfSistema_VendaAvista.Call(&wwpContext.EmpCod, &wwpContext.FilCod, domConfSistema.TCon020_ClientePadraoVista, &TCon020_ClientePadraoVista)
+		&VistaPesCod = val(&TCon020_ClientePadraoVista)
+	Endif
+
+	
+
+
+	retornaConfiguracoesPastas.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &SdtConfiguracoesPasta )
+	RetornaTipoAnexo.Call(&wwpContext.EmpCod, '#IMAGEM_PESSOA#', &PesAnxTipCod)
+	
+	//Cidades e estados
+	&PadObs.SetEmpty()
+	padraoUsuario.Call('L', '#CONFIGCIDADES_OFF#', &wwpContext.PesCod, &wwpContext.EmpCod, &PadObs, &PadDtaMod)
+	&sdtCidade.FromJson(&PadObs)
+	
+	if &sdtCidade.Count <= 0
+		padraoUsuario.Call('L', '#CONFIGUFS_OFF#', &wwpContext.PesCod, &wwpContext.EmpCod, &PadObs, &PadDtaMod)
+		&sdtUF.FromJson(&PadObs)
+		
+		&CollUfeCod.Clear()
+		for &sdtUFItem in &sdtUF
+			if &sdtUFItem.UfeSel = true
+				&CollUfeCod.Add(&sdtUFItem.UfeCod)
+			Endif
+		EndFor
+	Else
+		&CollCidCod.Clear()
+		for &sdtCidadeItem in &sdtCidade
+			if &sdtCidadeItem.CidSel = true
+				&CollCidCod.Add(&sdtCidadeItem.CidCod)
+			Endif
+		EndFor
+	Endif
+	
+	if &sdtCidade.Count <= 0 and &sdtUF.Count <= 0
+		For Each Order EmpCod, FilCod
+			Where EmpCod = &wwpContext.EmpCod
+			Where FilCod = &wwpContext.FilCod
+			&FilCidUfeCod = FilCidUfeCod
+			Exit
+		EndFor
+	EndIf
+	//Cidades e estados
+	
+	RetornaAutorizacaoApi.Call('TELEVENDATROCARVENDEDOR', &wwpContext, &AutGrpCod, &TELEVENDATROCARVENDEDOR)
+	prcRetornaUlimaDataHoraSincronizacao.Call(&DevRandon, 'CLIENTEOFF', &DevTabDtaUltSync, &DevTabAtu)
+	
+	&Data = &DevTabDtaUltSync.ToDate()
+	//RETORNAR CLIENTES DO VENDEDOR
+	For each order EmpCod, PesCod
+		Where EmpCod = &wwpContext.EmpCod
+		where PesIsCli = true
+		Where PesSts = Status_ativoInativo.ATIVO when &DevTabDtaUltSync.IsEmpty() or &DevTabAtu = true
+		where PesCod > &inPesCod
+		Where PesCidUfeCod in &CollUfeCod when &CollUfeCod.Count > 0 and &FilCidUfeCod.IsEmpty()
+		Where PesCidCod in &CollCidCod when &CollCidCod.Count > 0 and &FilCidUfeCod.IsEmpty()
+		where PesCidUfeCod = &FilCidUfeCod when not &FilCidUfeCod.IsEmpty() //and &CollUfeCod.Count = 0 and &CollCidCod.Count = 0
+		Where ((PesExtVenCod = &wwpContext.PesCod or PesIntVenCod = &wwpContext.PesCod) or &TELEVENDATROCARVENDEDOR > 0) or &wwpContext.Old_Perfil = 3
+		Where (PesDtaHorAlt > &DevTabDtaUltSync or &DevTabDtaUltSync.IsEmpty()) or &DevTabAtu = true
+		
+		if &SdtClientesOFF.QtdItens = &qtdMax
+			&SdtClientesOFF.TemMais = 'S'
+			Exit
+		Else
+			&SdtClientesOFF.QtdItens += 1
+			&SdtClientesOFF.UltPesCod = PesCod
+			
+			&SdtClientesOFFItem = new()
+			&SdtClientesOFFItem.Cod = PesCod
+			
+			&PesGUID = PesGUID
+			if &PesGUID.IsEmpty()
+				&PesGUID = GUID.NewGuid()
+				PesGUID = &PesGUID
+			endif
+			
+			&SdtClientesOFFItem.GUID   = &PesGUID
+			&SdtClientesOFFItem.Raz    = trim(PesRaz.Replace('"', "'"))
+			&SdtClientesOFFItem.Fan    = trim(PesFan.Replace('"', "'"))
+			if PesTip = TipoPessoa.FISICA
+				&SdtClientesOFFItem.Cpfj   = PesCpf
+				&SdtClientesOFFItem.InsEst = PesCadPro
+			Else
+				&SdtClientesOFFItem.Cpfj   = PesCnpj
+				&SdtClientesOFFItem.InsEst = PesInsEst
+			Endif
+			
+			&SdtClientesOFFItem.Log    = trim(PesLog.Replace('"', "'"))
+			&SdtClientesOFFItem.Cep    = PesCep
+			&SdtClientesOFFItem.Bai    = trim(PesBai.Replace('"', "'"))
+			&SdtClientesOFFItem.Nro    = PesNro
+			&SdtClientesOFFItem.CidCod = PesCidCod
+			&SdtClientesOFFItem.CidNom = PesCidNom
+			&SdtClientesOFFItem.Ufe = PesCidUfeCod
+			
+			&SdtClientesOFFItem.Tip    = PesTip
+			&SdtClientesOFFItem.Sts    = PesSts
+			
+			&SdtClientesOFFItem.Frp = PesFrpPgtoCod			
+			&SdtClientesOFFItem.Prz = PesCliPrzCod
+			&SdtClientesOFFItem.Par = PesCliPrzCom
+			
+			//&SdtClientesOFFItem.CliOffCod = 0
+			//	
+			if &IsAutorizadoDescontoMaximo = true
+				&SdtClientesOFFItem.DscMax = '100'
+			Else
+				&SdtClientesOFFItem.DscMax = trim(toformattedString(PesDscMax))
+			Endif		
+			
+			&SdtClientesOFFItem.VenAprz = PesVenAprz
+
+	&SdtClientesOFFItem.Obs = PesObs
+	
+	if not PesEnvSpc.IsNull() and not PesEnvSpc.IsEmpty()
+		//&PagamentoMensagem = 'CLIENTE ENVIADO AO SPC POR ESTA EMPRESA!' + newLine()
+		&SdtClientesOFFItem.EnvSPC = 'S'
+	EndiF
+
+	//&CreditoMensagem = RetornaObsClienteFORMULA.udp(&EmpCod, &FilCod, &PedCod, &PedCliCod, 'C')	
+	//&AvisoPedidoMensagem = RetornaObsClienteFORMULA.udp(&EmpCod, &FilCod, &PedCod, &PedCliCod, 'A')
+	//&VinculosMensagem = RetornaObsClienteFORMULA.udp(&EmpCod, &FilCod, &PedCod, &PedCliCod, 'V')
+	
+	if PesCod <> &VistaPesCod
+		&VencidoMensagem = RetornaObsClienteFORMULA.udp(&wwpContext.EmpCod, &wwpContext.FilCod, 0, PesCod, 'P1')	
+		
+		if not &VencidoMensagem.IsEmpty()
+			&SdtClientesOFFItem.DupVcd	= 'S'
+		Else
+			&SdtClientesOFFItem.DupVcd	= 'N'
+		Endif
+		
+		//NAO PRECISA TRAZER DO CONSUMIDOR FINAL. e nem para quem nao controla credito
+		&PesCliCrdUti = 0
+		&SdtClientesOFFItem.LimDisp = 'S'
+		
+		if PesCliCrd > 0
+			RetornaDuplicatasEmAberto.call(EmpCod, PesCod, &PesCliCrdUti)
+			
+			&SdtClientesOFFItem.LimTot = trim(toformattedString(PesCliCrd)) //Valor do Limite
+			
+			&Moeda = PesCliCrd - &PesCliCrdUti
+			&SdtClientesOFFItem.LimVlr = trim(toformattedString(&Moeda))
+			
+			if &Moeda <= 0
+				&SdtClientesOFFItem.LimDisp = 'N'
+			EndIf		
+		Endif
+	Endif
+
+
+	
+
+			
+			&SdtClientesOFFItem.imgBas64 = ''
+			&PesCod = PesCod
+			DO 'GETiMAGEM'
+			
+			If not &link.IsEmpty() and &PesAnxCod > 0
+				
+				if (&PesAnxMod >= &Data) or &Data.IsEmpty() or &DevTabAtu = true
+					
+					&link = &link.Replace('\', '/')
+					&BlobFile.FromURL(&link)
+					
+					if &BlobFile.IsEmpty()
+						&Content64 = ''
+					Else
+						&blob = &BlobFile
+						&Content64 = &blob.ToBase64String()	
+					Endif
+					
+					&SdtClientesOFFItem.imgBas64 = &Content64 //&link //&Content64
+				Endif
+			Else
+				&SdtClientesOFFItem.imgBas64 = 'SEMIMAGEM'
+			Endif
+			
+			if PesDtaHorAlt.IsEmpty() or PesDtaHorAlt.IsNull()
+				PesDtaHorAlt  = now()
+			Endif
+			&SdtClientesOFFItem.DtaHorAlt = PesDtaHorAlt
+			&SdtClientesOFFItem.DtaHorAltTmp = DateTimeToTimestamp.Udp(PesDtaHorAlt)
+			
+			&SdtClientesOFFItem.Suf    = PesSuf.Trim()		
+			&SdtClientesOFFItem.Rg     = PesRg
+			&SdtClientesOFFItem.Cpl    = PesCpl
+			
+			//	//FONE
+			For each
+				//count 3 //jdf deixar levar todos os fones
+				order EmpCod, PesCod, PesFonCod 
+				
+				&SdtClientesOFF.qtdfone += 1
+				&sdtGetFoneItem         = new()
+				&sdtGetFoneItem.PGuid = &PesGUID
+				if PesFonGUID.IsEmpty() or PesFonGUID.IsNull()
+					PesFonGUID = GUID.NewGuid()
+				endif
+				//				&sdtGetFoneItem.PGuid = PesFonGUID
+				&sdtGetFoneItem.FonCod = PesFonCod
+				&sdtGetFoneItem.FonNum = PesFonNum
+				&sdtGetFoneItem.FonOpe = PesFonOpe.ToString()
+				&sdtGetFoneItem.FonTip = PesFonTpo.ToString()
+				&sdtGetFoneItem.Ped = iif(PesFonWhatsPed = true, '1', '0')
+				&sdtGetFoneItem.Fin = iif(PesFonWhatsBol = true, '1', '0')
+				&sdtGetFoneItem.Fat = iif(PesFonWhatsFat = true, '1', '0')
+
+				&SdtClientesOFF.Fone.Add(&sdtGetFoneItem)
+			EndFor
+			
+			//EMAIL
+			For each
+				//count 3 //JDF deixa levar todos os email.
+				
+				order EmpCod, PesCod, PesEmlCod
+				
+				&SdtClientesOFF.qtdEmail += 1
+				&sdtGetEmailItem = new()
+				&sdtGetEmailItem.PGuid = &PesGUID
+				&sdtGetEmailItem.EmlCod = PesEmlCod
+				if PesEmlGUID.IsEmpty() or PesEmlGUID.IsNull()
+					PesEmlGUID = GUID.NewGuid()
+				endif
+				//				&sdtGetEmailItem.PesEmlGUID = PesEmlGUID
+				&sdtGetEmailItem.Eml = PesEml
+				&sdtGetEmailItem.Ped = PesEmlPed
+				&sdtGetEmailItem.Fat = PesEmlFat
+				&sdtGetEmailItem.Fin = PesEmlFin
+				&SdtClientesOFF.Email.Add(&sdtGetEmailItem)
+			EndFor
+			
+			&SdtClientesOFF.item.Add(&SdtClientesOFFItem)
+		Endif
+	EndFor	
+Endif
+
+
+Sub 'GETiMAGEM'
+	&PesAnxCod = 0
+	For Each Order EmpCod, PesAnxCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where PesCod = &PesCod
+		where PesAnxTipCod = &PesAnxTipCod
+		
+		&PesAnxMod = PesAnxMod
+		&PesAnxCod = PesAnxCod
+		if PesAnxMod.IsEmpty() or PesAnxMod.IsNull()
+			PesAnxMod = serverdate()
+			commit
+		Endif
+		
+		&link = &SdtConfiguracoesPasta.PastaDiretorioFisico.Trim() +'\anexos\'+ trim(str(EmpCod)) + '\' + trim(PesAnxGuidNom)+'_'+trim(PesAnxGuid.ToString()) +'.'+ trim(PesAnxGuidExt)
+		Do Case
+			Case &SdtClientesOFF.QtdItens < 10
+				&qtdMax -= 2
+			Case &SdtClientesOFF.QtdItens > 50
+				&qtdMax -= 5
+		EndCase
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'subException_handler'
+	
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subException_handler','subException_handler')
+	
+EndSub
+
+Sub 'subError_handler'
+	
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subError_handler','subError_handler')
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&inPesCod, out:&SdtClientesOFF);
+
+
+Exception_handler('subException_handler');
+
+Error_handler('subError_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtClientesOFF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtClientesOFF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtClientesOFF, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutorizadoDescontoMaximo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutorizadoDescontoMaximo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadObs</Value></Property><Property><Name>Description</Name><Value>Obs com o Padrao Tela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCidade</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCidadeItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCidadeItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCidade.sdtCidadeItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtUF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CollUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CollUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:UfeCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtUFItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtUFItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtUF.sdtUFItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CollCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CollCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TELEVENDATROCARVENDEDOR">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TELEVENDATROCARVENDEDOR</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutNiv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevTabDtaUltSync">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevTabDtaUltSync</Value></Property><Property><Name>Description</Name><Value>Ultima Sincronizacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevTabDtaUltSync</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtClientesOFFItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtClientesOFFItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtClientesOFF.itemItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutGrpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutGrpCod</Value></Property><Property><Name>Description</Name><Value>Perfil</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutGrpCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevTabAtu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevTabAtu</Value></Property><Property><Name>Description</Name><Value>Atualzia?</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevTabAtu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGetFoneItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGetFoneItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtClientesOFF.FoneItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGetEmailItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGetEmailItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtClientesOFF.EmailItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Blob">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Blob</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property></Properties>
+        </Variable>
+        <Variable Name="link">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>link</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxMod</Value></Property><Property><Name>Description</Name><Value>Modificado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Data">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Data</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FILE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FILE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxTipCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxTipCod</Value></Property><Property><Name>Description</Name><Value>Tipo Anexo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxTipCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Content64">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Content64</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdMax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdMax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BlobFile">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BlobFile</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:BlobFile</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesGUID</Value></Property><Property><Name>Description</Name><Value>Pes GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCliCrdUti">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCliCrdUti</Value></Property><Property><Name>Description</Name><Value>Valor Utilizado PDV</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCliCrdUti</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VistaPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VistaPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon020_ClientePadraoVista">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon020_ClientePadraoVista</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VencidoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VencidoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGetClientesOFF</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

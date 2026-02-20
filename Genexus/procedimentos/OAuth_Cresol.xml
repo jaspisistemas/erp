@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="109dc40d-fb94-48f7-a6c1-47a05e0d690c" user="LUIZ\LuiZ Henrique" versionDate="2024-10-23T20:42:09.0000000Z" lastUpdate="2024-10-23T18:48:30.0000000Z" checksum="efb708b2d97dcae70a7f3a3e3831033b" fullyQualifiedName="OAuth_Cresol" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="9c2f2bd4-ca1f-4798-8cb1-7b82d1b18166" name="OAuth_Cresol" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="OAuth_Cresol" parent="BoletoSimples_Cresol" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*
+ENDPOINT com funcionalidade de gerar um token necessário para consumir APIs do CRESOL.
+	° O tempo de vida de um token gerado é de cinco minutos. Com isso, é possível realizar
+	um número determinado de requisições, de acordo com o rate limit de cada api.
+		Rate Limit: 5 chamadas por minuto, ou uma chamada a cada 12 segundos.
+		
+Neste ENDPOINT, o sistema irá definir alguns valores padrões e montar o body da requisição
+em formato x-ww-form-urlencoded. Posteriormente, montará o header da requisição e adicionar
+o certificado referente a conta bancária na requisição. Após a adição, o sistema irá executar
+um POST na URL referente ao ambiente de produção do banco CRESOL.
+
+Responses:
+	Sucesso:
+		Code 200 = Sucesso. Token Emitido.
+		
+	Erros:
+		Code 400 = Requisição com formato inválido, por exemplo erro de semântica.
+		Code 403 = Requisição de participante autenticado que viola alguma regra de autorização. Verifique com o suporte do banco.
+		Code 404 = Recurso solicitado não foi encontrado.
+		Code 503 = Serviço não disponível no momento. O endpoint neste caso não funciona mais, ou está em manutenção.	
+*/
+
+Do 'GetLocalCobranca'
+
+//Define valores padrões
+&DataHora	= ServerNow()
+&Mensagem.SetEmpty()
+
+//Adiciona em uma variavel o body da requisição
+//em formato x-ww-form-urlencoded
+&xwwformurlencoded	= 'grant_type=password'
+&xwwformurlencoded += '&client_id=cresolApi'
+&xwwformurlencoded += '&client_secret=cr3s0l4p1' 
+&xwwformurlencoded += '&scope=' + &scope
+&xwwformurlencoded += '&username=' + &client_id
+&xwwformurlencoded += '&password=' + &client_secret
+
+//Configura os Headers e adiciona o body
+&HttpClient.AddHeader('Accept-Encoding', 'gzip, deflate, br')
+&HttpClient.AddHeader('Connection', 'keep-alive')
+&HttpClient.AddHeader('Content-Type', 'application/x-www-form-urlencoded')
+&HttpClient.AddString(&xwwformurlencoded)
+
+//HOMOLOGAÇÃO &HttpClient.Execute(HttpMethod.Post, 'https://auth-dev.governarti.com.br/auth/realms/cresol/protocol/openid-connect/token')
+&HttpClient.Execute(HttpMethod.Post, 'https://cresolauth.governarti.com.br/auth/realms/cresol/protocol/openid-connect/token')
+If &HttpClient.ErrCode = 0
+	PadraoUsuarioHora.Call('G', 'CRESOL_TOKENOAUTH', &ContextPesCod, &EmpCod, &HttpClient.ToString(), ServerDate(), ServerNow(), 'T')
+	&OAuthCresol_Response.FromJson(&HttpClient.ToString())
+	Do 'GravaAccessToken'
+Else
+	PadraoUsuarioHora.Call('G', 'CRESOL_TOKENOAUTH_ERRO', &ContextPesCod, &EmpCod, &HttpClient.ToString(), ServerDate(), ServerNow(), 'T')
+	&OAuthCresol_Erro.FromJson(&HttpClient.ToString())
+	&Mensagem	= &OAuthCresol_Erro.error + IIf(&OAuthCresol_Erro.error_description.IsEmpty(), '', ' - ' + &OAuthCresol_Erro.error_description)
+EndIf
+
+Sub 'GetLocalCobranca'
+	
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		&client_id	= CtaBanPixCliId
+		&client_secret	= CtaBanPixCliSec
+		&scope	= CtaBanPixEsc
+		
+		Exit
+	EndFor
+
+EndSub
+
+Sub 'GravaAccessToken'
+	
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		&CbrChaTra	= &OAuthCresol_Response.access_token
+		CbrChaTra	= &OAuthCresol_Response.access_token
+		CbrChaTraVct	= &DataHora.AddSeconds(&OAuthCresol_Response.expires_in)
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&EmpCod, In:&CbrCod, In:&ContextPesCod, Out:&CbrChaTra, Out:&Mensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="client_id">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>client_id</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="client_secret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>client_secret</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="scope">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>scope</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="password">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>password</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="username">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>username</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataHora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xwwformurlencoded">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xwwformurlencoded</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ContextPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ContextPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OAuthCresol_Response">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OAuthCresol_Response</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:OAuthCresol_Response</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação | token Beaber</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OAuthCresol_Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OAuthCresol_Erro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:OAuthCresol_Erro</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>OAuth_Cresol</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

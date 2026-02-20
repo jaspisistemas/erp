@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="b7dac21c-4d23-49e0-921e-0f5f9f1389c5" user="WINJEAN\jeanfae" versionDate="2025-03-17T17:28:27.0000000Z" lastUpdate="2025-03-12T19:47:37.0000000Z" checksum="8d46a37a99b2f81496bc6b79c2d4bf8d" fullyQualifiedName="api_erp.set_capaBalanco" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="ab6d1e4c-7dac-4c16-afc2-b1ee4571c877" name="set_capaBalanco" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_capa Balanco" parent="api_erp.Balanco" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	
+	Do CAse
+		CAse &OqueFazer = 'ADDCAPA'
+			if &sdtBalancoCapa.balCod = 0
+				UltimoCodigoEmpresa.Call(domParCod.BALANCO, &wwpContext.EmpCod, &wwpContext.FilCod, &BalCod)
+				new
+					EmpCod= &wwpContext.EmpCod
+					FilCod= &wwpContext.FilCod
+					BalCod = &BalCod
+					BalFunCod = &wwpContext.PesCod
+					BalDta = serverdate()
+					BalObs = &sdtBalancoCapa.balObs
+					BalSts = Status_Pedido.ABERTO
+					BalStsPrc = AtualizandoEstoquePedido.Aberto
+					BalPedCod = 0
+					BalNfeCod = 0
+					BalTip = TipoBalanco.Gerencial
+				EndNew
+			
+				commit
+				
+				&sdtRetornoWbsEtc.sts = 'J200'
+				&sdtRetornoWbsEtc.c1 = 'INSERT'
+				get_capaBalanco.Call(&DevRandon, 'CAPA', '', &wwpContext.filcod, &balCod, &outsdtBalancoCapa)
+				&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+			else
+				For each Order EmpCod, FilCod, BalCod
+					Where EmpCod = &wwpContext.EmpCod
+					Where FilCod = &sdtBalancoCapa.FilCod
+					Where BalCod = &sdtBalancoCapa.balCod
+					
+					//BalDta = serverdate()
+					BalObs = &sdtBalancoCapa.balObs
+					
+					Exit
+				EndFor
+				
+				&sdtRetornoWbsEtc.sts = 'J200'
+				&sdtRetornoWbsEtc.c1 = 'UPDATE'
+				get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)
+				&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+			EndIf
+			
+		CAse &OqueFazer = 'ABRIRBAL'
+			
+			&AutNiv = RetornaAutorizacaoApi.UDP('ABRIRBALANCOESTOQUE', &wwpContext, &AutGrpCod)
+			if &AutNiv > 0
+				do 'getBalanco'
+				
+				&ProgressID = 'ABRIRBAL'+serverTime()	
+				&sdtRetornoWbsEtc.obs = 'Procedimentos em andamento'
+				
+				AbrirBalanco.Submit(&ProgressId, &ProgressId, &wwpContext.EmpCod, &sdtBalancoCapa.FilCod, &sdtBalancoCapa.BalCod, &wwpContext.PesCod)
+				
+				&sdtRetornoWbsEtc.sts = 'J200'
+				&sdtRetornoWbsEtc.c1 = 'FECHA'
+				&sdtRetornoWbsEtc.c2 = &ProgressID
+				get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)
+				&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()				
+			Else
+				&sdtRetornoWbsEtc.obs = 'Não Autorizado ao Nível de Fechar Balanço de Estoque. [ABRIRBALANCOESTOQUE]'
+				&sdtRetornoWbsEtc.sts = 'E995'
+				&sdtRetornoWbsEtc.c1 = 'ABRIR'
+			EndiF
+			
+			
+		CAse &OqueFazer = 'FECHABAL'
+			do 'validaBalanco'
+			&AutNiv = RetornaAutorizacaoApi.UDP('FECHARBALANCOESTOQUE', &wwpContext, &AutGrpCod)
+			if &AutNiv > 0
+				
+				VerificaLoteInformadoBalanco.Call(&wwpContext.EmpCod, &sdtBalancoCapa.FilCod, &sdtBalancoCapa.BalCod, 0, 0, &IsTodosInformados)
+				
+				if &IsTodosInformados = TRUE //TUDO CERTO
+					
+					&ProgressID = 'FECHABAL'+serverTime()	
+					
+					FecharBalanco.Submit(&ProgressId, &ProgressId, &wwpContext.EmpCod, &sdtBalancoCapa.FilCod, &sdtBalancoCapa.BalCod, &wwpContext.PesCod)
+					
+					&sdtRetornoWbsEtc.obs = 'Procedimentos em andamento'
+					&sdtRetornoWbsEtc.sts = 'J200'
+					&sdtRetornoWbsEtc.c1 = 'FECHA'
+					&sdtRetornoWbsEtc.c2 = &ProgressID
+					get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)
+					&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+					
+				Else //AJUSTAR ERROS					
+					&sdtRetornoWbsEtc.obs = 'Produtos que possuem controle de lote deve-se informar os numeros de lote.'
+					&sdtRetornoWbsEtc.sts = 'E998'
+					&sdtRetornoWbsEtc.c1 = 'FECHA'
+					get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)
+					&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+				Endif
+			Else
+				&sdtRetornoWbsEtc.obs = 'Não Autorizado ao Nível de Fechar Balanço de Estoque. [FECHARBALANCOESTOQUE]'
+				&sdtRetornoWbsEtc.sts = 'E995'
+				&sdtRetornoWbsEtc.c1 = 'FECHA'
+			EndiF
+			
+		CAse &OqueFazer = 'CANCBAL'
+			
+			do 'validaBalanco'
+			CancelaBalanco.Call(&wwpContext.EmpCod, &sdtBalancoCapa.FilCod, &sdtBalancoCapa.BalCod)
+			
+			&sdtRetornoWbsEtc.obs = 'Procedimentos em andamento'
+			&sdtRetornoWbsEtc.sts = 'J200'
+			&sdtRetornoWbsEtc.c1 = 'CANCELAR'
+			//			&sdtRetornoWbsEtc.c2 = &ProgressID
+			get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)
+			&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+			return
+			
+		CAse &OqueFazer = 'DELITEM'
+			
+			If (&sdtBalancoCapa.ProCod <> 0 and &sdtBalancoCapa.ProGraCod <> 0)
+				RemoveProdutoBalanco.Call(&wwpContext.EmpCod, &sdtBalancoCapa.FilCod, &sdtBalancoCapa.BalCod, &sdtBalancoCapa.ProCod, &sdtBalancoCapa.ProGraCod, &RemovidoMensagem)
+				If not &RemovidoMensagem.IsEmpty()
+					&sdtRetornoWbsEtc.obs = &RemovidoMensagem.Trim()
+					&sdtRetornoWbsEtc.sts = 'J200'
+					&sdtRetornoWbsEtc.c1 = 'DEL'
+					
+					get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)
+					&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+					Return
+				EndIF
+			EndIF			
+			
+			
+		CAse &OqueFazer = 'ADDITEM'
+			
+			do 'validaBalanco'
+			do 'loadProduto'
+		    If (&sdtBalancoCapa.ProCod <> 0 and &sdtBalancoCapa.ProGraCod <> 0)
+				if (&sdtBalancoCapa.ProGraCod > 1 and &ProIsGra = true) or (&ProIsGra <> true and &sdtBalancoCapa.ProGraCod = 1)
+					
+					GravaProdutoBalanco.Call(&wwpContext.EmpCod, &sdtBalancoCapa.Filcod, &sdtBalancoCapa.balCod, &sdtBalancoCapa.ProCod, &sdtBalancoCapa.ProGraCod, &sdtBalancoCapa.BalQtd, &InseridoMensagem, &AtualizadoMensagem)
+					Do Case
+						Case not &AtualizadoMensagem.IsEmpty()
+							&sdtRetornoWbsEtc.obs = &AtualizadoMensagem.Trim()
+							&sdtRetornoWbsEtc.sts = 'J200'
+							&sdtRetornoWbsEtc.c1 = 'INS'
+							
+							get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)					
+							&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+							
+							Return
+						Case not &InseridoMensagem.IsEmpty()
+							&sdtRetornoWbsEtc.obs = &InseridoMensagem.Trim()
+							&sdtRetornoWbsEtc.sts = 'J200'
+							&sdtRetornoWbsEtc.c1 = 'UPD'
+							
+							get_capaBalanco.Call(&DevRandon, 'CAPA', '', &sdtBalancoCapa.filcod, &sdtBalancoCapa.balCod, &outsdtBalancoCapa)					
+							&sdtRetornoWbsEtc.detalhes = &outsdtBalancoCapa.ToJson()
+							Return
+					EndCase			        
+				Else
+					&sdtRetornoWbsEtc.obs = 'Produto com Variação, é preciso inserir o Código da Variação!'
+					&sdtRetornoWbsEtc.sts = 'E998'
+					&sdtRetornoWbsEtc.c1 = 'ERRO'
+					Return
+				EndIF				
+		    EndIF
+	EndCase
+Endif
+
+
+Sub 'getBalanco'
+	
+	&IsPodeContinuar = false
+	For Each Order EmpCod, FilCod, BalCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &sdtBalancoCapa.FilCod
+		Where BalCod = &sdtBalancoCapa.BalCod
+		
+		Do CAse
+			Case BalSts <> BalStsPrc
+				&sdtRetornoWbsEtc.obs = 'Balanço não pode ser fechado pois está em movimentação: '+ trim(BalStsPrc.EnumerationDescription())
+				&sdtRetornoWbsEtc.sts = 'E996'
+				&sdtRetornoWbsEtc.c1 = 'ERRO'
+				Return
+			CAse BalSts <> status_pedido.ABERTO or BalStsPrc <> AtualizandoEstoquePedido.Aberto
+				&sdtRetornoWbsEtc.obs = 'Balanço Não está Fechado!'
+				&sdtRetornoWbsEtc.sts = 'E996'
+				&sdtRetornoWbsEtc.c1 = 'ERRO'
+				Return
+		EndCase
+		
+		Exit
+	EndFor
+	
+EndSub
+
+sub 'validaBalanco'
+	For Each Order EmpCod, BalCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &sdtBalancoCapa.filcod
+		Where BalCod = &sdtBalancoCapa.balCod
+		
+		if BalSts <> status_pedido.ABERTO or BalStsPrc <> AtualizandoEstoquePedido.Aberto
+			&sdtRetornoWbsEtc.obs = 'Balanço Não está aberto!'
+			&sdtRetornoWbsEtc.sts = 'E996'
+			&sdtRetornoWbsEtc.c1 = 'ERRO'
+			Return
+		Endif
+		
+		Exit
+	When none
+		&sdtRetornoWbsEtc.obs = 'Balanço inexistente!'
+		&sdtRetornoWbsEtc.sts = 'E997'
+		&sdtRetornoWbsEtc.c1 = 'ERRO'
+		Return
+	endFor
+EndSub
+
+Sub 'loadProduto'	
+    For Each Order EmpCod, ProCod, ProGraCod
+		Where EmpCod = &wwpContext.EmpCod
+	    Where ProCod = &sdtBalancoCapa.ProCod
+		Where ProGraCod = &sdtBalancoCapa.proGraCod
+		
+		&ProIsGra = ProIsGra
+		
+	    Exit
+    EndFor
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&OqueFazer, in:&sdtBalancoCapa, out:&sdtRetornoWbsEtc);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtBalancoCapa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtBalancoCapa</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtBalancoCapa, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornoWbsEtc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornoWbsEtc</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornoWbsEtc, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueFazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueFazer</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:OqueFazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProIsGra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProIsGra</Value></Property><Property><Name>Description</Name><Value>Possui Grade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProIsGra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InseridoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InseridoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AtualizadoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AtualizadoMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemovidoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemovidoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outsdtBalancoCapa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outsdtBalancoCapa</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtBalancoCapa, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutNiv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutNiv</Value></Property><Property><Name>Description</Name><Value>Nivel Autorizacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutNiv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTodosInformados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTodosInformados</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressID</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPodeContinuar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPodeContinuar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BalCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BalCod</Value></Property><Property><Name>Description</Name><Value>Balanco</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BalCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutGrpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutGrpCod</Value></Property><Property><Name>Description</Name><Value>Perfil</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutGrpCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_capaBalanco</Value></Property><Property><Name>Description</Name><Value>set_capa Balanco</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

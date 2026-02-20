@@ -1,0 +1,601 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="ef5439eb-0304-4ed6-aa18-3834abbb37c8" user="WINJEAN\jeanfae" versionDate="2025-12-11T20:07:11.0000000Z" lastUpdate="2025-12-11T14:48:12.0000000Z" checksum="9dbd1760f765f50a0023afd03cabb538" fullyQualifiedName="GravaCteComIa" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="019c7356-2f39-42a9-bf23-31925677bd77" name="GravaCteComIa" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Cte Com Ia" parent="CTe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&CteLctCod = 0
+
+do 'buscaLancamentoTabelaImpostoPadrao'
+	
+	If not &CteLctCod.IsEmpty() and &AchouLct = 1
+		do 'buscaNoChatGPT'
+		
+		if CodeIsSucesso(&UserMessage.code)
+			do 'carregaInformacoesNFe'
+			do 'carregaInformacoesNFeEmitente'
+			do 'carregaInformacoesNFeDestinatario'
+			do 'RetornaDadosFilial'
+			
+			do 'validaInformacoes'
+		endif
+		
+		
+		if CodeIsSucesso(&UserMessage.code)
+			do 'gravaInformacoes'
+		endif
+	Else
+		&UserMessage = criaUserMessageError('Error!','Tipo de lançamento padrão não configurado. Entre em contato com o suporte técnico.')
+	Endif
+
+Sub 'gravaInformacoes'
+	&HojeData = serverdate()
+	
+	do 'buscaRemetente'
+	do 'buscaDestinatario'
+	
+	// ----------------------------------
+	do 'cadastraNovoCTe'
+	do 'cadastraCteDoc'
+	// ----------------------------------
+	
+	commit
+EndSub
+
+Sub 'validaInformacoes'
+	if &NfeNum.IsEmpty()
+		&UserMessage = criaUserMessageError('Error!',format('Número da nota %1 não encontrado', &NfeChv))
+	else
+		if &CteModCod <> '55' //and &CteModCod <> '57' tem que fazer o padrão 57
+			&UserMessage = criaUserMessageError('Error!',format('Modelo (%1) inválido da nota %2',&CteModCod, &NfeChv))
+		else
+			if &EmiCnpj.IsEmpty()
+				&UserMessage = criaUserMessageError('Error!','Emitente não localizado')
+			endif
+		endif
+	endif
+EndSub
+
+Sub 'buscaNoChatGPT'
+	&ConteudoPDF = ConverteArquivoPdfemTxt(&Path)
+	
+	&sdtMensagemChatGPT = new()
+	&sdtMensagemChatGPTMensagem = new()
+	&sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.texto
+	&sdtMensagemChatGPTMensagem.conteudo = 'Chat, preciso que você me retorne as informações desta nota em uma estrutura json. Retorne apenas a estrutura json.'
+	&sdtMensagemChatGPT.mensagens.Add(&sdtMensagemChatGPTMensagem)
+	
+	&sdtMensagemChatGPTMensagem = new()
+	&sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.texto
+	&sdtMensagemChatGPTMensagem.conteudo = &ConteudoPDF
+	&sdtMensagemChatGPT.mensagens.Add(&sdtMensagemChatGPTMensagem)
+	
+	&sdtMensagemChatGPT.modelo = TipoModeloChatGPT.gpt_4o_2024_08_06
+	
+	&sdtMensagemChatGPT.json_schema.name = 'cte_schema'
+	&sdtMensagemChatGPT.json_schema.strict = true
+	&sdtMensagemChatGPT.json_schema.schema_sdtGPTModelo_NFe = dpGPTModelo_NFe()
+	
+	&sdtRespostaChatGPT = ChatGPT.sendText(&EmpCod,&LogGUID,&sdtMensagemChatGPT)
+	
+	if CodeIsSucesso(&sdtRespostaChatGPT.UserMessage.code)
+		for &json in &sdtRespostaChatGPT.mensagens
+			if not &json.IsEmpty()
+				&sdtGptModelo_NFeRetorno.FromJson(&json)
+			endif
+			exit
+		endfor
+	else
+		&UserMessage = &sdtRespostaChatGPT.UserMessage
+	endif
+	
+EndSub
+
+Sub 'RetornaDadosFilial'
+	For each Order EmpCod,FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		
+		&FilCidCod = FilCidCod
+		&FilRNTRC = FilRNTRC
+		&FilCpj = trim(FilCpj)
+		exit
+	EndFor
+EndSub
+
+Sub 'carregaInformacoesNFeEmitente'
+	// Emitente e Remetente são os mesmos papéis
+	
+	&EmiCnpj = &sdtGptModelo_NFeRetorno.emitente.cnpj
+	validaCpfCnpj.Call(&EmiCnpj,&VFlag,'S')
+	&EmiCnpj = &EmiCnpj.Trim()
+EndSub
+
+Sub 'carregaInformacoesNFeDestinatario'
+	&DestCnpj = &sdtGptModelo_NFeRetorno.destinatario.cnpj
+	validaCpfCnpj.Call(&DestCnpj,&VFlag,'S')
+	&DestCnpj = &DestCnpj.Trim()
+EndSub
+
+Sub 'carregaInformacoesNFe'
+	// #######################    NOTA    #######################
+	&NfeChv = RetornasoNumeros(&sdtGptModelo_NFeRetorno.chave_acesso.Trim()) // chave da nota
+	validaCpfCnpj(&NfeChv,&VFlag,'S')
+	
+	&CteModCod = substr(&NfeChv,21,2)   // modelo da nota
+	&NfeNum = val(Substr(&NfeChv,26,9)) // número da nota
+	
+	if &NfeNum.IsEmpty()
+		or (&CteModCod <> '55' and &CteModCod <> '57')
+		&NfeChv = regexPrimeiroMatch(&ConteudoPDF,'([0-9]{4}\s?){11}')
+		validaCpfCnpj(&NfeChv,&VFlag,'S')
+		
+		&CteModCod = substr(&NfeChv,21,2)   // modelo da nota
+		&NfeNum = val(Substr(&NfeChv,26,9)) // número da nota
+	endif
+	// ##########################################################
+	
+	
+	// #######################    TRANSPORTE    #######################
+	&CteDocPes = &sdtGptModelo_NFeRetorno.peso_total
+	// ################################################################
+	
+	
+	// #######################    OUTROS    #######################
+	&CteDocVlrNtf = &sdtGptModelo_NFeRetorno.valor_total
+	&ObservacoesGerais = &sdtGptModelo_NFeRetorno.informacoes_complementares
+	// ############################################################
+EndSub
+
+Sub 'buscaLancamentoTabelaImpostoPadrao'
+	&FilBasImp = RetornaFilialBaseImposto(&EmpCod, &FilCod)
+	RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon098_LctoCte, &CfgVlr)
+	&CteLctCod = val(&CfgVlr)
+	
+	If &CteLctCod = 0
+		RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon019_LctoOrcamento, &CfgVlr)
+		&CteLctCod = val(&CfgVlr)
+	EndIf
+
+	RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon073_NbsPadraoCte, &CfgVlr)
+	&CteNcmCod = val(&CfgVlr)
+	Do 'ValidaTipolcto'
+EndSub
+
+
+Sub 'ValidaTipolcto'
+	&AchouLct = 0
+	For Each Order EmpCod,LctCod
+		WHERE EmpCod = &EmpCod
+		Where LctCod = &CteLctCod
+		Where LctTip = TipoLancamento.SaidaMercadoria
+		&AchouLct = 1
+		exit
+	EndFor
+	
+Endsub
+
+Sub 'BuscaRemetente'
+	&sdtRemetente = prcBuscaPessoaCTe(&EmpCod,&EmiCnpj)
+	
+	if &sdtRemetente.PesCod.IsEmpty()
+		&PesCod = prcCadastraPessoaRFB('CLI',&EmpCod,&EmiCnpj)
+		&sdtRemetente = prcBuscaPessoaCTe(&EmpCod,&EmiCnpj)
+	endif
+EndSub
+
+Sub 'BuscaDestinatario'
+	&sdtDestinatario = prcBuscaPessoaCTe(&EmpCod,&DestCnpj)
+	
+	if &sdtDestinatario.PesCod.IsEmpty()
+		&PesCod = prcCadastraPessoaRFB('CLI',&EmpCod,&DestCnpj)
+		&sdtDestinatario = prcBuscaPessoaCTe(&EmpCod,&DestCnpj)
+	endif
+EndSub
+
+Sub 'buscaLancamentoTabelaImposto'
+	
+	//retorna Categoria imposto padrao CTE
+	RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon209_ImpostoProdutoCTE, &TCon209_ImpostoProdutoCTE)
+	&CImpCatCod = val(&TCon209_ImpostoProdutoCTE)
+	if &CImpCatCod.IsEmpty()
+		prcDefinePadraoCategoriaImpostoCTE.call(&EmpCod, &FilCod, &CImpCatCod)
+	Endif
+	
+	&sdtCadastroTabelaImpostoCbs = new()
+	&sdtCadastroTabelaImpostoCbs.Tipo = 'CTE'
+	&sdtCadastroTabelaImpostoCbs.EmpCod = &EmpCod
+	&sdtCadastroTabelaImpostoCbs.CImpTbFilCod = &FilCod
+	&sdtCadastroTabelaImpostoCbs.CImpLctCod = &CteLctCod
+	&sdtCadastroTabelaImpostoCbs.CImpOriUfeCod = &sdtRemetente.Endereco.PesCidUFeCod
+	&sdtCadastroTabelaImpostoCbs.CImpDstUfeCod = &sdtDestinatario.Endereco.PesCidUFeCod  
+	&sdtCadastroTabelaImpostoCbs.CImpGruImpCod = &sdtDestinatario.PesGruImpCod
+	&sdtCadastroTabelaImpostoCbs.CImpCatCod = &CImpCatCod
+	&sdtCadastroTabelaImpostoCbs.CImpDtaIni = serverdate()
+	&sdtCadastroTabelaImpostoCbs.ProCod = 0 //nao tem produto
+	&sdtCadastroTabelaImpostoCbs.IsRetornarObs = true //retornar obs
+	prcRetornaConfiguracaoImposto_IBSCBS.Call(&sdtCadastrotabelaImpostoCbs)	
+	
+	&ImpCfoNom = retornaNomeCFOP.Udp(&sdtCadastroTabelaImpostoCbs.CImpCfoCod)
+	&ImpCfoNom = substr(trim(&ImpCfoNom),1,60)
+		
+    &ObsNom = ''
+	for &sdtCadastroTabelaImpostoCbsObs in &sdtCadastroTabelaImpostoCbs.Observacao
+        &ObsNom += ' '+ trim(&sdtCadastroTabelaImpostoCbsObs.ObsNom)
+    EndFor
+EndSub
+
+Sub 'cadastraNovoCTe'
+	&CteCod = UltimoCodigoEmpresa(domParCod.CTE, &EmpCod, &FilCod)
+//	&CteNum = UltimoCodigoEmpresa(domParCod.CTENUM, &EmpCod, &FilCod) //jdf numero vai pegar quando transmitir.
+	
+	New
+		EmpCod        = &EmpCod
+		FilCod        = &FilCod
+		CteCod        = &CteCod
+		
+		// ###################    REMETENTE    ###################
+		CteRemCod     = &sdtRemetente.PesCod
+		CteRemRaz     = &sdtRemetente.PesRaz
+		CteRemCnpj    = &sdtRemetente.PesCnpj
+		CteRemCpf     = &sdtRemetente.PesCpf
+		CteRemIns     = &sdtRemetente.PesInsEst
+		CteRemFan     = &sdtRemetente.PesFan
+		
+		CteRemFon     = &sdtRemetente.Telefone.PesFonNum
+		
+		CteRemEml     = &sdtRemetente.Email.PesEml
+		
+		CteRemLog     = &sdtRemetente.Endereco.PesLog
+		CteRemNro     = &sdtRemetente.Endereco.PesNro
+		CteRemCpl     = &sdtRemetente.Endereco.PesCpl
+		CteRemBai     = &sdtRemetente.Endereco.PesBai
+		// no CteRemCidCod é para utilizar o CidIBGE e não o CidCod mesmo #segueolider
+		CteRemCidCod  = &sdtRemetente.Endereco.PesCidIBGE
+		CteRemCidNom  = &sdtRemetente.Endereco.PesCidNom
+		CteRemUfe     = &sdtRemetente.Endereco.PesCidUFeCod
+		CteRemCep     = &sdtRemetente.Endereco.PesCep
+		CteRemPaiCod  = &sdtRemetente.Endereco.PesCidPaiCod
+		CteRemPaiNom  = &sdtRemetente.Endereco.PesCidPaiNom
+		
+		CteIniUfe     = &sdtRemetente.Endereco.PesCidUFeCod
+		// no CteIniCidCod é para utilizar o CidIBGE e não o CidCod mesmo #segueolider
+		CteIniCidCod  = &sdtRemetente.Endereco.PesCidIBGE
+		CteIniCidNom  = &sdtRemetente.Endereco.PesCidNom
+		// #######################################################
+		
+		
+		// ###################    DESTINATÁRIO    ###################
+		CteDesCod     = &sdtDestinatario.PesCod
+		CteDesRaz     = &sdtDestinatario.PesRaz
+		CteDesCnpj    = &sdtDestinatario.PesCnpj
+		CteDesCpf     = &sdtDestinatario.PesCpf
+		CteDesIns     = &sdtDestinatario.PesInsEst
+		CteDesRaz     = &sdtDestinatario.PesRaz
+		CteDesFon     = &sdtDestinatario.Telefone.PesFonNum
+		CteDesLog     = &sdtDestinatario.Endereco.PesLog
+		CteDesNro     = &sdtDestinatario.Endereco.PesNro
+		CteDesCpl     = &sdtDestinatario.Endereco.PesCpl
+		CteDesBai     = &sdtDestinatario.Endereco.PesBai
+		// no CteDesCidCod é para utilizar o CidIBGE e não o CidCod mesmo #segueolider
+		CteDesCidCod  = &sdtDestinatario.Endereco.PesCidIBGE
+		CteDesCidNom  = &sdtDestinatario.Endereco.PesCidNom
+		CteDesUfe     = &sdtDestinatario.Endereco.PesCidUFeCod
+		CteDesCep     = &sdtDestinatario.Endereco.PesCep
+		CteDesPaiCod  = &sdtDestinatario.Endereco.PesCidPaiCod
+		CteDesPaiNom  = &sdtDestinatario.Endereco.PesCidPaiNom
+		CteDesEml     = &sdtDestinatario.Email.PesEml
+		CteDesSuf     = &sdtDestinatario.PesSuf
+		
+		CteTerUfe    = &sdtDestinatario.Endereco.PesCidUFeCod
+		 // no CteTerCidCod é para utilizar o CidIBGE e não o CidCod mesmo #segueolider
+		CteTerCidCod = &sdtDestinatario.Endereco.PesCidIBGE
+		CteTerCidNom = &sdtDestinatario.Endereco.PesCidNom
+		// ##########################################################
+		
+		
+		CteTomSer    = Tomador.Remetente // tomador sempre será o remetente
+		
+		CteProTer    = Nota_ProPriaTerceira.PROPRIA
+		CteModCod    = '57'
+		CteNum       = &CteNum
+		CteSer       = &CteSer
+		 
+		CtePosDocAnt = Status_SimNao.Nao
+		CteTipSer    = TipoServicoCte.Normal
+		CteMod       = modalCte.Rodoviario
+		CteindGlo    = False
+		CteFinEms    = FinalidadeCte.Normal
+		
+		CteAnoEms    = Year(&HojeData)
+		CteMesEms    = Month(&HojeData)
+		CteDtaEms    = &HojeData
+		CteHorEms    = ServerTime()
+		CteIndRec    = IndicaRecebedor.Nao
+		CteIndRecDes = ' '
+		
+		CteNcmCod       = &CteNcmCod
+		
+		CteModRodRNTRC  = &FilRNTRC
+		CteLctCod       = &CteLctCod
+		
+		CteObsGer    = &ObservacoesGerais
+		
+		Do 'buscaLancamentoTabelaImposto'
+		
+		If &sdtCadastroTabelaImpostoCbs.sts = 'S'
+			CteCfop      = &sdtCadastroTabelaImpostoCbs.CImpCfoCod
+			CteNatOpe    = &ImpCfoNom
+			CteImpCst    = &sdtCadastroTabelaImpostoCbs.CteImpCst
+			CteConSplNac = &sdtCadastroTabelaImpostoCbs.CteConSplNac
+			CteImpAli    = &sdtCadastroTabelaImpostoCbs.CImpAlqIcmInt
+			CteImpPerRed = &sdtCadastroTabelaImpostoCbs.CImpRedAlqIcmInt
+			
+			CteIbsCST  = &sdtCadastroTabelaImpostoCbs.CImpClsCST
+			CteIbsClassTrib = &sdtCadastroTabelaImpostoCbs.CImpClsTrib
+			//CteIbsIndDoa
+			//CteIbsBas
+			CteIbsUfTax  = &sdtCadastroTabelaImpostoCbs.IbsUfTax
+			CteIbsUfTaxDif = &sdtCadastroTabelaImpostoCbs.NfeIbsUfPerDif
+			//CteIbsUfVlrDif
+			CteIbsUfTaxRed = &sdtCadastroTabelaImpostoCbs.CltClsRedIbs
+			CteIbsUfTaxEfe = &sdtCadastroTabelaImpostoCbs.IbsUfTaxEfe
+			//CteIbsUfVlr
+			CteIbsMunTax = &sdtCadastroTabelaImpostoCbs.IbsMunTax
+			CteIbsMunTaxDif = &sdtCadastroTabelaImpostoCbs.NfeIbsMunPerDif
+			CteIbsMunTaxRed = &sdtCadastroTabelaImpostoCbs.CltClsRedIbs
+			CteIbsMunTaxEfe = &sdtCadastroTabelaImpostoCbs.IbsMunTaxEfe
+			//CteIbsMunVlr
+			//CteIbsMunVlrDif
+			//CteIbsVlrTot
+			CteCbsTax = &sdtCadastroTabelaImpostoCbs.IbsUnTax
+			CteCbsTaxDif = &sdtCadastroTabelaImpostoCbs.NfeCbsPerDif
+			CteCbsTaxRed = &sdtCadastroTabelaImpostoCbs.CltClsRedCbs
+			CteCbsTaxEfe = &sdtCadastroTabelaImpostoCbs.IbsUnTaxEfe
+			//CteCbsVlrDif
+			//CteCbsVlr
+			CteTribRegCst = &sdtCadastroTabelaImpostoCbs.NfeRegIbsSit
+			CteTribRegClassTrib = &sdtCadastroTabelaImpostoCbs.NfeRegIbsClassTrib
+			CteTribRegUfTax = &sdtCadastroTabelaImpostoCbs.NfeRegIbsUfeTaxEfe
+			//CteTribRegUfVlr
+			CteTribRegMunTax = &sdtCadastroTabelaImpostoCbs.NfeRegIbsMunTaxEfe
+			//CteTribRegMunVlr
+			CteTribRegUnTax = &sdtCadastroTabelaImpostoCbs.NfeRegCbsTaxEfe
+			//CteTribRegUnVlr
+		EndIf
+		
+		CteEnvEml     = NfeEnvEml.Pendente
+		CteSts        = Status_NFe.Digitando
+		CtePosPre     = Status_SimNao.Sim
+		CteAveApo     = ''
+		CteAveArq     = ''
+		CteAveCnpjSeq = ''
+		CteAveNro     = ''
+		CteAveProt    = ''
+		CteAveSts     = Status_NFe.Digitando
+		CteAveDta.SetEmpty()
+		
+	EndNew
+EndSub
+
+Sub 'cadastraCteDoc'
+	&CteDocTip = TipoDocumentoCte.NFe
+	&EmptyCteDocMod.SetEmpty()
+	&EmptyCteDocTipOri.SetEmpty()
+	&EmptyDate.SetEmpty()
+	GravaCteDoc(&EmpCod,&FilCod,&CteCod,0,&CteDocTip,'','',&EmptyCteDocMod,'','',&EmptyCteDocTipOri,'',&EmptyDate,0,0,0,0,0,0,0,0,&NfeChv,&CteDocVlrNtf,&CteDocPes,0,&EmptyDate,'')
+	
+	AtualizaObsAutomaticaCte(&EmpCod, &FilCod, &CteCod)
+	
+	CtePrestaDefault(&EmpCod,&FilCod,&CteCod,'S')
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod,in:&FilCod,in:&path,out:&CteCod,out:&UserMessage);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ConteudoPDF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ConteudoPDF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocPes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocPes</Value></Property><Property><Name>Description</Name><Value>Peso total em Kg </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocPes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocTip</Value></Property><Property><Name>Description</Name><Value>Cte Doc Tip</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocVlrNtf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocVlrNtf</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteLctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteModCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteModCod</Value></Property><Property><Name>Description</Name><Value>Modelo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteModCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteNcmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteNcmCod</Value></Property><Property><Name>Description</Name><Value>Ncm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteNcmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSer</Value></Property><Property><Name>Description</Name><Value>Série</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestCnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmiCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmiCnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmptyCteDocMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmptyCteDocMod</Value></Property><Property><Name>Description</Name><Value>Modelo da Nota Fiscal </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmptyCteDocTipOri">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmptyCteDocTipOri</Value></Property><Property><Name>Description</Name><Value>Tipo de documento originário </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocTipOri</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmptyDate">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmptyDate</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilBasImp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilBasImp</Value></Property><Property><Name>Description</Name><Value>Filial Base Imposto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilBasImp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRNTRC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRNTRC</Value></Property><Property><Name>Description</Name><Value>Filial RNTRC</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRNTRC</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpCfoNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpCfoNom</Value></Property><Property><Name>Description</Name><Value>Nome Cfop</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCfoNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="json">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>json</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:JSON</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChv</Value></Property><Property><Name>Description</Name><Value>Chave NFE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ObservacoesGerais">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ObservacoesGerais</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ObsNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ObsNom</Value></Property><Property><Name>Description</Name><Value>Observação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ObsNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDestinatario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDestinatario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPessoaCTe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGptModelo_NFeRetorno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGptModelo_NFeRetorno</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGPTModelo_NFeRetorno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagemChatGPT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagemChatGPT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagemChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagemChatGPTMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagemChatGPTMensagem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagemChatGPT.mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRemetente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRemetente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPessoaCTe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRespostaChatGPT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRespostaChatGPT</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRespostaChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:UserMessage</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VFlag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VFlag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AchouLct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AchouLct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCadastroTabelaImpostoCbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCadastroTabelaImpostoCbs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCadastroTabelaImpostoCbs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCadastroTabelaImpostoCbsObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCadastroTabelaImpostoCbsObs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCadastroTabelaImpostoCbs.ObservacaoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CImpCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CImpCatCod</Value></Property><Property><Name>Description</Name><Value>Grupo Produtos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CImpCatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon209_ImpostoProdutoCTE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon209_ImpostoProdutoCTE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaCteComIa</Value></Property><Property><Name>Description</Name><Value>Grava Cte Com Ia</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

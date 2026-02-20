@@ -1,0 +1,403 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:39:14.0000000Z" checksum="7699696354af46c8b737cd58a449917c" fullyQualifiedName="GravarOperacaoComXml" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="ecbda4d3-be14-4fa3-bc6b-a4b79c16af2a" name="GravarOperacaoComXml" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gravar operação do CIOT com XML" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[ LoadWWPContext(&Context)
+
+//Abre o arquivo e o transforma em variável\\
+&NfeArqXML = ''
+&XmlReader.Open(&CaminhoArquivoXml)
+
+Do While Not &XmlReader.EOF
+	&NfeArqXML += &XmlReader.ReadRawXML()
+	&XmlReader.Read()
+EndDo
+
+&XmlReader.Close()
+//#########################################\\
+
+//Carrega SDT da Nota\\
+LeituraXmlDaNFE.Call(&NfeArqXML, &TNFeProc)
+//###################\\
+
+//Nota Fiscal\\
+&OpeNfeNro			= Val(&TNFeProc.NFe.infNFe.ide.nNF)	//Número da Nota
+&OpeNfeSer			= &TNFeProc.NFe.infNFe.ide.serie	//Série da Nota 
+&OpeNfeChv			= &TNFeProc.protNFe.infProt.chNFe	//Chave da Nota
+&OpeNfeVlrTot		= Val(&TNFeProc.NFe.infNFe.total.ICMSTot.vNF)	//Valor total da Nota
+&OpeNfeDta			= YMDTOD(Val(SubStr(&TNFeProc.NFe.infNFe.ide.dhEmi, 1, 4)), Val(SubStr(&TNFeProc.NFe.infNFe.ide.dhEmi, 6, 2)), Val(SubStr(&TNFeProc.NFe.infNFe.ide.dhEmi, 9, 2)))
+
+For &Volume In &TNFeProc.NFe.infNFe.transp.vols
+	&OpeNfeQtdMerEmb= Val(&Volume.pesoB)
+EndFor
+//###########\\
+
+//Operação Capa\\
+If Not &TNFeProc.NFe.infNFe.emit.CNPJ.Trim().IsEmpty()
+	&OpeMatCNPJ	= &TNFeProc.NFe.infNFe.emit.CNPJ
+Else
+	&OpeMatCNPJ	= &TNFeProc.NFe.infNFe.emit.CPF
+EndIf
+ValidaCpfCnpj.Call(&OpeMatCNPJ, &vFlag, &ObrigatorioCNPJ)
+Do 'GetContrante'
+
+&OpeDtaIni	= &Today
+&NfeTipFrt.FromString(&TNFeProc.NFe.infNFe.transp.modFrete)
+
+//Contratado/Transportadora
+If Not &TNFeProc.NFe.infNFe.transp.transporta.CNPJ.Trim().IsEmpty()
+	&OpeConCNPJ 			= &TNFeProc.NFe.infNFe.transp.transporta.CNPJ
+	&IsContratadoJuridica	= True
+Else
+	&OpeConCNPJ				= &TNFeProc.NFe.infNFe.transp.transporta.CPF
+	&IsContratadoJuridica	= False
+EndIf
+ValidaCpfCnpj.Call(&OpeConCNPJ, &vFlag, &ObrigatorioCNPJ)
+Do 'GetTransportadora'
+//#########################
+
+//Destinatário
+If Not &TNFeProc.NFe.infNFe.dest.CNPJ.Trim().IsEmpty()
+	&DestinatarioCPFCNPJ	= &TNFeProc.NFe.infNFe.dest.CNPJ
+	&IsDestinatarioJuridica	= True
+Else
+	&DestinatarioCPFCNPJ	= &TNFeProc.NFe.infNFe.dest.CPF
+	&IsDestinatarioJuridica	= False
+EndIf
+ValidaCpfCnpj.Call(&DestinatarioCPFCNPJ, &vFlag, &ObrigatorioCNPJ)
+Do 'GetDestinatario'
+//############
+
+Do Case
+	Case &NfeTipFrt = TipoFrete.Destinatario Or &NfeTipFrt = TipoFrete.ProprioDestinatario
+		&OpeResPgtFrt	= PagamentoEfrete.Destinatario
+		&OpeTomCod		= &OpeDesCod
+	Case &NfeTipFrt = TipoFrete.Emitente Or &NfeTipFrt = TipoFrete.ProprioEmitente
+		&OpeResPgtFrt	= PagamentoEfrete.Contratante
+		&OpeTomCod		= &OpeAntCod
+	OtherWise
+		&OpeResPgtFrt	= PagamentoEfrete.Contratante
+		&OpeTomCod		= 0
+EndCase
+
+//#############\\
+
+//Viagem\\
+
+//Destino
+&OpeDstCidCod	= Val(&TNFeProc.NFe.infNFe.dest.enderDest.cMun)
+&OpeDstCidCep	= &TNFeProc.NFe.infNFe.dest.enderDest.CEP
+&OpeDstCidUfe	= &TNFeProc.NFe.infNFe.dest.enderDest.UF
+//#######
+
+//Origem
+&OpeOriCidCod	= Val(&TNFeProc.NFe.infNFe.emit.enderEmit.cMun)
+&OpeOriCidCep 	= &TNFeProc.NFe.infNFe.emit.enderEmit.CEP
+&OpeOriCidUfe 	= &TNFeProc.NFe.infNFe.emit.enderEmit.UF
+//######
+
+&OpeNroDoc		= &TNFeProc.protNFe.infProt.nProt
+//######\\
+
+For Each Order EmpCod, FilCod, OpeCod
+	Where EmpCod = &Context.EmpCod
+	Where FilCod = &Context.FilCod
+	Where OpeCod = &OpeCod
+	
+	Exit
+When None
+	&OpeCod			= UltimoCodigoEmpresa.Udp(domParCod.OPERACAOTRANSPORTE, &Context.EmpCod, &Context.FilCod)
+	
+	//CAPA DA OPERAÇÃO\\
+	New
+		EmpCod		= &Context.EmpCod	//EMPRESA
+		FilCod		= &Context.FilCod	//FILIAL
+		OpeCod		= &OpeCod	//CÓDIGO DA OPERAÇÃO
+		OpeDta		= &Today	//DATA DE EMISSÃO
+		OpeTipVia	= PefServiceTipoViagem.Padrao	//TIPO DA VIAGEM (TIPO PADRÃO POR PADRÃO)
+		OpeEmiGra	= True	//MODALIDADE DA OPERAÇÃO (TRANSFERÊNCIA BANCARIA POR PADRÃO; TRUE = Transferenciabancaria; FALSE = eFRETE)
+		OpeMatCnpj	= &OpeMatCNPJ	//MATRIZ CNPJ
+		OpeDtaIni	= &Today	//DATA DE INICIO DA VIAGEM (HOJE POR PADRÃO)
+		OpeNcm		= 0001 //Carga diversa por padrão
+		OpePso		= &OpeNfeQtdMerEmb //PESO REFERENTE A CARGA
+		OpeTipEmb	= PefServiceTipoEmbalagem.Indefinido	//TIPO DA EMBALAGEM (INDEFINIDO POR PADRÃO)
+		OpeConCod	= &OpeConCod	//CÓDIGO DO CONTRATADO (TRANSPORTADORA)
+		OpeConCnpj	= &OpeConCNPJ	//CNPJ DO CONTRATADO (TRANSPORTADORA)
+		OpeConRntrc	= &OpeConRntrc	//RNTRC DO CONTRATADO (TRANSPORTADORA)
+		OpeDesCod	= &OpeDesCod	//CÓDIGO DO DESTINATÁRIO
+		OpeAntCod	= &OpeAntCod	//CÓDIGO DO CONTRATANTE
+		OpeResPgtFrt= &OpeResPgtFrt	//RESPONSÁVEL PELO PAGAMENTO DO FRETE
+		OpeTomCod	= &OpeTomCod	//CÓDIGO DO TOMADOR
+		OpeTipCar	= TipoCarga.CargaGeral	//TIPO DA CARGA
+		OpeSts		= Status_CIOT.Digitando	//STATUS DA OPERAÇÃO
+	EndNew
+	//################\\
+	
+	//VIAGEM DA OPERAÇÃO\\
+	New 
+		EmpCod 			= &Context.EmpCod	//EMPRESA
+		FilCod			= &Context.FilCod	//FILIAL
+		OpeCod			= &OpeCod			//CÓDIGO DA OPERAÇÃO
+		OpeViaCod		= 1					//CÓDIGO DA VIAGEM (1 APENAS POR SER PADRÃO)
+		OpeDstCidCod	= &OpeDstCidCod		//CÓDIGO IBGE DA CIDADE DE DESTINO
+		OpeDstCidCep	= &OpeDstCidCep		//CEP DA CIDADE DE DESTINO
+		OpeDstCidUfe	= &OpeDstCidUfe		//UF DA CIDADE DE DESTINO
+		OpeOriCidCod	= &OpeOriCidCod		//CÓDIGO IBGE DA CIDADE DE ORIGEM 
+		OpeOricidCep	= &OpeOriCidCep		//CEP DA CIDADE DE ORIGEM
+		OpeOriCidUfe	= &OpeOriCidUfe		//UF DA CIDADE DE ORIGEM
+		OpeNroDoc		= &OpeNroDoc		//DOCUMENTO REFERENTE A VIAGEM (DEVERÁ SER MAIOR QUE 10 CARACTERES)
+		OpeTipPgt		= Efrete_TipoPagamento.Transferenciabancaria	//MODALIDADE DA VIAGEM (DEVERÁ SER O MESMO QUE A DA OPERAÇÃO: OpeEmiGra)
+		OpeViaSts		= Status_Autorizado.AUTORIZADO	//STATUS DA VIAGEM
+	EndNew
+	//##################\\
+	
+	//NOTAS FISCAIS\\
+	New
+		EmpCod			= &Context.EmpCod	//EMPRESA
+		FilCod			= &Context.FilCod	//FILIAL
+		OpeCod			= &OpeCod			//CÓDIGO DA OPERAÇÃO
+		OpeNfeCod		= 1					//CÓDIGO DA NFE (1 PORQUE É ATRAVÉS DE UMA NFE)
+		OpeNfeNro		= &OpeNfeNro		//NÚMERO DA NFE
+		OpeNfeSer		= &OpeNfeSer		//SÉRIE DA NFE
+		OpeNfeDta		= &OpeNfeDta		//DATA DE EMISSÃO DA NFE
+		OpeNfeVlrTot	= &OpeNfeVlrTot		//VALOR TOTAL DA NFE
+		OpeNfeNcm		= 0001	//Carga diversa por padrão				
+		OpeNfeUndMed	= PefServiceUnidadeDeMedidaDaMercadoria.Kg	//UNIDADE DE MEDIDA DA NFE (SEMPRE EM KG)
+		OpeNfeTipCal	= PefServiceViagemTipoDeCalculo.SemQuebra	//TIPO DE CALCULO
+		OpeNfeQtdMerEmb	= &OpeNfeQtdMerEmb							//QUANTIDADE DE MERCADORIA EMBALADA
+		OpeNfeTolPerTip	= PefServiceTipoToleranciaDePerdaDeMercadoria.Nenhum	//TOLERÂNCIA DE PESO
+		OpeNfeChv		= &OpeNfeChv	//CHAVE DA NOTA
+	EndNew
+	//#############\\
+EndFor
+
+Commit
+
+Sub 'GetContrante'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod	= &Context.EmpCod
+		Where PesCnpj 	= &OpeMatCNPJ
+		
+		&OpeAntCod		= PesCod
+		
+		Exit
+	EndFor
+		
+EndSub
+
+Sub 'GetTransportadora'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod 	= &Context.EmpCod
+		Where PesCnpj	= &OpeConCNPJ When &IsContratadoJuridica = True
+		Where PesCpf 	= &OpeConCNPJ When &IsContratadoJuridica = False
+		
+		&OpeConCod		= PesCod
+		&OpeConRntrc	= Val(PesRntrc)
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'GetDestinatario'
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod 	= &Context.EmpCod
+		Where PesCnpj	= &DestinatarioCPFCNPJ When &IsDestinatarioJuridica = True
+		Where PesCpf 	= &DestinatarioCPFCNPJ When &IsDestinatarioJuridica = False
+		
+		&OpeDesCod		= PesCod
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&CaminhoArquivoXml, InOut:&OpeCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="OpeDtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeDtaIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDtaIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeVlrTot</Value></Property><Property><Name>Description</Name><Value>Valor Total Nota Fiscal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaminhoArquivoXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoArquivoXml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1500</Value></Property><Property><Name>AttMaxLen</Name><Value>1500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinatarioCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinatarioCPFCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Flag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Flag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsContratadoJuridica">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsContratadoJuridica</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDestinatarioJuridica">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDestinatarioJuridica</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeArqXML">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeArqXML</Value></Property><Property><Name>Description</Name><Value>Arq.Xml</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeConCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeConCNPJ</Value></Property><Property><Name>Description</Name><Value>Contratado CPF/CNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeConCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeConCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeConCod</Value></Property><Property><Name>Description</Name><Value>Contratado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeConCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeConRntrc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeConRntrc</Value></Property><Property><Name>Description</Name><Value>Contratado RNTRC </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeConRntrc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeDesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeDesCod</Value></Property><Property><Name>Description</Name><Value>Destinatario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeDstCidCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeDstCidCep</Value></Property><Property><Name>Description</Name><Value>CEP Destino</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDstCidCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeDstCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeDstCidCod</Value></Property><Property><Name>Description</Name><Value>Municipio Destino</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDstCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeMatCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeMatCNPJ</Value></Property><Property><Name>Description</Name><Value>Matriz CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeMatCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeChv</Value></Property><Property><Name>Description</Name><Value>Chave Nfe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeNro</Value></Property><Property><Name>Description</Name><Value>Nro Nota Fiscal</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeQtdMerEmb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeQtdMerEmb</Value></Property><Property><Name>Description</Name><Value>Quantidade no Embarque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeQtdMerEmb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeSer</Value></Property><Property><Name>Description</Name><Value>Série da Nota Fiscal</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TNFeProc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TNFeProc</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFeProc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Volume">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Volume</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFe_4.infNFe.transp.vol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlReader</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeDstCidUfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeDstCidUfe</Value></Property><Property><Name>Description</Name><Value>Estado Destino</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDstCidUfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeOriCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeOriCidCod</Value></Property><Property><Name>Description</Name><Value>Municipio Origem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeOriCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeOriCidCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeOriCidCep</Value></Property><Property><Name>Description</Name><Value>CEP Origem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeOricidCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeOriCidUfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeOriCidUfe</Value></Property><Property><Name>Description</Name><Value>Estado Origem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeOriCidUfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNroDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNroDoc</Value></Property><Property><Name>Description</Name><Value>Número Documento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNroDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeAntCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeAntCod</Value></Property><Property><Name>Description</Name><Value>Contratante</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeAntCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="vFlag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>vFlag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ObrigatorioCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ObrigatorioCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeDta</Value></Property><Property><Name>Description</Name><Value>Data da Nota Fiscal</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeDtaVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeDtaVarChar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeTipFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeTipFrt</Value></Property><Property><Name>Description</Name><Value>Tipo Frete</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeTipFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeResPgtFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeResPgtFrt</Value></Property><Property><Name>Description</Name><Value>Responsável Pgto Frete</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeResPgtFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeTomCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeTomCod</Value></Property><Property><Name>Description</Name><Value>Tomador</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTomCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorNFeVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorNFeVarChar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorNFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorNFe</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravarOperacaoComXml</Value></Property><Property><Name>Description</Name><Value>Gravar operação do CIOT com XML</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

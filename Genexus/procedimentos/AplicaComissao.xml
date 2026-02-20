@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="e1eccebd-7db7-4118-9009-40b276f2471b" user="SRVORDIG\Administrador" versionDate="2025-09-09T17:57:18.0000000Z" lastUpdate="2025-09-09T14:59:07.0000000Z" checksum="074f3064b42bf23a485300cd51ed6ccc" fullyQualifiedName="AplicaComissao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="16a8429e-b381-4cdb-9fa4-179a357b9941" name="AplicaComissao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Aplica % de Comissao" parent="RecHumPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//COD.LCT P/ COMISSAO ESPECIAL PARA VENDEDORES EXTERNOS, PEDIDOS VENDIDOS EM SUA AREA
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon026_TipoLctoComissaoEspecial, &CfgVlr)
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon205_DesconsiderarTecnicoComissao, &TCon205_DesconsiderarTecnicoComissao)
+&EspecialLctCod = val(&CfgVlr)
+
+//RetornaTotalFaturado
+&Ano = &iniPedDtaEms.Year()
+&Mes = &fimPedDtaEms.Month()
+
+For Each Order EmpCod, PesCod
+	Where EmpCod = &EmpCod
+	Where PesCod = &PedVenCod or &PedVenCod = 0
+	
+	&TotalFaturadoMoeda = 0
+
+	For Each Order EmpCod, PesCod, ComLctCod
+		Where PesTipCom = 'S' //Tem algum por faturamento.
+				
+		AplicaComissaoFaturamento.Call(&EmpCod, &FilCod, PesCod, &Ano, &Mes, &TotalFaturadoMoeda)
+		
+		&SdtTotalFaturadoItem = new()
+		&SdtTotalFaturadoItem.PesCod = PesCod
+		&SdtTotalFaturadoItem.TotalMoeda = &TotalFaturadoMoeda
+		&SdtTotalFaturado.Add(&SdtTotalFaturadoItem)		
+		
+		Exit
+	EndFor
+EndFor
+
+&TotalFaturadoMoeda = 0
+&Total = 0
+&Count = 0
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+For Each Order EmpCod, FilCod, PedSts, LctPagCom
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedVenCod = &PedVenCod or (PedItmVenCod = &PedVenCod) or (PedRspCod = &PedVenCod) or  &PedVenCod = 0
+	Where (PedDtaFat >= &iniPedDtaEms and PedDtaFat <= &fimPedDtaEms and PedSts = Status_Pedido.FECHADO) or (PedDtaEms >= &iniPedDtaEms and PedDtaEms <= &fimPedDtaEms and PedSts <> Status_Pedido.FECHADO)
+	Where LctPagCom = Status_SimNao.Sim
+	Where ProCod <> 0
+	
+	&Total += 1
+EndFOr
+
+if &EspecialLctCod > 0
+	AplicaComissaoEspecial.Call(&EmpCod, &FilCod, 0, &PedVenCod, &iniPedDtaEms, &fimPedDtaEms, &Total, &Count, &ProgressId)
+Endif
+
+For Each Order EmpCod, FilCod, PedCod, PedItmCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedVenCod = &PedVenCod or (PedItmVenCod = &PedVenCod) or (PedRspCod = &PedVenCod) or  &PedVenCod = 0
+	Where (PedDtaFat >= &iniPedDtaEms and PedDtaFat <= &fimPedDtaEms and PedSts = Status_Pedido.FECHADO) or (PedDtaEms >= &iniPedDtaEms and PedDtaEms <= &fimPedDtaEms and PedSts <> Status_Pedido.FECHADO)
+	Where LctPagCom = Status_SimNao.Sim
+	Where ProCod <> 0
+	
+	if &PedCod <> PedCod
+		&PEdCod = PedCod
+		do 'updatePedido'
+	EndIf
+	
+	PedItmComRsp = 0
+	PedItmCom = 0
+	
+	&Count += 1
+	&AuxCout += 1
+	
+	If &AuxCout > 20
+		&AuxCout = 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+		If &Percentual = 0
+			 &Percentual = 5
+		EndIF
+		
+		If &Percentual >= 100
+			&Percentual = 99
+		EndIf		
+		do 'Atualiza'
+	EndIF
+	
+	//CALCULA DESCONTOS
+	&PedItmDsc = 0
+	&TotalDescontos = 0
+	IF (PedVlrUnt <> PedVlrTab) AND (PedVlrUnt > 0) AND (PedVlrTab > 0)
+		&PedItmDsc = (100 - ((PedVlrUnt / PedVlrTab) * 100))
+	EndIF
+	
+	&PedItmDsc += PedItmDsc
+	
+	if &PedItmDsc >= 0
+		verificaDescontoMaximoPedidoItem_percentual.Call(EmpCod, FilCod, PedCod, &VazioWwpContext, PedItmCod, PedItmPrm, PedVlrItm, &PedItmDsc, PedVlrUnt, &TotalDescontos)
+	Else
+		&TotalDescontos = &PedItmDsc
+	Endif
+	
+	PedItmDscTot = &TotalDescontos
+	
+	//GRAVA COMISSAO
+	Do Case
+		Case ProComPag = 'N' or ProSts = Status_Produto.EXCLUIDO //NAO PAGAR COMISSAO
+			PedItmComRsp = 0
+			PedItmCom = 0
+			
+		CAse PedCom <> 0 //COMISSAO CAPA PEDIDO
+        	PedItmCom = PedCom
+			
+		Case ProCom > 0 and ProComPag = 'X' //COMISSAO DIFERENCIADA
+			PedItmCom = ProCom
+			
+		CAse GrupCom > 0 //COMISSAO DO GRUPO
+			PedItmCom = GrupCom
+			
+		Otherwise //COMISSAO DO ITEM
+			
+			if PedItmVenCod > 0 and &TCon205_DesconsiderarTecnicoComissao <> 'S' //se for igual a 'S' NÃO calcula Comissão do técnico/mecânico
+				if PedItmVenCod = &PedVenCod or &PedVenCod = 0
+					if &PesCod <> PedItmVenCod
+						&PesCod = PedItmVenCod
+						do 'GetTotalFaturado'
+					Endif
+					
+					PedItmCom = RetornaComissaoVendedorNovo.Udp(EmpCod, PedItmVenCod, LctCod, PedItmPrm, &TotalDescontos, TabColCod, TabCod, &TotalFaturadoMoeda)
+				Endif
+			Else
+				if PedVenCod = &PedVenCod or  &PedVenCod = 0
+					if &PesCod <> PedVenCod
+						&PesCod = PedVenCod
+						do 'GetTotalFaturado'
+					Endif
+					PedItmCom = RetornaComissaoVendedorNovo.Udp(EmpCod, PedVenCod, LctCod, PedItmPrm, &TotalDescontos, TabColCod, TabCod, &TotalFaturadoMoeda)
+				Endif
+			EndIF
+			
+			If PedRspCod > 0 //Feito por TTS 06/09/18
+				if PedRspCod = &PedVenCod or  &PedVenCod = 0
+					if &PesCod <> PedRspCod
+						&PesCod = PedRspCod
+						do 'GetTotalFaturado'
+					Endif
+					PedItmComRsp = RetornaComissaoVendedorNovo.Udp(EmpCod, PedRspCod, LctCod, PedItmPrm, &TotalDescontos, TabColCod, TabCod, &TotalFaturadoMoeda)
+				Endif
+			EndIf
+    EndCase
+
+	Commit
+EndFor
+
+
+commit
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressLogXml = &sdtEstoque.ToXml()
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressLogXml = &sdtEstoque.ToXml()
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+
+	commit
+EndSub
+
+Sub 'updatePedido'
+	For Each Order EmpCod, FilCod, PedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PedCod = &PedCod
+		
+		PedAplCom = 'S' //APLICAR COMISSAO
+		Exit
+	EndFor
+EndSub
+
+Sub 'GetTotalFaturado'
+	&TotalFaturadoMoeda = 0
+	For &SdtTotalFaturadoItem in &SdtTotalFaturado
+		if &SdtTotalFaturadoItem.PesCod = &PesCod
+			&TotalFaturadoMoeda = &SdtTotalFaturadoItem.TotalMoeda
+			Exit
+		Endif
+	EndFor
+EndSUb
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod, in:&PedVenCod, in:&iniPedDtaEms, in:&fimPedDtaEms);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="fimPedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>fimPedDtaEms</Value></Property><Property><Name>Description</Name><Value>Pedido Data Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniPedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniPedDtaEms</Value></Property><Property><Name>Description</Name><Value>Pedido Data Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEstoque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEstoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEstoque</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCout">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCout</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalFaturadoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalFaturadoMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtTotalFaturado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtTotalFaturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtTotalFaturado</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtTotalFaturadoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtTotalFaturadoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtTotalFaturado.sdtTotalFaturadoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EspecialLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EspecialLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VazioWwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VazioWwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDescontos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDescontos</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>4</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmDsc</Value></Property><Property><Name>Description</Name><Value>Descontos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PEdCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PEdCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon205_DesconsiderarTecnicoComissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon205_DesconsiderarTecnicoComissao</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>AplicaComissao</Value></Property><Property><Name>Description</Name><Value>Aplica % de Comissao</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

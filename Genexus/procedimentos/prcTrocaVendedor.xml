@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="32d92d72-e2a0-4451-9d65-14a56e2c4c02" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2022-06-02T11:13:32.0000000Z" checksum="10e48ed19409dd0b32644aadd026f5de" fullyQualifiedName="prcTrocaVendedor" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="56fcab2e-a555-406c-bd89-ac45f9036730" name="prcTrocaVendedor" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Troca Vendedor" parent="RecalculaEstoque" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+For Each Order EmpCod
+	Where EmpCod = &EmpCod 
+	where RodInt = true or RodExt = true
+	
+	msg('Empresa:' + trim(str(EmpCod)), status)
+	//Adiciona Vendedores Excluidos
+	&collRodExcVenCod.Clear()
+	For Each Order EmpCod, RodExcVenCod
+		&collRodExcVenCod.Add(RodExcVenCod)
+	EndFor
+	
+	msg('Troca Vendedores Internos', status)
+	&RodIntTro = RodIntTro
+	&RodIntNext = RodIntNext
+	&RodIntLig = RodIntLig //Qtd Dias Ligacao
+	&RodIntVen = RodIntVen //Qtd Dias Vendas
+	
+	If 1 = 2 //Fiz isso nao precisa corrigir toda a vez. demora muito
+		do 'AtualizaUltimaCompraLigacao'
+	EndIF
+	
+	If RodInt = true
+		do 'TrocaVendedorInterno'
+		
+		If RotIntSemVda = true  and RotIntSemVdaDias > 0 //RODIZIO DE CLIENTES SEM VENDA E COM O MESMO VENDEDOR NO PERIODO
+			&Hoje = serverdate()
+			
+			msg('Vendedor Nao Cai:' + &collRodExcVenCod.ToJson(), status)
+			msg('Internos: Dias Sem Ligação:' + trim(str(&RodIntLig)), status)
+			msg('Internos: Dias sem Vendas:' + trim(str(&RodIntVen)), status)
+	
+			&RotIntSemVdaDias = RotIntSemVdaDias
+			
+			
+			do 'RodizioSemVendasMesmoVendedor'
+		EndIf
+		
+	EndIF
+EndFor
+
+sub 'RodizioSemVendasMesmoVendedor'
+	&DataSemVendas = &Hoje - &RotIntSemVdaDias
+	msg('Muda SAC para 1. Os Cliente sem venda que estão com o mesmo vendedor desde o dia: ' + &DataSemVendas.ToString(), status)
+
+	
+	For Each Order EmpCod, PesIsCli, PesSts, PesCliHabVenInt, PesCod
+		Where EmpCod = &EmpCod
+		Where PesIsCli = true //CLIENTES
+		Where PesSts = Status_AtivoInativo.ATIVO //ATIVOS
+		where PesCliHabVenInt = true //HABILITADO AOS TELEVENDAS
+		Where PesIntVenCod > 1
+		Where (PesUltVenDta < &DataSemVendas or PesUltVenDta.IsNull()) and (PesDtaCad < &DataSemVendas or PesDtaCad.IsNull()) //ULTIMA VENDA MENOR QUE &&DataSemVendas		
+		
+		if (PesIntVenCod in &collRodExcVenCod) //and not PesUltVenDta.IsEmpty()
+		Else
+			&AuxPesIntVenCod = PesIntVenCod
+			
+			&PesCod = PesCod
+			&sdtVinculos.Clear()
+		    &sdtVinculos = RetornaVinculos.Udp(EmpCod, PesCod)
+			
+			&IsAlgumavenda = RetornaAlgumaVendaVendedor.Udp(EmpCod, &sdtVinculos, PesIntVenCod)
+			if &IsAlgumavenda = false
+			    &IsNaoTroca = false
+			    do 'AnalisaVendedorUnico'
+				
+			    If &IsNaoTroca = false
+					
+					Do 'getNextVendedor'
+					
+					&HojeTime = serverDate()
+					&PesSacDta = TAdd(&HojeTime, 50)
+					
+					PesPrxLig = &PesSacDta
+					
+					PesIntVenCod = &RodIntNext
+					GravaCobAutomatica.Call(EmpCod, PesCod, '[SEMVENDA]', &RodIntNext, &sdtVinculos)
+			    EndIf
+			EndIF
+		EndIf
+	EndFor
+	
+EndSUb
+
+
+
+sub 'AnalisaVendedorUnico'
+	&IsNaoTroca = false
+	For &sdtVinCulosItem in &sdtVinCulos	
+		For Each Order EmpCod, PesCod, PesSacDta
+			Where EmpCod = &EmpCod
+			Where PesCod = &sdtVinCulosItem.PesCod
+			Where PesSacDta >= &DataSemVendas
+			Where PesSacVenCod <> &AuxPesIntVenCod
+			//Where PesSacVenCod > 1
+			//&AuxPesIntVenCod = PesSacVenCod
+			&IsNaoTroca = true
+			Exit
+		EndFor
+	
+		if &IsNaoTroca = true
+			exit
+		EndIF
+	EndFor
+
+	
+	if &IsNaoTroca = false
+		For &sdtVinCulosItem in &sdtVinCulos
+			For Each Order EmpCod, PesCod, (PesSacDta)
+				Where EmpCod = &EmpCod
+				Where PesCod = &sdtVinCulosItem.PesCod
+				Where PesSacDta <= &DataSemVendas
+				//Where PesSacVenCod > 1
+				
+				if &AuxPesIntVenCod = PesSacVenCod
+					&IsNaoTroca = false
+				Else
+					&IsNaoTroca = true
+				EndiF
+				Exit
+			EndFor
+			
+			if &IsNaoTroca = true
+				exit
+			EndIF
+		EndFor
+	EndIF
+EndSUb
+
+
+
+Sub 'AtualizaUltimaCompraLigacao'
+	msg('Atualiza Ultima Compra/Ligacao', status)
+	//ATUALIZAR ULTIMA COMPRA, ULTIMA LIGACAO
+	For Each Order EmpCod, PesIsCli, PesCod
+		Where EmpCod = &EmpCod
+		Where PesIsCli = true		
+		
+		msg('Atualiza Cliente: ' + trim(Str(PesCod)), status)
+		RetornaVinculos.Call(EmpCod, PesCod, &sdtVinculos)
+		PesUltVenDta_FORMULA.call(EmpCod, &sdtVinculos, PesUltVenDta, PesUltVenVlr, &PedTraRedCod, &PedTraSaiCod, &PesIntVenCod, &PesExtVenCod)
+		
+		If &PedTraRedCod > 0
+			PesCliTraCod = &PedTraRedCod
+		EndIF
+		If &PedTraSaiCod > 0
+			PesCliTraSaiCod = &PedTraSaiCod
+		EndIF
+
+		if &PesIntVenCod > 0
+			PesIntVenCod = &PesIntVenCod
+		EndIF
+		
+		if &PesExtVenCod > 0
+			PesExtVenCod = &PesExtVenCod
+		EndIF
+	
+		PesPrxLig = RetornaUltimaLigacaoAgendada.Udp(EmpCod, PesCod, 'I')
+		PesPrxVis = RetornaUltimaLigacaoAgendada.Udp(EmpCod, PesCod, 'E')
+		
+		commit
+	EndFor
+
+	msg('Concluido: Atualiza Ultima Compra/Ligacao', status)
+EndSub
+
+
+sub 'TrocaVendedorInterno'
+	&Hoje = serverdate()
+	
+	msg('Vendedor Nao Cai:' + &collRodExcVenCod.ToJson(), status)
+	msg('Internos: Dias Sem Ligação:' + trim(str(&RodIntLig)), status)
+	msg('Internos: Dias sem Vendas:' + trim(str(&RodIntVen)), status)
+	
+	//MUDA PARA VENDEDOR INTERNO 1 os CLIENTE SEM LIGAÇÃO
+	//MUDA PARA VENDEDOR INTERNO 1 os CLIENTES SEM VENDA
+	&CaiSACPesPrxLig = (&Hoje - &RodIntLig) //PRAZO MAXIMO CAI SEM LIGACAO
+	msg('Muda SAC para 1. Os Cliente sem ligacao a partir dia ' + &CaiSACPesPrxLig.ToString(), status)
+	
+	&CaiPesUltVenDta = &Hoje - &RodIntVen
+	msg('Muda SAC para 1 Cliente sem venda a partir dia ' + &CaiPesUltVenDta.ToString(), status)
+	&dorme = sleep(2)
+	For Each Order EmpCod, PesIsCli, PesSts, PesCliHabVenInt, PesCod
+		Where EmpCod = &EmpCod
+		Where PesIsCli = true //CLIENTES
+		Where PesSts = Status_AtivoInativo.ATIVO //ATIVOS
+		where PesCliHabVenInt = true //HABILITADO AOS TELEVENDAS
+		Where PesIntVenCod > 1
+		Where (PesUltVenDta < &CaiPesUltVenDta or PesUltVenDta.IsNull()) and (PesDtaCad < &CaiPesUltVenDta or PesDtaCad.IsNull()) //ULTIMA VENDA MENOR QUE &RodIntLig
+	    
+		if (PesIntVenCod in &collRodExcVenCod) //and not PesUltVenDta.IsEmpty()
+		Else
+			&PesCod = PesCod
+		    &PesPrxLig = PesPrxLig
+		    &VinPesPrxLig = PesPrxLig
+			
+			msg('Cliente: ' + trim(str(PesCod)) + ' Proxima Ligacao:' + trim(toformattedString(PesPrxLig)), status)
+			
+			&sdtVinculos.Clear()
+		    &sdtVinculos = RetornaVinculos.Udp(EmpCod, PesCod)
+			
+		    &IsNaoPode = false
+		    do 'AnalisaLigacoes'
+			
+		    If (&PesPrxLig < &CaiSACPesPrxLig) and (&VinPesPrxLig < &CaiSACPesPrxLig) and &IsNaoPode = false
+		    	do 'AnalisaVendas'
+				
+				If &IsAlgumDataAcima = 'N' and &IsNaoPodeVenda = False
+					Do 'getNextVendedor'
+					
+					PesIntVenCod = &RodIntNext
+					GravaCobAutomatica.Call(EmpCod, PesCod, '[SEMLIGACAO]', &RodIntNext, &sdtVinculos)
+				EndIf
+		    EndIf
+		EndIf
+	EndFor
+	
+	commit
+EndSub
+
+
+Sub 'AnalisaLigacoes'
+    For &sdtVinCulosItem in &sdtVinCulos
+        If &sdtVinCulosItem.PesCod <> &PesCod
+	        For Each Order EmpCod, PesCod
+				Where EmpCod = &EmpCod
+				Where PesCod = &sdtVinCulosItem.PesCod
+				
+				msg('Vinculo: ' + trim(str(PesCod)) + ' Proxima Ligacao:' + trim(toformattedString(PesPrxLig)), status)
+				
+	            If (PesIntVenCod in &collRodExcVenCod ) and (&collRodExcVenCod.Count > 0)
+					msg('Vendedor Bloqueado para Troca!', status)
+	                &IsNaoPode = true
+	            EndIF
+				
+				If (PesPrxLig > &VinPesPrxLig)// and (PesPrxLig > &CaiSACPesPrxLig)
+		            &VinPesPrxLig = PesPrxLig
+				EndIF
+	        EndFor
+		EndIF		
+	EndFor
+EndSub
+
+
+Sub 'AnalisaVendas'
+    &IsNaoPodeVenda = false
+    &IsAlgumDataAcima = 'N'
+	
+	For &sdtVinCulosItem in &sdtVinculos
+		If &sdtVinCulosItem.PesCod <> &PesCod
+			If &collRodExcVenCod.Count <> 0
+				For Each Order EmpCod, PesCod
+					Where EmpCod = &EmpCod
+					Where PesCod = &sdtVinCulosItem.PesCod
+					Where PesIntVenCod in &collRodExcVenCod 
+					//where not PesUltVenDta.IsEmpty()
+					&IsNaoPodeVenda = true
+					msg('Cliente Bloqueado Vendas', status)
+					Exit
+				EndFor
+			EndIF			
+			
+			For Each Order EmpCod, PesCod
+				Where EmpCod = &EmpCod
+				Where PesCod = &sdtVinCulosItem.PesCod
+				Where (PesUltVenDta >= &caiPesUltVenDta or PesUltVenDta.IsNull()) or (PesDtaCad >= &caiPesUltVenDta or PesDtaCad.IsNull())
+				&IsAlgumDataAcima = 'S'
+				msg('Cliente Possui vendas em Vinculos', status)
+				Exit
+			EndFor
+			
+			If &IsAlgumDataAcima = 'S' or &IsNaoPodeVenda = true
+				Exit
+			EndIf
+		EndIF
+	EndFor	
+EndSub
+
+
+Sub 'getNextVendedor'
+	&RodIntNext = 1
+	
+	if &RodIntTro = true
+	    For Each Order EmpCod, PesVenIntExt, PesCod
+			Where EmpCod = &EmpCod
+		    Where PesCod > &RodIntNext
+		    Where PesVenIntExt =  Status_InternoExterno.INTERNO
+			Where PesIsVen = true
+		    Where PesDtaDem.IsEmpty()
+		    Where not PesCod in &collRodExcVenCod
+	        &RodIntNext = PesCod
+			
+	        Exit
+	    When none
+	        For Each Order EmpCod, PesVenIntExt, PesCod
+				Where EmpCod = &EmpCod
+				Where PesCod < &RodIntNext
+				Where not PesCod in &collRodExcVenCod
+				Where PesIsVen = true
+				Where PesIsVen = true
+			    Where PesDtaDem.IsEmpty()
+				&RodIntNext = PesCod
+				
+	            Exit
+	        EndFor
+	    EndFor
+	EndIF
+
+	msg('Proximo Vendedor:' + trim(str(&RodIntNext)), status)
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="collRodExcVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>collRodExcVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RodExcVenCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RodIntTro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RodIntTro</Value></Property><Property><Name>Description</Name><Value>Trocar Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RodIntTro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RodIntNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RodIntNext</Value></Property><Property><Name>Description</Name><Value>Próximo Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RodIntNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RodIntLig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RodIntLig</Value></Property><Property><Name>Description</Name><Value>Dia Ligacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RodIntLig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RodIntVen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RodIntVen</Value></Property><Property><Name>Description</Name><Value>Dias Vendas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RodIntVen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RotIntSemVdaDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RotIntSemVdaDias</Value></Property><Property><Name>Description</Name><Value>Dias Sem Venda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RotIntSemVdaDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataSemVendas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataSemVendas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPesIntVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPesIntVenCod</Value></Property><Property><Name>Description</Name><Value>Televendas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesIntVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtVinculos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtVinculos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtVinculos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAlgumavenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAlgumavenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsNaoTroca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsNaoTroca</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeTime">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeTime</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesSacDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesSacDta</Value></Property><Property><Name>Description</Name><Value>Data/Hora Ligação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesSacDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtVinCulosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtVinCulosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtVinculos.sdtVinculosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTraRedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTraRedCod</Value></Property><Property><Name>Description</Name><Value>Transportadora</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTraRedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTraSaiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTraSaiCod</Value></Property><Property><Name>Description</Name><Value>Transportadora</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTraSaiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesIntVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesIntVenCod</Value></Property><Property><Name>Description</Name><Value>Televendas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesIntVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaiSACPesPrxLig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaiSACPesPrxLig</Value></Property><Property><Name>Description</Name><Value>Cliente Próxima Ligação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrxLig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaiPesUltVenDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaiPesUltVenDta</Value></Property><Property><Name>Description</Name><Value>Cliente Última Venda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesUltVenDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VinPesPrxLig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VinPesPrxLig</Value></Property><Property><Name>Description</Name><Value>Cliente Próxima Ligação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrxLig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesPrxLig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesPrxLig</Value></Property><Property><Name>Description</Name><Value>Cliente Próxima Ligação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrxLig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAlgumDataAcima">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAlgumDataAcima</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsNaoPodeVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsNaoPodeVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsNaoPode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsNaoPode</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcTrocaVendedor</Value></Property><Property><Name>Description</Name><Value>prc Troca Vendedor</Value></Property><Property><Name>IntegratedSecurityLevel</Name><Value>SecurityNone</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:38:08.0000000Z" checksum="1a7ca0850399666e06496f106e1c26a2" fullyQualifiedName="prcOperacaoTransporteClonar" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c53715a5-96e8-4718-8bbc-6cbe78471afa" name="prcOperacaoTransporteClonar" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Clonar operação transporte" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//PROCEDIMENTO PARA CLONAR A OPERAÇÃO DE TRANSPORTE\\
+
+For Each Order EmpCod, FilCod, OpeCod //BUSCA A OPERAÇÃO PASSADA POR PARÂMETRO
+	Where EmpCod = &parmEmpCod	//EMPRESA
+	Where FilCod = &parmFilCod	//FILIAL
+	Where OpeCod = &parmOpeCod	//OPERAÇÃO
+	
+	&AuxOpeTipVia	= OpeTipVia //DEFINE O TIPO DA VIAGEM (PADRÃO, OU TAC_AGRAGADO)
+	&NewOpeCod		= UltimoCodigoEmpresa.Udp(domParCod.OPERACAOTRANSPORTE, &parmEmpCod, &parmFilCod) //RETORNA O ÚLTIMO CÓDIGO REGISTRADO DE OPERAÇÃO
+	
+	//ATRIBUI OS VALORES DA OPERAÇÃO PASSADA POR PARÂMETRO À NOVA OPERAÇÃO\\
+	
+	//CAPA DA OPERAÇÃO
+	New 
+		EmpCod			= &parmEmpCod	//EMPRESA
+		FilCod 			= &parmFilCod	//FILIAL
+		OpeCod			= &NewOpeCod	//CÓDIGO OPERAÇÃO
+		OpeMdfeFilCod	= 0				//CÓDIGO DA FILIAL DA MDFE
+		OpeMdfeCod		= 0				//MDFE 
+		OpeDta			= &Today		//DATA DE EMISSÃO
+		OpeTipVia		= OpeTipVia		//TIPO DA VIAGEM
+		OpeEmiGra		= OpeEmiGra		//MODALIDADE DA OPERAÇÃO (TRUE = TRANSFERENCIABANCARIA; FALSE = eFRETE)
+		OpeMatCnpj		= OpeMatCnpj	//MATRIZ CNPJ EMITENTE
+		OpeNro			= ''			//VAZIO PORQUE O NÚMERO SERÁ ATRIBUIDO AO ADICIONAR UM PAGAMENTO
+		
+		//SE A VIAGEM FOR DO TIPO PADRÃO\\
+		If &AuxOpeTipVia 	= PefServiceTipoViagem.Padrao
+			OpeDtaIni		= &Today	//DATA DE INICIO DA VIAGEM
+			OpeNcm			= OpeNcm	//NCM DE NATUREZA (4 DÍGITOS NO MÁXIMO)
+			OpePso			= OpePso	//PESO TOTAL DA MERCADORIA
+			OpeTipEmb		= OpeTipEmb //TIPO DA EMBALAGEM
+			OpeDesCod		= OpeDesCod //CÓDIGO DO DESTINATÁRIO
+			OpeEntDoc		= OpeEntDoc //ENTREGA DA DOCUMENTAÇÃO (REDE CREDENCIADA, OU CLIENTE)
+			OpeQtdSaq		= OpeQtdSaq //QUANTIDADE DO SAQUE
+			OpeQtdTra		= OpeQtdTra //QUANTIDADE DE TRANSFERÊNCIAS
+			OpeTipCar		= OpeTipCar //TIPO DA CARGA (LIMITADO A 2 DIGITOS E VAI DE 01 A 99)
+			OpeAltDes		= OpeAltDes //SE É CARGA DE ALTO DESEMPENHO
+			OpeDesCom		= OpeDesCom //SE É DESTINAÇÃO COMERCIAL
+			OpeFrtRet		= OpeFrtRet //SE TEM FRETE DE RETORNO
+			OpeCepRet		= OpeCepRet //O CEP DO FRETE DE RETORNO
+			OpeDisRet		= OpeDisRet //A DISTÂNCIA DO RETORNO
+		EndIf
+		//##############################\\
+		
+		OpeDtaFim		= &Today.AddDays(1) //DATA FINAL DA VIAGEM (GENÉRICA POR AGORA)
+		
+		//CONTRATADO
+		OpeConCod		= OpeConCod		//CÓDIGO DO CONTRATADO (TRANSPORTADORA) 
+		OpeConCnpj		= OpeConCnpj	//CNPJ DO CONTRATADO (TRANSPORTADORA)
+		OpeConRntrc		= OpeConRntrc	//RNTRC DO CONTRATADO (TRANSPORTADORA)
+		
+		//MOTORISTA
+		OpeMotCod		= OpeMotCod		//CÓDIGO DO MOTORISTA
+		OpeMotCnpj		= OpeMotCnpj  	//CPF DO MOTORISTA
+		OpeMotCnh		= OpeMotCnh		//CNH DO MOTORISTA
+		OpeMotTelDdd	= OpeMotTelDdd	//DDD DO TELEFONE DO MOTORISTA
+		OpeMotTelNro	= OpeMotTelNro	//TELEFONE DO MOTORISTA
+		
+		//CONTRATANTE
+		OpeAntCod		= OpeAntCod	//CÓDIGO DO CONTRATANTE (SERÁ O CÓDIGO DA FILIAL EMITENTE)
+		
+		//SUB-CONTRATANTE
+		OpeSubCon		= OpeSubCon 	//CÓDIGO DO SUB-CONTRATANTE
+		OpeSubConCiot	= OpeSubConCiot	//CIOT DE ORIGEM REFERENTE A OPERAÇÃO DO SUB-CONTRATANTE
+		
+		//CONSIGNATÁRIO
+		OpeSigCod		= OpeSigCod		//CÓDIGO DO CONSIGNATÁRIO
+		
+		//TOMADOR
+		OpeTomCod		= OpeTomCod		//CÓDIGO DO TOMADOR
+		
+		OpeResPgtFrt	= OpeResPgtFrt	//RESPONSÁVEL PELO PAGAMENTO DO FRETE
+		OpeNroCiot		= ''	//NÚMERO DO CIOT (VAZIO PORQUE SERÁ EMITIDO AINDA
+		OpeSts			= Status_Ciot.Digitando	//STATUS DO CIOT (DIGITANDO PORQUE NÃO FOI EMITIDO UM CIOT AINDA
+		OpeNfeVlrFrtUnd = OpeNfeVlrFrtUnd //VALOR DA NFE POR UNIDADE
+	EndNew
+	
+	//VEICULOS
+	&NewOpeVeiCod 		= 0
+	For Each Order EmpCod, FilCod, OpeCod, OpeVeiCod
+		
+		&NewOpeVeiCod	+= 1
+		New
+			EmpCod 			= EmpCod		//EMPRESA
+			FilCod			= FilCod		//FILIAL
+			OpeCod			= &NewOpeCod	//CÓDIGO DA OPERAÇÃO
+			OpeVeiCod		= &NewOpeVeiCod //CÓDIGO DO VEÍCULO
+			OpeVeiPla		= OpeVeiPla		//PLACA DO VEÍCULO
+			OpeVeiObs		= OpeVeiObs		//SE HOUVE ALGUMA OBSERVAÇÃO
+			OpeVeiUF		= OpeVeiUF		//UF DO VEÍCULO
+			OpeVeiTipCar 	= OpeVeiTipCar	//TIPO DE CARROCERIA (SÓ ACEITA VEÍCULOS DE TRAÇÃO)
+		EndNew
+		
+	EndFor
+	
+	//IMPOSTOS
+	&NewOpeImpCod		= 0
+	For Each Order EmpCod, FilCod, OpeCod, OpeImpCod
+		
+		&NewOpeImpCod 	+= 1
+		New
+			EmpCod		= EmpCod		//EMPRESA
+			FilCod		= FilCod		//FILIAL
+			OpeCod		= &NewOpeCod	//CÓDIGO DA OPERAÇÃO
+			OpeImpCod	= &NewOpeImpCod //CÓDIGO DO IMPOSTO (HAVERÁ APENAS UM)
+			OpeImpIRRF	= OpeImpIRRF	//VALOR DESTINADO AO IRRF
+			OpeImpSest	= OpeImpSest	//VALOR DESTINADO AO SEST / SENAT 
+			OpeImpInss	= OpeImpInss	//VALOR DESTINADO AO INSS
+			OpeImpIssqn	= OpeImpIssqn	//VALOR DESTINADO AO ISSQN
+			OpeImpOut	= OpeImpOut		//VALOR DESTINADO A OUTROS IMPOSTOS NÃO PREVISTOS
+		EndNew
+		
+	EndFor
+	
+	//SE A VIAGEM FOR DO TIPO PADRÃO, VAI ADICIONAR UMA VIAGEM E OS SEUS VALORES, ADICIONAR OS PAGAMENTOS E ADICIONAR AS NFE
+	If &AuxOpeTipVia 	= PefServiceTipoViagem.Padrao
+		
+		&NewOpePgtCod		= 0
+		&TotAdiantamento	= 0
+		&TotQuitacao	 	= 0
+		
+		//PAGAMENTOS
+		For Each Order EmpCod, FilCod, OpeCod, OpePgtCod
+			
+			&NewOpePgtCod		+= 1	
+			&OpePgtNro 			= Padl(Str(EmpCod),6,'0') + Padl(Str(FilCod),6,'0')+ Padl(Str(&NewOpePgtCod),6,'0')
+			
+			New
+				EmpCod			= EmpCod		//EMPRESA
+				FilCod			= FilCod		//FILIAL
+				OpeCod			= &NewOpeCod	//CÓDIGO DA OPERAÇÃO
+				OpePgtCod		= &NewOpePgtCod	//CÓDIGO DO PAGAMENTO
+				OpePgtNro		= &OpePgtNro	//NÚMERO DO PAGAMENTO
+				OpeDtaLib		= &Today		//DATA EM QUE O PAGAMENTO SERÁ LIBERADO PARA SAQUE
+				OpePgtVal		= OpePgtVal		//VALOR DO PAGAMENTO
+				OpePgtTip		= OpePgtTip		//MODALIDADE DO PAGAMENTO (SERÁ IGUAL AO DA CAPA)
+				OpePgtCat		= OpePgtCat		//CATEGORIA DO PAGAMENTO (ADIANTAMENTO, ESTADIA, QUITACAO, SEMCATEGORIA)
+				OpePgtDoc		= OpePgtDoc		//DOCUMENTO RELACIONADO A VIAGEM
+				OpePgtBan		= OpePgtBan		//CÓDIGO DA INSTITUIÇÃO BANCÁRIA
+				OpePgtAge		= OpePgtAge		//AGÊNCIA DA CONTA 
+				OpePgtCon		= OpePgtCon		//NÚMERO DA CONTA DO CONTRATADO (COM DÍGITO SE HOUVER)
+				OpePgtConTip	= OpePgtConTip	//TIPO DA CONTA DO CONTRATADO
+				OpePgtInfAdd	= OpePgtInfAdd	//INFORMAÇÕES ADICIONAIS
+				OpePgtSts		= Status_AtivoInativo.ATIVO	//STATUS DO PAGAMENTO
+				OpePgtSit		= Status_AbertoFechado.Aberto //SITUAÇÃO DO PAGAMENTO
+			EndNew
+			
+			Do Case 
+				Case OpePgtCat = PefServiceCategoriaPagamento.Adiantamento //SE ADIANTAMENTO, ACRESCENTA O VALOR AO TOTAL DE ADIANTAMENTOS
+					&TotAdiantamento 	+= OpePgtVal
+					
+				Case OpePgtCat = PefServiceCategoriaPagamento.Quitacao	//SE QUITAÇÃO, ACRESCENTA O VALOR AO TOTAL DE QUITAÇÃO
+					&TotQuitacao		+= OpePgtVal
+			EndCase
+
+		EndFor
+		
+		//VIAGENS
+		&NewOpeViaCod 		= 0
+		For Each Order EmpCod, FilCod, OpeCod, OpeViaCod
+			Where OpeViaSts	= Status_Autorizado.AUTORIZADO //TODAS AS VIAGENS COM O STATUS AUTORIZADO
+			
+			&AuxOpeViaCod	= OpeViaCod
+			&NewOpeViaCod 	+= 1
+			New
+				EmpCod 			= EmpCod		//EMPRESA
+				FilCod 			= FilCod		//FILIAL
+				OpeCod 			= &NewOpeCod	//CÓDIGO DA OPERAÇÃO 
+				OpeViaCod		= &NewOpeViaCod	//CÓDIGO DA VIAGEM
+				OpeTipPgt		= OpeTipPgt		//MODALIDADE DA VIAGEM (SERÁ IGUAL AO DA CAPA)
+				OpeDstCidCod	= OpeDstCidCod	//CÓDIGO IBGE DA CIDADE DE DESTINO
+				OpeDstCidCep	= OpeDstCidCep	//CEP DA CIDADE DE DESTINO
+				OpeDstCidUfe	= OpeDstCidUfe	//UF DA CIDADE DE DESTINO
+				OpeOriCidCod	= OpeOriCidCod	//CÓDICO IBGE DA CIDADE DE ORIGEM
+				OpeOricidCep	= OpeOricidCep	//CEP DA CIDADE DE ORIGEM
+				OpeOriCidUfe	= OpeOriCidUfe	//UF DA CIDADE DE ORIGEM
+				OpeNroDoc		= OpeNroDoc		//DOCUMENTO RELACIONADO A VIAGEM (DEVERÁ SER MAIOR QUE 10 CARACTERES)
+				OpeViaDstPer	= OpeViaDstPer	//DISTÂNCIA TOTAL PERCORRIDA
+				OpeViaSts		= Status_Autorizado.AUTORIZADO	//STATUS DA VIAGEM
+			EndNew
+			
+			//VALORES DA VIAGEM
+			&NewOpeValCod		= 0
+			For Each Order EmpCod, FilCod, OpeCod, OpeViaCod, OpeValCod
+			
+				&NewOpeValCod	+= 1
+				New
+					EmpCod 			= EmpCod		//EMPRESA
+					FilCod 			= FilCod		//FILIAL
+					OpeCod 			= &NewOpeCod	//CÓDIGO DA OPERAÇÃO
+					OpeViaCod		= &NewOpeViaCod	//CÓDIGO DA VIAGEM
+					OpeValCod		= &NewOpeValCod	//CÓDIGO DO VALOR DA VIAGEM
+					OpeTotAdi		= &TotAdiantamento	//TOTAL DE ADIANTAMENTO
+					OpeTotQui		= &TotQuitacao		//TOTAL DE QUITAÇÃO
+					OpeTotCom		= OpeTotCom		//TOTAL DESTINADO AO COMBUSTÍVEL 
+					OpeTotPed		= OpeTotPed		//TOTAL DESTINADO AO PEDÁGIO
+					OpeTotSeg		= OpeTotSeg		//TOTAL DESTINADO AO SEGURO
+					OpeTotOutDeb	= OpeTotOutDeb	//TOTAL PARA OUTROS DÉBITOS
+					OpeTotOutDebJus	= OpeTotOutDebJus //JUSTIFICATIVA DOS OUTROS DÉBITOS
+					OpeTotOutCre	= OpeTotOutCre	//TOTAL PARA OUTROS CRÉDITOS
+					OpeTotOutCreJus	= OpeTotOutCreJus	//JUSTIFICATIVA DOS OUTROS CRÉDITOS
+				EndNew
+				Exit
+			EndFor
+			
+			Exit
+		EndFor
+		
+		//DOCUMENTOS FISCAIS
+		&NewOpeNfeCod		= 0
+		For Each Order EmpCod, FilCod, OpeCod, OpeNfeCod
+			
+			&NewOpeNfeCod 		+= 1
+			New				
+				EmpCod 			= EmpCod		//EMPRESA
+				FilCod 			= FilCod		//FILIAL
+				OpeCod 			= &NewOpeCod	//CÓDIGO DA OPERAÇÃO
+				OpeNfeCod		= &NewOpeNfeCod	//CÓDIGO DO DOCUMENTO FISCAL
+				OpeNfeNro		= OpeNfeNro		//NÚMERO DO DOCUMENTO FISCAL
+				OpeNfeSer		= OpeNfeSer		//NÚMERO DA SERIE DO DOCUMENTO FISCAL
+				OpeNfeVlrTot	= OpeNfeVlrTot	//VALOR TOTAL DO DOCUMENTO FISCAL
+				OpeNfeVlrUni	= OpeNfeVlrUni	//VALOR POR UNIDADE
+				OpeNfeNcm		= OpeNfeNcm		//NCM PRINCIPAL DO DOCUMENTO FISCAL
+				OpeNfeUndMed	= OpeNfeUndMed	//UNIDADE DE MEDIDA DA MERCADORIA (SEMPRE KG)
+				OpeNfeTipCal	= OpeNfeTipCal	//TIPO DE CALCULO
+				OpeNfeQtdMerEmb	= OpeNfeQtdMerEmb	//QUANTIDADE TE MERCADORIA EMBARCADA (A SOMA DE TODAS AS MERCADORIAS DARÁ O VALOR DE OpePso) 
+				OpeNfeTolPerVlr	= OpeNfeTolPerVlr	//VALOR DE PERDA
+				OpeNfeDifFrtTip	= OpeNfeDifFrtTip	//TIPO DA DIFERENÇA
+				OpeNfeDifFrtBas	= OpeNfeDifFrtBas	//TIPO DA BASE DE CALCULO
+				OpeNfeTolTip	= OpeNfeTolTip		//TIPO DE TOLERANCIA
+				OpeNfeMarGanTip = OpeNfeMarGanTip	//TIPO DE MARGEM DE GANHO
+				OpeNfeMarGanVlr	= OpeNfeMarGanVlr	//VALOR DA MARGEM DE GANHO
+				OpeNfeMarPerTip	= OpeNfeMarPerTip	//TIPO DE MARGEM DE PERDA
+				OpeNfeMarPerVlr	= OpeNfeMarPerVlr	//VALOR DA MARGEM DE PERDA
+				OpeNfeChv		= OpeNfeChv			//CHAVE DO DOCUMENTO FISCAL
+			EndNew
+			
+		EndFor
+		
+	EndIf
+	
+	Exit		
+EndFor
+Commit
+			
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&parmEmpCod, In:&parmFilCod, In:&parmOpeCod, Out:&NewOpeCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="parmEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpeViaCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpeViaCod</Value></Property><Property><Name>Description</Name><Value>Ope Via Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeViaCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpeValCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpeValCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeValCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeViaCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeViaCod</Value></Property><Property><Name>Description</Name><Value>Ope Via Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeViaCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpeNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpeNfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpeImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpeImpCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpePgtCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpePgtCod</Value></Property><Property><Name>Description</Name><Value>Pagamentos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpePgtNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpePgtNro</Value></Property><Property><Name>Description</Name><Value>Identificador de pagamento Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeTipVia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeTipVia</Value></Property><Property><Name>Description</Name><Value>Tipo Viagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTipVia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewOpeVeiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewOpeVeiCod</Value></Property><Property><Name>Description</Name><Value>Veiculos Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeVeiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotQuitacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotQuitacao</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotAdiantamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotAdiantamento</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcOperacaoTransporteClonar</Value></Property><Property><Name>Description</Name><Value>Clonar operação transporte</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

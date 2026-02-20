@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="b6da4e17-264a-4fee-9b85-27b2dc3e0bb0" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2022-05-20T18:42:19.0000000Z" checksum="fe4c1c64be0126a04dc4a93a060e6e89" fullyQualifiedName="GeraXmlManifestacao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="01e94f8a-0d81-4ec7-88e1-c5260ec221f5" name="GeraXmlManifestacao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Xml Manifestacao" parent="DFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[retornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &sdtConfiguracoesPasta)
+&Hoje = serverDate()
+&versao = RetornaVersaoNotas.Udp(VersaoNota.VersaoDFeEvento)
+
+For each order EmpCod,FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	
+	If &Transmitir = 'S'
+		//GERA ARQUIVO XML NA PASTA ENVIO
+		&ArquivoEnvio.Source = &sdtConfiguracoesPasta.PastaNFenvio +trim(str(&Evento))+ TRIM(&ManCha) + '-ped-eve.xml'
+		If &ArquivoEnvio.Exists()
+			&ArquivoEnvio.Delete()
+		EndIf	
+		&Nome_enviar = &sdtConfiguracoesPasta.PastaNFenvio.Trim() +trim(str(&Evento))+ TRIM(&ManCha) +  '-ped-eve.xml'
+	EndIf
+	&ID = 'ID'+trim(str(&Evento))+TRIM(&ManCha)+'01'
+	
+	//http://www.flexdocs.com.br/guianfe/WS.evento.ManDest.html
+	Do case
+		Case &Evento = 210200 //Confirmacao da Operacao
+			&descEvento = 'Confirmacao da Operacao'
+			
+		Case &Evento = 210210 //Ciencia da Operacao
+			&descEvento = 'Ciencia da Operacao'
+			
+		Case &Evento = 210220 //Desconhecimento da Operacao
+			&descEvento = 'Desconhecimento da Operacao'
+			
+		Case &Evento = 210240 //Operacao nao Realizada
+			&descEvento = 'Operacao nao Realizada'
+	EndCase
+
+	AtualizaEventoManifestacao.call(&EmpCod,&ManCod,&Evento)
+
+	&lote = Val(&ManNsu)
+	&ArqDFe.Open(&Nome_enviar) // Abrir o arquivo XML
+	&ArqDFe.WriteStartDocument('UTF-8')
+	&ArqDFe.WriteStartElement('envEvento')
+	&ArqDFe.WriteAttribute('versao',&versao)
+	&ArqDFe.WriteAttribute('xmlns','http://www.portalfiscal.inf.br/nfe')
+	&ArqDFe.WriteElement('idLote',&lote)
+	
+	&ArqDFe.WriteStartElement('evento')
+	&ArqDFe.WriteAttribute('versao',&versao)
+	&ArqDFe.WriteAttribute('xmlns','http://www.portalfiscal.inf.br/nfe')
+	
+	&ArqDFe.WriteStartElement('infEvento')
+	&ArqDFe.WriteAttribute('Id',trim(&ID))
+	&ArqDFe.WriteElement('cOrgao','91')
+	&ArqDFe.WriteElement('tpAmb',FilAmbEms)
+	
+	retornaJuridicaFisica.call(FilCpj, &PesTip)
+	
+	If &PesTip = TipoPessoa.JURIDICA
+		&ArqDFe.WriteElement('CNPJ',retornasoNumeros.Udp(FilCpj))
+	Else
+		&ArqDFe.WriteElement('CPF',retornasoNumeros.Udp(FilCpj))
+	Endif
+
+	&ArqDFe.WriteElement('chNFe',&ManCha)
+	&soNumero = str(year(&Hoje),4,0) +'-'+padl(trim(str(month(&Hoje),2,0)),2,'0') +'-'+padl(trim(str(day(&Hoje),2,0)),2,'0') +'T'+trim(serverTime()) +'-'+ trim(FilFusHor)
+	&ArqDFe.WriteElement('dhEvento',&soNumero)
+	&ArqDFe.WriteElement('tpEvento',&Evento)
+	&ArqDFe.WriteElement('nSeqEvento','1')
+	&ArqDFe.WriteElement('verEvento',&versao)
+	&ArqDFe.WriteStartElement('detEvento')
+	&ArqDFe.WriteAttribute('versao',&versao)
+	&ArqDFe.WriteElement('descEvento',trim(&descEvento))
+	If not &xJust.Trim().IsEmpty()
+		&ArqDFe.WriteElement('xJust',trim(&xJust))
+	EndIf
+	&ArqDFe.WriteEndElement()//dettEvento	
+	&ArqDFe.WriteEndElement()//infEvento
+	&ArqDFe.WriteEndElement()//evento
+	&ArqDFe.WriteEndElement()//envEvento
+	&ArqDFe.Close()
+	exit
+EndFor
+
+If &Transmitir = 'S'	
+	GravaSolicitacaoProgramada.Call(&EmpCod, &FilCod, &ManCod, 0, TipoSolicitacao.Manifestar_DFe, &PesCod, &SolCod, 5)
+EndIF
+
+// 210240_11223344556677889900112233445566778899001122-ped-eve.xml
+//
+//<?xml version="1.0" encoding="utf-8"?>
+//<envEvento versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">
+//  <idLote>000000000015255</idLote>
+//  <evento versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">
+//    <infEvento Id="ID1101404114110611747300015055001000027298491475192101">
+//      <cOrgao>91</cOrgao>
+//      <tpAmb>2</tpAmb>
+//      <CNPJ>06117473000150</CNPJ>
+//      <chNFe>41141106117473000150550010000272984914751921</chNFe>
+//      <dhEvento>2014-11-16T07:25:43-02:00</dhEvento>
+//      <tpEvento>110140</tpEvento>
+//      <nSeqEvento>1</nSeqEvento>                                      <<< aqui
+//      <verEvento>1.00</verEvento>
+//      
+//    </infEvento>
+//  </evento>
+//</envEvento>
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&Transmitir,in:&ManCha,in:&ManNsu,in:&Evento,in:&xJust,in:&ManCod,&SolCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="versao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>versao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Transmitir">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Transmitir</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoEnvio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoEnvio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_enviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_enviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ID</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>80</Value></Property><Property><Name>AttMaxLen</Name><Value>80</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArqDFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArqDFe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManNsu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManNsu</Value></Property><Property><Name>Description</Name><Value>Nsu</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManNsu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManCha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManCha</Value></Property><Property><Name>Description</Name><Value>Chave da Nota</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManCha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Evento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Evento</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Codigo6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="soNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>soNumero</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomeMedio40</Value></Property></Properties>
+        </Variable>
+        <Variable Name="descEvento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>descEvento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xJust">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xJust</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomeGrande100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="lote">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>lote</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesTip</Value></Property><Property><Name>Description</Name><Value>Pessoa Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesTip</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraXmlManifestacao</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

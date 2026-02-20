@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="851db1e6-78bf-428e-8992-b6b201b3058f" user="WINJEAN\jeanfae" versionDate="2026-01-14T20:06:31.0000000Z" lastUpdate="2026-01-14T14:55:32.0000000Z" checksum="636f70b5544d717f3ab88be4b9f43301" fullyQualifiedName="api_monitor.getimpressao" moduleGuid="56cc37b6-572f-49d3-916f-a0f043c3d96c" guid="73942158-90da-4248-afaa-f8dd4b23351b" name="getimpressao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="getimpressao" parent="api_monitor.impressoes" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//&Versao 	= 11 //VERSAO IDEAL DO APLICATIVO
+
+//For each Order EmpCodSec
+//	Where EmpCodSec = &monRandon
+//	&EmpCod = EmpCod
+//	&OutsdtJaspiImpressao_out.EmpWebBaseUrl = EmpDirVir + 'appjaspi/app/JASPI_IMP'+trim(str(&Versao)) + '.rar'
+//	Exit 
+//When none
+//	&OutsdtJaspiImpressao_out.EmpStsMsg = 'ERRO DE EMPRESA, NAO LOCALIZADA'
+//	return
+//EndFor
+	
+
+For each Order EmpCod, MonRandon
+	Where MonRandon = &monRandon //localiza monitor
+	where MonSts = Status_Pdv.INSTALADO
+	Where MonTip <> TipoApp.BI
+	
+	&monCod 	= MonCod
+	
+	&EmpCod = EmpCod
+	&OutsdtJaspiImpressao_out.EmpStsMsg = EmpRaz
+	
+	//if &EmpImpVer <> &Versao
+//	&OutsdtJaspiImpressao_out.sts = 'E998'
+//	&OutsdtJaspiImpressao_out.msg = 'ERRO DE VERSAO, NECESSARIO UTILIZACAO VERSAO: ' + trim(str(&Versao))
+//	&OutsdtJaspiImpressao_out.EmpImpVer = &Versao
+//	return
+//Endif
+
+	Exit 
+When none
+	&OutsdtJaspiImpressao_out.sts = 'E997'
+	&OutsdtJaspiImpressao_out.msg = 'ERRO DE EMPRESA, NAO LOCALIZADA'
+	return
+EndFor
+
+
+Do case
+	Case &EmpTipSol = 'VERSAO'
+		
+	Case &EmpTipSol = 'PENDENTE'
+		If &EmpCod > 0			
+			&fiDtaIni = serverNow()
+			For Each Order FIempCod, FIcod
+				Where FIempCod = &EmpCod
+				Where FIsts = 'P' //PENDENTE
+				Where FIimpPC = &monCod //Nome do Monitor
+				Where FiDtaIni.IsEmpty() or FiDtaIni.IsNull() or FiDtaIni <= &fiDtaIni
+				
+				&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+				&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi
+				&OutsdtJaspiImpressao_out.EmpImpNom = FIimpNom //Nome da impressora
+				&OutsdtJaspiImpressao_out.EmpImpTip = FIimpTip.ToString() //domTipoImpressora //MATRICIAL, CUPOM1, CUPOM2, ...
+				&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+				
+				Do Case
+					CAse FIrelNam = 'RELJAS124'//impressão MATRICIAL pedido 
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. PEDIDO MATRICIAL: RELJAS124, PEDIDO: '+trim(str(FiPedCod))
+						
+						RELJAS124.Call(FIempCod, FiFilCod, FiPedCod, &SdtRELJAS124)
+						&SdtRELJAS124.FiDtaEms = trim(FiDtaEms.ToFormattedString())
+						&OutsdtJaspiImpressao_out.EmpXmlImprimir = &SdtRELJAS124.ToJson() //conteudo imprimir						
+						
+					CAse FIrelNam = 'RELJAS124_A' //IMPRESSAO COMANDA COZINHA
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg =  'IMPRIMINDO DOC. COMANDA COZINHA: RELJAS124_A, PEDIDO: '+trim(str(FiPedCod))
+						
+						&SdtRELJAS124_A_Produtos.FromJson(FirelInfAdi)
+						RELJAS124_A.Call(FIempCod, FiFilCod, FiPedCod, &SdtRELJAS124_A_Produtos, &SdtRELJAS124_A)
+						&OutsdtJaspiImpressao_out.EmpXmlImprimir = &SdtRELJAS124_A.ToJson()
+						
+					CAse FIrelNam = 'RELJAS124_B' or FIrelNam = 'CREDRELJAS124_B'//IMPRESSAO TICKET
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. PEDIDO TICKET: RELJAS124_B, PEDIDO: '+trim(str(FiPedCod))
+						
+						//&SdtRELJAS124_A_Produtos.FromJson(FirelInfAdi)
+						RELJAS124_B.Call(FIempCod, FiFilCod, FiPedCod, FIrelNam, FiUsuCod, &SdtRELJAS124_A)						
+						&OutsdtJaspiImpressao_out.EmpXmlImprimir = &SdtRELJAS124_A.ToJson()						
+						&OutsdtJaspiImpressao_out.EmpRelNam = 'RELJAS124_B'
+					
+					CAse FIrelNam = 'RELJAS029_CUPOM' //SEPARACAO TICKET
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. SEPARACAO TICKET: RELJAS029_CUPOM, PEDIDO: '+trim(str(FiPedCod))
+						
+						&SdtFiltros.FromJson(FirelInfAdi) //FITLROS
+						
+						RELJAS029_CUPOM_DIRETA.Call(FIempCod, FiFilCod, FiPedCod, FIrelNam, FiUsuCod, &SdtFiltros, &SdtRELJAS124_A)						
+						&OutsdtJaspiImpressao_out.EmpXmlImprimir = &SdtRELJAS124_A.ToJson()
+						
+					CAse FIrelNam = 'RELJAS057' or FIrelNam = 'RELJAS057_0' //IMPRESSAO NFCe
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. IMPRESSAO NFCe: RELJAS057, NOTA FISCAL: '+trim(str(FiNfeCod))
+						
+						RELJAS057.Call(FIempCod, FiFilCod, FiNfeCod, FIrelNam, FiUsuCod, &sdtRELJAS_XXX_NFe)
+						
+						&sdtRELJAS_XXX_NFe.imgCodBarras = FirelInfAdi //aproveitei campo nao usado						
+						&OutsdtJaspiImpressao_out.EmpXmlImprimir = &sdtRELJAS_XXX_NFe.ToJson()
+						
+					Case FIrelNam = 'RELJAS048_R10' //ETIQUETA INDAGRIL
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. IMPRESSAO ETQUETA: RELJAS048_R10 '+trim(str(FiNfeCod))
+						
+					Case FIrelNam = 'RELJAS048_R05' //ETIQUETA GONDOLA
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. IMPRESSAO ETQUETA: RELJAS048_006 '+trim(str(FiNfeCod))
+						
+					Case FIrelNam = 'ETIQUETAPRODUTO'
+						&OutsdtJaspiImpressao_out.sts = 'J200'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRIMINDO DOC. IMPRESSAO ETQUETA: ETIQUETAPRODUTO '+trim(str(FiNfeCod))
+						
+						//					Case FIrelNam = 'LCTCAIXAPDV' //LANCAMENTO CAIXA
+						//						&OutsdtJaspiImpressao_out.EmpStsMsg = 'IMPRIMINDO DOC. IMPRESSAO: LCTCAIXAPDV '+trim(str(FiNfeCod))
+						//						
+						//						&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+						//						&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi
+						//						&OutsdtJaspiImpressao_out.EmpImpNom = FIimpTip
+						//						&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+						
+						//					Case FIrelNam = 'LCTCARTAOPDV' //LANCAMENTO CARTAO
+						//						
+						//						&OutsdtJaspiImpressao_out.EmpStsMsg = 'IMPRIMINDO DOC. IMPRESSAO: LCTCARTAOPDV '+trim(str(FiNfeCod))
+						//						&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+						//						&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi
+						//						&OutsdtJaspiImpressao_out.EmpImpNom = FIimpTip
+						//						&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+						
+						//					Case FIrelNam = 'FECHACAIXA' //RESUMO CAIXA
+						//						
+						//						&OutsdtJaspiImpressao_out.EmpStsMsg = 'IMPRIMINDO DOC. IMPRESSAO: FECHACAIXA '+trim(str(FiNfeCod))
+						//						&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+						//						&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi
+						//						&OutsdtJaspiImpressao_out.EmpImpNom = FIimpTip
+						//						&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+						
+						//					Case FIrelNam = 'HISTORICOCLIENTE' //HISTORICO CLIENTE
+						//						
+						//						&OutsdtJaspiImpressao_out.EmpStsMsg = 'IMPRIMINDO DOC. IMPRESSAO HISTORICO: HISTORICOCLIENTE '+trim(str(FiNfeCod))
+						//						&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+						//						&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi
+						//						&OutsdtJaspiImpressao_out.EmpImpNom = FIimpTip
+						//						&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+						
+						//					Case FIrelNam = 'TEF_CAPPTA_C' //COMPROVANTE DO TEF CAPPTA
+						//					
+						//						&OutsdtJaspiImpressao_out.EmpStsMsg = 'IMPRIMINDO DOC. TEF: TEF_CAPPTA '+trim(str(FiNfeCod))
+						//						&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+						//						&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi  
+						//						&OutsdtJaspiImpressao_out.EmpImpNom = FIimpTip
+						//						&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+						
+						//					Case FIrelNam = 'TEF_COMPROVANTE' or FIrelNam = 'TEF_COMPROVANTE_C' or FIrelNam = 'TEF_COMPROVANTE_E'//COMPROVANTE DO TEF
+						//						
+						//						&OutsdtJaspiImpressao_out.EmpStsMsg = 'IMPRIMINDO DOC. TEF: TEF_COMPROVANTE '+trim(str(FiNfeCod))
+						//						&OutsdtJaspiImpressao_out.EmpFiCod = FIcod
+						//						&OutsdtJaspiImpressao_out.EmpXmlImprimir = FirelInfAdi
+						//						&OutsdtJaspiImpressao_out.EmpImpNom = FIimpTip
+						//						&OutsdtJaspiImpressao_out.EmpRelNam = FIrelNam
+					otherwise
+						&OutsdtJaspiImpressao_out.sts = 'E996'
+						&OutsdtJaspiImpressao_out.msg = 'IMPRESSAO NAO LOCALIZADA'
+				EndCase
+			When none
+				&OutsdtJaspiImpressao_out.sts = 'J201'
+				&OutsdtJaspiImpressao_out.msg = 'Nenhum documento a ser impresso'
+			EndFor
+		Endif
+		
+		
+	Case &EmpTipSol = 'FINALIZA'
+		
+		For Each Order FIempCod, FIcod
+			Where FIempCod = &EmpCod
+			Where FIcod = &FIcod
+			FIsts = 'F'
+			
+			&OutsdtJaspiImpressao_out.sts = 'J200'
+			&OutsdtJaspiImpressao_out.msg = 'SUCESSO'
+			Exit
+		EndFor
+		Commit
+EndCase
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&monRandon, in:&EmpTipSol, in:&FIcod, out:&OutsdtJaspiImpressao_out);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="OutsdtJaspiImpressao_out">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OutsdtJaspiImpressao_out</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtJaspiImpressao_out</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRELJAS124">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRELJAS124</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRELJAS124</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FIcod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FIcod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FIcod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRELJAS124_A">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRELJAS124_A</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRELJAS124_A</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRELJAS124_A_Produtos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRELJAS124_A_Produtos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRELJAS124_A_Produtos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRELJAS_XXX_NFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRELJAS_XXX_NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRELJAS_XXX_NFe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="fiDtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>fiDtaIni</Value></Property><Property><Name>Description</Name><Value>Fi Dta Ini</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FiDtaIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="monRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>monRandon</Value></Property><Property><Name>Description</Name><Value>Mon Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MonRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="monCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>monCod</Value></Property><Property><Name>Description</Name><Value>Codigo Monitor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MonCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpTipSol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpTipSol</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtFiltros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtFiltros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFiltros</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>getimpressao</Value></Property><Property><Name>Description</Name><Value>getimpressao</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="903b5e0b-c5a4-4fd1-b5e8-e7ab64057c44" user="SRVORDIG\Administrador" versionDate="2023-07-06T00:15:32.0000000Z" lastUpdate="2023-07-04T18:18:23.0000000Z" checksum="22cf156acb39e05424f471be2bfed58c" fullyQualifiedName="AutenticaBoletoApiECommerce" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="1235db73-4ecb-400a-bb74-4d07cb2305e0" name="AutenticaBoletoApiECommerce" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Autentica Boleto Api ECommerce" parent="BoletoApiSicredi" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*A operação POST “autenticacao” é responsável por criar uma chave criptografada, denominada
+“chaveTransacao”, baseada na Chave Master. O formato de entrada e saída é JSON, considerando que a saída
+sempre é composta da entidade a ser retornada e um código HTTP dentro de um Response.
+Observação : deve ser respeitada a orientação da segurança da informação referente a expiração da Chave de
+Transação, observando o parâmetro “dataExpiracao” de retorno do serviço (expira a cada 24 horas). Caso o
+beneficiário possua mais de uma conta, cada conta terá que ter a sua própria Chave Master, podendo assim,
+gerar a Chave de Transação para cada conta específica. Não há a possibilidade de renovar o token de transação
+antes da expiração. Somente com a geração de outra Chave Master será possível gerar uma nova Chave de
+Transação antes da expiração.
+*/
+
+
+//1.1 Recurso Autenticacão
+//Post passando a chave master como Header "token" 
+//https://cobrancaonline.sicredi.com.br/sicredi-cobranca-ws-ecomm-api/ecomm/v1/boleto/autenticacao
+
+csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+
+HostWebServiceBoletoApi.Call('ECOMERCE',748, &EmpWebHost, &EmpWebBaseUrl, &EmpWebPor) // 748 = Sicredi
+&HttpClient.Host = &EmpWebHost //servidor
+&HttpClient.Secure = 1
+&httpclient.AddHeader(!'Content-type',!'application/json')
+&httpclient.AddHeader('token',trim(&CbrChaMas))
+&String = '/sicredi-cobranca-ws-ecomm-api/ecomm/v1/boleto/autenticacao'
+
+padraoUsuarioHora.Call('G', '#BOLETOAPIECOMMERCEPREV', &Context.PesCod, &Context.EmpCod, &HttpClient.toString(), &PadDtaMod,serverNow(),'T')  // Grava resultado do Post só como um LOG para Consulta
+
+&HttpClient.Execute('POST',&String)
+
+padraoUsuarioHora.Call('G', '#BOLETOAPIECOMMERCE', &Context.PesCod, &Context.EmpCod, &HttpClient.ToString(), &PadDtaMod,serverNow(),'T')  // Grava resultado do Post só como um LOG para Consulta
+
+
+If &HttpClient.ErrCode = 0 //sem erro de comunicação
+	&StdautenticacaoBoleto.fromJson(&HttpClient.toString())
+	If not &StdautenticacaoBoleto.chaveTransacao.IsEmpty()
+		Do 'GravaAutenticacaoLocalCobranca'
+	EndIf
+	&IschaveTransacao = True
+Else
+	&StdautenticacaoBoletoErro.fromJson(&HttpClient.toString())
+	
+	&properties.Set('Http', &HttpClient.ToString())
+	&properties.Set('Erro Http', &HttpClient.ErrCode.ToString())
+	&properties.Set('Msg Http', &HttpClient.ErrDescription)
+	&properties.Set('Code', &StdautenticacaoBoletoErro.codigo.Trim())
+	&properties.Set('Parametro', &StdautenticacaoBoletoErro.parametro.Trim())
+	&properties.Set('Msg', &StdautenticacaoBoletoErro.mensagem.Trim())
+	&MsgErro = &properties.ToJson()
+	
+	msg( DVMessageBasicNotification.Udp(!"Error!", &MsgErro,DVMessageType.error, "", DVMessageBoolean.True) )
+	&IschaveTransacao = False
+EndIf
+
+commit
+
+Sub 'GravaAutenticacaoLocalCobranca'
+	For each Order EmpCod,CbrCod,CbrTipImp
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CbrCod
+		&CbrChaTra = &StdautenticacaoBoleto.chaveTransacao
+		CbrChaTra = &StdautenticacaoBoleto.chaveTransacao
+		&DataVarchar = &StdautenticacaoBoleto.dataExpiracao
+		&dateTime = ymdhmstot(val(substr(&DataVarchar,1,4)),val(substr(&DataVarchar,6,2)),Val(substr(&DataVarchar,9,2)),Val(substr(&DataVarchar,12,2)),Val(substr(&DataVarchar,15,2)),Val(substr(&DataVarchar,18,2)))
+		//"2019-08-29T08:20:21"
+		CbrChaTraVct = &dateTime
+		&CbrChaTraVct = &dateTime
+		exit
+	EndFor
+	Commit
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&CbrCod,in:&CbrChaMas,out:&IschaveTransacao,out:&CbrChaTra);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaMas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaMas</Value></Property><Property><Name>Description</Name><Value>Chave Master</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaMas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StdautenticacaoBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StdautenticacaoBoleto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:StdautenticacaoBoleto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dateTime">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dateTime</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:DateTime</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_LONG</Value></Property><Property><Name>idHOURFORMAT</Name><Value>idHOURFORMAT_HOURMINSEC</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LoadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Variable Name="urlString">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>urlString</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="String">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>String</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StdautenticacaoBoletoErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StdautenticacaoBoletoErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:StdautenticacaoBoletoErro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IschaveTransacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IschaveTransacao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTraVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTraVct</Value></Property><Property><Name>Description</Name><Value>Vencimento da Chave</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTraVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MsgErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MsgErro</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Obs1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="properties">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>properties</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Properties</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>AutenticaBoletoApiECommerce</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

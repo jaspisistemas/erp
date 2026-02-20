@@ -1,0 +1,1464 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7529ae64-c871-4084-a67d-a1ef9467c563" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:45:37.0000000Z" checksum="412b15f8f1dbe7e2582b386fd757ec2c" fullyQualifiedName="prcGerarXmlGNRE" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="81411bff-2050-4347-a9db-b2b38ae4202e" name="prcGerarXmlGNRE" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Gerar Xml GNRE" parent="GNRE" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[	//## Retorna Configurações do Sistema ##\\
+	RetornaConfSistema.Call(&ContextEmpCod, &ContextFiLCod, domConfSistema.TCon008_DiasVenceGNRE, &Dias)
+	
+	//## Calcula a data de vencimento ##\\
+	&QtdDias = val(&Dias)
+	&DataVencimento = serverdate() + &QtdDias  
+	
+	Do Case
+		Case dow(&DataVencimento) = 7
+	        &DataVencimento = &DataVencimento + 2
+	    Case dow(&DataVencimento) = 1
+            &DataVencimento = &DataVencimento + 1
+    EndCase
+	
+	
+	//## Abre o Arquivo ##\\
+	&XMLWriter.Open(&NomeFisico)
+		//## Faz uma busca no SDT: sdtGNREItem ##\\
+	For &sdtGNREItem in &sdtGNRE
+		If &sdtGNREItem.ValorPrincipal = &GNREVlrTot	
+			//## Encoding do XML ##\\
+			&XMLWriter.WriteStartDocument('UTF-8')
+			
+			//## Versão do XML ##\\
+			&XMLWriter.WriteStartElement('TLote_GNRE')
+			&XMLWriter.WriteAttribute('xmlns:xs', 'http://www.w3.org/2001/XMLSchema')
+			&XMLWriter.WriteAttribute('xmlns','http://www.gnre.pe.gov.br')
+			&XMLWriter.WriteAttribute('versao','2.00')
+			
+			&XMLWriter.WriteStartElement('guias')
+			
+			
+			//## PREECHIMENTO DOS DADOS ##\\
+			&XMLWriter.WriteStartElement('TDadosGNRE')
+			&XMLWriter.WriteAttribute('versao','2.00')	
+			
+			//## Contém a sigla da UF favorecida. Campo com 2 dígitos. ##\\
+			&XMLWriter.WriteElement('ufFavorecida', &sdtGNREItem.UFFavorecida)
+			
+			//## Contém código do tipo da GNRE. 0 - Guia Simples  /  1 - Guia com Múltiplos Documentos de Origem  /  2 - Guia com Múltiplas Receitas ##\\
+			&XMLWriter.WriteElement('tipoGnre','0') 
+			
+			//## Informações da Empresa que está emitindo a Guia. Exemplo: Indagril ##\\
+			&XMLWriter.WriteStartElement('contribuinteEmitente')
+			
+			//## Se o Conribuinte Emitente não for inscrito na UF Favorecida ##\\
+			If &sdtGNREItem.FilInsEst.IsEmpty()
+				
+				//## Identifica o Contribuinte Emitente através do CNPJ ##\\
+				&XMLWriter.WriteStartElement('identificacao')
+				
+				&CnpjCpf = RetornaSoNumeros.Udp(&sdtGNREItem.FilCnpj)
+				&XMLWriter.WriteElement('CNPJ', trim(&CnpjCpf))
+				
+				&XMLWriter.WriteEndElement()
+				
+				//## Razão Social do Contribuinte Emitente ##\\
+				&XMLWriter.WriteElement('razaoSocial',trim(&sdtGNREItem.FilRaz))
+				
+				//## Endereço do Contribuinte Emitente ##\\
+				&XMLWriter.WriteElement('endereco', trim(&sdtGNREItem.FilLog))
+				
+				//## Municipio do Contribuinte Emitente, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+				If not &sdtGNREItem.FilCidUfeIbge.IsEmpty()
+					&FilCidUfeIbge = Substr(trim(str(&sdtGNREItem.FilCidUfeIbge)),3, 5)
+					&XMLWriter.WriteElement('municipio', trim(&FilCidUfeIbge))
+				EndIf
+				
+				//## UF de localização do contribuinte emitente. Campo com 2 dígitos. ##\\
+				&XMLWriter.WriteElement('uf', trim(&sdtGNREItem.FilCidUfeCod))
+				
+				//## CEP do contribuinte emitente com 8 dígitos. Digitar apenas números. Campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+				If not &sdtGNREItem.FiLCep.IsEmpty()
+					&CEP = RetornaSoNumeros.Udp(&sdtGNREItem.FiLCep)
+					&XMLWriter.WriteElement('cep', trim(&CEP))
+				EndIf
+				
+				//## Contém o telefone do contribuinte emitente. Colocar o DDD e o número do telefone. Digitar apenas números. Campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+				If not &sdtGNREItem.FilFonNum.IsEmpty()
+					&TelefoneEmitente = RetornaSoNumeros.Udp(&sdtGNREItem.FiLFonNum)
+					&XMLWriter.WriteElement('telefone',trim(&TelefoneEmitente))
+				EndIf
+				
+			Else
+				
+				//## Se o Contribuinte Emitente conter a IE na UF favorecida ##\\
+				&XMLWriter.WriteStartElement('identificacao')
+				
+				//## Identifica o Contribuinte Emitente através da IE ##\\
+				&XMLWriter.WriteElement('IE', trim(&sdtGNREItem.FilInsEst))
+				
+				&XMLWriter.WriteEndElement()
+				
+			EndIf
+			
+			&XMLWriter.WriteEndElement()
+			
+			//## PREENCHE OS DADOS DA GNRE ##\\
+			&XMLWriter.WriteStartElement('itensGNRE')
+			
+			&XMLWriter.WriteStartElement('item')
+			
+			//## Contém o código da receita. Campo numérico com 6 dígitos. ##\\
+			&XMLWriter.WriteElement('receita', trim(&sdtGNREItem.GnreRecCod))
+	
+			//## Contém o código do detalhamento da receita. Campo numérico. A quantidade de dígitos corresponde a quantidade de dígitos do código. ##\\
+			If &sdtGNREItem.GnreDetCod <> '0'
+				&GnreDetCod = Padl(&sdtGNREItem.GnreDetCod, 6, '0')
+				&XMLWriter.WriteElement('detalhamentoReceita', &GnreDetCod)
+			EndIf
+			
+			If not &sdtGNREItem.GnreDocOri = '0'
+				If &sdtGNREItem.GnreDocOri.Length() = 1
+					&GnreDocTip = Padl(&sdtGNREItem.GnreDocOri, 2, '0')
+				Else
+					&GnreDocTip = &sdtGNREItem.GnreDocOri
+				EndIf
+			
+				Do Case
+					Case &sdtGNREItem.GnreDocOri = '22' Or &sdtGNREItem.GnreDocOri = '24'
+						//## Contém o número contido no documento de origem. Campo numérico sem espaços, traços, pontos ou vírgulas. A quantidade de dígitos corresponde a quantidade de dígitos do número. ##\\
+						&XMLWriter.WriteElement('documentoOrigem',trim(&sdtGNREItem.NfeChv))
+					OtherWise
+						&XMLWriter.WriteElement('documentoOrigem',trim(str(&sdtGNREItem.NfeNum)))
+				EndCase
+				&XMLWriter.WriteAttribute('tipo', Trim(&GnreDocTip))	//## Atributo do Doc. Origem ##\\
+			EndIf
+			
+			//## Contém o código do produto. Campo numérico. A quantidade de dígitos corresponde a quantidade de dígitos do código. ##\\
+			If not &sdtGNREitem.GnreProCod = '0' and not &sdtGNREItem.GnreProCod.IsEmpty()
+				&XMLWriter.WriteElement('produto', trim(&sdtGNREItem.GnreProCod))
+			EndIf
+			
+			//## REFERÊNCIAS ##\\
+			Do Case
+				Case &sdtGNREItem.GnreRecCod = '100013' 
+					If     (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'PA')
+					    or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO')
+					    or (&sdtGNREItem.UFFavorecida = 'SC') or (&sdtGNREItem.UFFavorecida = 'TO')
+					    
+					   	&XMLWriter.WriteStartElement('referencia')
+						//## Contém o mês de referência da apuração. Campo numérico com 2 dígitos. ##\\
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						
+						//## Contém o ano de referência da apuração. Campo numérico com 4 dígitos. ##\\
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()
+					    
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'BA') or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MA')
+					    or (&sdtGNREItem.UFFavorecida = 'PR') or (&sdtGNREItem.UFFavorecida = 'RJ') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'RS')
+					    
+					   	&XMLWriter.WriteStartElement('referencia')
+						//## Períodos de Referência: 0 = mensal / 1 = 1ª Quinzena / 2 = 2ª Quinzena / 3 = 1° Decêndio / 4 = 2° Decêndio / 5 = 3° Decêndio ##\\
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf	
+					
+				Case &sdtGNREItem.GnreRecCod  = '100021'
+					If     (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'PA')
+					    or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO')
+					    or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'TO')
+					    
+					    &XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()
+					    
+					EndIf
+					
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'BA') or (&sdtGNREItem.UFFavorecida = 'GO') 
+					    or (&sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.UFFavorecida = 'PR') or (&sdtGNREItem.UFFavorecida = 'RJ') or (&sdtGNREItem.UFFavorecida = 'RS')
+					    
+					    &XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+					    
+					EndIf
+					
+				Case &sdtGNREItem.GnreRecCod  = '100030'
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.UFFavorecida = 'DF')
+						or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PA')
+						or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'RJ') or (&sdtGNREItem.UFFavorecida = 'RN')
+						or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'SE') or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					If     (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'BA') or (&sdtGNREItem.UFFavorecida = 'PR') or (&sdtGNREItem.UFFavorecida = 'MA')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf			
+					
+				Case &sdtGNREItem.GnreRecCod  = '100048'
+					If     (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PA')
+						or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'SC') or (&sdtGNREItem.UFFavorecida = 'SE')
+						or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()
+	 					
+					EndIf
+					
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.UFFavorecida = 'BA')
+						or (&sdtGNREItem.UFFavorecida = 'CE') or (&sdtGNREItem.UFFavorecida = 'DF') or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MA')
+						or (&sdtGNREItem.UFFavorecida = 'MS') or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'PR') or (&sdtGNREItem.UFFavorecida = 'RJ')
+						or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'RS')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+				Case &sdtGNREItem.GnreRecCod  = '100056'
+					If     (&sdtGNREItem.UFFavorecida = 'BA') or (&sdtGNREItem.UFFavorecida = 'DF') or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MA')
+						or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.UFFavorecida = 'PB')
+						or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'RO')
+						or (&sdtGNREItem.UFFavorecida = 'SE') or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()
+					 
+					EndIf
+					
+					If     (&sdtGNREItem.UFFavorecida = 'AM') 
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+				Case (&sdtGNREItem.GnreRecCod  = '100064') or (&sdtGNREItem.GnreRecCod  = '100072') or (&sdtGNREItem.GnreRecCod = '150010') Or (&sdtGNREItem.GnreRecCod = '500011')
+					If     (&sdtGNREItem.UFFavorecida = 'PA')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AM')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'RS')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						//## Contém o número da parcela do débito. Campo numérico com tamanho máximo de 3 dígitos. ##\\
+						&XMLWriter.WriteElement('parcela', '1')
+						&XMLWriter.WriteEndElement()
+						
+					EndIf		
+					
+				Case &sdtGNREItem.GnreRecCod  = '100080'
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.UFFavorecida = 'RJ')
+						or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'SE')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+				Case &sdtGNREItem.GnreRecCod = '100099' 
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'DF')	or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MA')	
+						or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.UFFavorecida = 'PB')
+						or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'SE')
+						or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()	
+						
+					EndIf
+					
+					If     (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'BA')				
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+				Case &sdtGNREItem.GnreRecCod  = '100102'
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'DF') or (&sdtGNREItem.UFFavorecida = 'GO')
+						or (&sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.UFFavorecida = 'PB')
+						or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'SE')
+						or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.UFFavorecida = 'BA')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					
+				Case &sdtGNREItem.GnreRecCod  = '100110'
+					If     (&sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'DF')
+						or (&sdtGNREItem.UFFavorecida = 'MG') or (&sdtGNREItem.UFFavorecida = 'MS') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PA')
+						or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO')
+						or (&sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.UFFavorecida = 'SC') or (&sdtGNREItem.UFFavorecida = 'SE') or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.UFFavorecida = 'BA') or (&sdtGNREItem.UFFavorecida = 'CE') or (&sdtGNREItem.UFFavorecida = 'GO')
+						or (&sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.UFFavorecida = 'PR') or (&sdtGNREItem.UFFavorecida = 'RS')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					
+				Case &sdtGNREItem.GnreRecCod = '100129'
+					If     (&sdtGNREItem.UFFavorecida = 'DF') or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.UFFavorecida = 'MT')
+						or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'RN') or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'SE')
+						or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'BA')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					
+				Case &sdtGNREItem.GnreRecCod  = '100137'
+					If     (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'DF') or (&sdtGNREItem.UFFavorecida = 'MG')
+						or (&sdtGNREItem.UFFavorecida = 'MS') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.UFFavorecida = 'RN')
+						or (&sdtGNREItem.UFFavorecida = 'RO') or (&sdtGNREItem.UFFavorecida = 'SE') or (&sdtGNREItem.UFFavorecida = 'TO')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'BA') or (&sdtGNREItem.UFFavorecida = 'CE') or (&sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.UFFavorecida = 'MA')
+						or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'RS')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+				Case &sdtGNREItem.GnreRecCod  = '100145'
+					If     (&sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.UFFavorecida = 'MT') or (&sdtGNREItem.UFFavorecida = 'PE') or (&sdtGNREItem.UFFavorecida = 'PR')
+						or (&sdtGNREItem.UFFavorecida = 'SC')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+							
+				Case &sdtGNREItem.GnreRecCod  = '500011'
+					If     (&sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.UFFavorecida = 'PE')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'DF')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'RS')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('parcela', '0')
+						&XMLWriter.WriteEndElement()
+						
+					EndIf		
+					
+					
+				Case &sdtGNREItem.GnreRecCod  = '600016'
+					If     (&sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.UFFavorecida = 'PE')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+						&XMLWriter.WriteEndElement()						
+						
+					EndIf
+					
+					If 	   (&sdtGNREItem.UFFavorecida = 'RS')
+						
+						&XMLWriter.WriteStartElement('referencia')
+						&XMLWriter.WriteElement('periodo', '0')
+						&XMLWriter.WriteElement('mes', PadL(trim(str(Month(&DataVencimento))), 2, '0'))
+						&XMLWriter.WriteElement('ano', trim(str(Year(&DataVencimento))))
+					    &XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+			EndCase
+			//#################\\
+			
+			//## Contém a data que o contribuinte deve pagar o tributo de acordo com a legislação de cada UF. ##\\						
+			&ElementoDataVencimento = str(Year(&DataVencimento)) + '-' + padL(trim(str(Month(&DataVencimento))), 2, '0') + '-' + padL(trim(str(day(&DataVencimento))), 2, '0')
+			&XMLWriter.WriteElement('dataVencimento', trim(&ElementoDataVencimento))
+			
+			//## Contém o valor original da guia. Digitar apenas números. Usar ponto (".") como separador de decimal, e este deve ter 2 números. ##\\
+			&XMLWriter.WriteElement('valor', &sdtGNREItem.ValorPrincipal)
+			&XMLWriter.WriteAttribute('tipo', '11')
+	
+			//## Contém valor total da guia (valor original + encargos). Digitar apenas números. Usar ponto (".") como separador de decimal, e este deve ter 2 números. Caso a receita não exija valor total, esse campo e sua tag poderão ser omitidos. ##\\
+			Do Case
+				Case (&sdtGNREItem.GnreRecCod = '100013' And &sdtGNREItem.UFFavorecida = 'RO') Or (&sdtGNREItem.GnreRecCod = '100099' And &sdtGNREItem.UFFavorecida = 'MT')
+					&XMLWriter.WriteElement('valor', &sdtGNREItem.NfeVlrFecp)
+					&XMLWriter.WriteAttribute('tipo', '12')
+					
+					
+				Case &sdtGNREItem.GnreRecCod = '100099' 
+					If &sdtGNREItem.UFFavorecida = 'MA' and &sdtGNREItem.UFFavorecida = 'PA' and &sdtGNREItem.UFFavorecida = 'PI' and &sdtGNREItem.UFFavorecida = 'RJ' and &sdtGNREItem.UFFavorecida = 'RR' and &sdtGNREItem.UFFavorecida = 'TO'
+						&XMLWriter.WriteElement('valor', &sdtGNREItem.ValorTotal)
+						&XMLWriter.WriteAttribute('tipo', '21')
+					EndIf
+					
+					//## Contém valor total da guia (valor original + encargos). Digitar apenas números. Usar ponto (".") como separador de decimal, e este deve ter 2 números. Caso a receita não exija valor total, esse campo e sua tag poderão ser omitidos. ##\\
+				Case &sdtGNREItem.GnreRecCod = '100129'
+					If &sdtGNREItem.UFFavorecida = 'AC' and &sdtGNREItem.UFFavorecida = 'MA' and &sdtGNREItem.UFFavorecida = 'MT' and &sdtGNREItem.UFFavorecida = 'PI' and &sdtGNREItem.UFFavorecida = 'TO'
+						&XMLWriter.WriteElement('valor', &sdtGNREItem.ValorTotal)
+						&XMLWriter.WriteAttribute('tipo', '21')
+					EndIf
+					
+				Case (&sdtGNREItem.GnreRecCod  = '100064') Or (&sdtGNREItem.GnreRecCod  = '100072') Or (&sdtGNREItem.GnreRecCod  = '150010') Or (&sdtGNREItem.GnreRecCod  = '500011')
+					If  &sdtGNREItem.UFFavorecida = 'RS'
+						&XMLWriter.WriteElement('valor', &sdtGNREItem.ValorTotal)
+						&XMLWriter.WriteAttribute('tipo', '21')
+					EndIf
+				
+				Case &sdtGNREItem.GnreRecCod  = '600016'
+					If  &sdtGNREItem.UFFavorecida = 'SC'
+						&XMLWriter.WriteElement('valor', &sdtGNREItem.ValorTotal)
+						&XMLWriter.WriteAttribute('tipo', '21')
+					EndIf
+			EndCase
+			
+			//## Contém o número do convênio. Sem espaços, traços, pontos ou vírgulas. Este campo não é obrigatório e o tamanho do campo corresponde ao número do convênio. No caso de não ter essa informação, esse campo e sua tag poderão ser omitidos. ##\\
+			&XMLWriter.WriteElement('convenio', '89/2007, 95/2007 e 41/2008')
+			
+			
+			//## CONTRIBUINTE DESTINATARIO ##\\
+			
+			Do Case
+				Case (&sdtGNREItem.GnreRecCod = '100013' and &sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.GnreRecCod = '100013' and &sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.GnreRecCod = '100013' and &sdtGNREItem.UFFavorecida = 'PB') or (&sdtGNREItem.GnreRecCod = '100013' and &sdtGNREItem.UFFavorecida = 'RN')
+					
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()
+					
+				Case   (&sdtGNREItem.GnreRecCod = '100021' and &sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.GnreRecCod = '100021' and &sdtGNREItem.UFFavorecida = 'RN')
+					or (&sdtGNREItem.GnreRecCod = '100021' and &sdtGNREItem.UFFavorecida = 'MA')
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()
+					
+				Case   (&sdtGNREItem.GnreRecCod = '100030' and &sdtGNREItem.UFFavorecida = 'MT')
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()
+					
+				Case &sdtGNREItem.GnreRecCod = '100056' and &sdtGNREItem.UFFavorecida <> 'AP'
+					
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()
+					
+					
+				Case (&sdtGNREItem.GnreRecCod = '100080' and &sdtGNREItem.UFFavorecida = 'CE') or (&sdtGNREItem.GnreRecCod = '100080' and &sdtGNREItem.UFFavorecida = 'TO')
+					
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()					
+									
+				Case (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'PI') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'AC') 
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'AM') 
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'CE') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'GO')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'MA') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'MG')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'MS') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'MT')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'PA') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'PE')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'RJ') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'RN')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'RR') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'RS')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'SE') or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'TO')
+				  or (&sdtGNREItem.GnreRecCod = '100099' and &sdtGNREItem.UFFavorecida = 'PR')
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()			
+					
+				Case (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'AC') or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'AL')
+				  or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'AM') or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'CE')
+				  or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'MA')
+				  or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'MS') or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'PI')
+				  or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'RJ') or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'RN')
+				  or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'RS') or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'SE')
+				  or (&sdtGNREItem.GnreRecCod = '100102' and &sdtGNREItem.UFFavorecida = 'TO')
+				  
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()					
+								
+					//## Se a Receita for: ICMS Fundo Estadual de Combate à Pobreza por Operação ##\\
+				Case (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'AL') or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'AM')
+				  or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'AP') or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'CE')
+				  or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'GO') or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'MA')
+				  or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'MS') or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'PE')
+				  or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'PI') or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'RN')
+				  or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'RS') or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'SE')
+				  or (&sdtGNREItem.GnreRecCod = '100129' and &sdtGNREItem.UFFavorecida = 'TO')
+											
+						//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+						&XMLWriter.WriteStartElement('contribuinteDestinatario')
+						
+						//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+						If &sdtGNREitem.NfeCliIns.IsEmpty()
+							
+							//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+							&XMLWriter.WriteStartElement('identificacao')
+							
+							&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+							&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+							
+							&XMLWriter.WriteEndElement()
+							
+							//## Razão Social do Contribuinte Destinatário ##\\
+							&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+							
+							//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+							&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+							&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+							
+						Else
+							
+							//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+							&XMLWriter.WriteStartElement('identificacao')
+							
+							//## Identifica o Contribuinte Destinatário através da IE ##\\
+							&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+							&XMLWriter.WriteElement('IE', trim(&ElementoIE))	
+							
+							&XMLWriter.WriteEndElement()
+							
+						EndIf	
+						
+						&XMLWriter.WriteEndElement()
+										
+				Case &sdtGNREItem.GnreRecCod = '600016' and &sdtGNREItem.UFFavorecida = 'PE'
+					
+					//## Preenchimento do Contribuinte Destinatário, Empresa para a onde a nota irá. Exemplo PME Maquinas. ##\\
+					&XMLWriter.WriteStartElement('contribuinteDestinatario')
+					
+					//## Se o Conribuinte Destinatário não for inscrito na UF Favorecida ##\\
+					If &sdtGNREitem.NfeCliIns.IsEmpty()
+						
+						//## Identifica o Contribuinte Destinatário através do CNPJ ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						&NfeCliCnpj = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliCnpj)
+						&XMLWriter.WriteElement('CNPJ', trim(&NfeCliCnpj))
+						
+						&XMLWriter.WriteEndElement()
+						
+						//## Razão Social do Contribuinte Destinatário ##\\
+						&XMLWriter.WriteElement('razaoSocial', trim(&sdtGNREItem.NfeCliRaz))
+						
+						//## Municipio do Contribuinte Destinatário, campo não obrigatório. Portanto se não for informado poderá ser omitido ##\\
+						&ElementoMunicipiodestinatario = Substr(trim(str(&sdtGNREItem.NfeCliCidIbge)),3, 5)
+						&XMLWriter.WriteElement('municipio', trim(&ElementoMunicipiodestinatario))
+						
+					Else
+						
+						//## Se o Contribuinte Destinatário conter a IE na UF favorecida ##\\
+						&XMLWriter.WriteStartElement('identificacao')
+						
+						//## Identifica o Contribuinte Destinatário através da IE ##\\
+						&ElementoIE = RetornaSoNumeros.Udp(&sdtGNREItem.NfeCliIns)
+						&XMLWriter.WriteElement('IE', trim(&ElementoIE))
+						
+						&XMLWriter.WriteEndElement()
+						
+					EndIf
+					
+					&XMLWriter.WriteEndElement()				
+				
+			EndCase
+			//###############################\\
+			
+			
+			//## CAMPOS EXTRAS ##\\		
+			&NfeChave = RetornaSoNumeros.Udp(&sdtGNREItem.NfeChv)
+			&ElementoDataEmissao = str(Year(&sdtGNREItem.NfeDtaEms)) + '-' + padL(trim(str(Month(&sdtGNREItem.NfeDtaEms))), 2, '0') + '-' + padL(trim(str(day(&sdtGNREItem.NfeDtaEms))), 2, '0')
+			Do Case	
+				
+				//## Caso a UF favorecida for do ACRE ##\\
+				Case &sdtGNREitem.UFFavorecida = 'AC' 	
+					Do Case
+						Case &sdtGNREItem.GnreRecCod = '100080'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '68')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de acesso da NFE ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case &sdtGNREItem.GnreRecCod = '100099'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '76')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de acesso da NFE ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case &sdtGNREItem.GnreRecCod = '100080'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '120')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+					EndCase
+					
+					//## Caso a UF favorecida for do ALAGOAS ##\\	
+				Case &sdtGNREitem.UFFavorecida = 'AL'
+					Do Case
+						Case (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100102') or (&sdtGNREItem.GnreRecCod = '100129')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '90')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de acesso da NFE ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case &sdtGNREItem.GnreRecCod = '600016'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '65')
+							&XMLWriter.WriteElement('valor','...') //## Chave de acesso da NFE ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+					EndCase	
+					
+					//## Caso a UF favorecida for do AMAZONAS ##\\					
+				Case &sdtGNREitem.UFFavorecida = 'AM'
+					Do Case
+						Case (&sdtGNREItem.GnreRecCod = '100021')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '12')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de acesso da NFE ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+					EndCase
+					
+					//## Caso a UF favorecida for do AMAPÁ ##\\
+				Case &sdtGNREitem.UFFavorecida = 'AP' 
+					Do Case
+						Case (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100102')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '47')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de acesso da NFE ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case (&sdtGNREItem.GnreRecCod = '100030')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '103')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()							
+							
+					EndCase
+					
+					//## Caso a UF favorecida for do GOIÁS ##\\					
+				Case &sdtGNREitem.UFFavorecida = 'GO'
+					Do Case
+						Case &sdtGNREItem.GnreRecCod = '100129'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '102')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTE-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case (&sdtGNREItem.GnreRecCod = '100099') Or (&sdtGNREItem.GnreRecCod = '100102')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '121')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+					EndCase
+					
+					//## Caso a UF favorecida for do MARANHÃO ##\\					
+				Case &sdtGNREitem.UFFavorecida = 'MA'
+					Do Case
+						Case &sdtGNREItem.GnreRecCod = '100056' or &sdtGNREItem.GnreRecCod = '100030' or &sdtGNREItem.GnreRecCod = '100080' or &sdtGNREItem.GnreRecCod = '100102'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '113')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTE-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100137')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '94')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTE-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+					EndCase	
+					
+					//## Caso a UF favorecida for do MATO GROSSO DO SUL ##\\
+				Case &sdtGNREitem.UFFavorecida = 'MS'
+					Do Case
+						Case &sdtGNREItem.GnreRecCod = '100099'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '27')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case (&sdtGNREItem.GnreRecCod = '100030') or (&sdtGNREItem.GnreRecCod = '100102') or (&sdtGNREItem.GnreRecCod = '100129')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '88')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+					EndCase
+					
+					//## Caso a UF favorecida for da PARAÍBA ##\\
+				Case &sdtGNREitem.UFFavorecida = 'PB'
+					Do Case
+						Case (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100129')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '30')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()	
+							
+						Case (&sdtGNREItem.GnreRecCod = '100030') or (&sdtGNREItem.GnreRecCod = '100102')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '99')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()	
+							
+					EndCase
+					
+					//## Caso a UF favorecida for do PARANÁ ##\\
+				Case &sdtGNREItem.UFFavorecida = 'PR'
+					If &sdtGNREItem.GnreRecCod = '100102'
+						&XMLWriter.WriteStartElement('camposExtras')
+						
+						&XMLWriter.WriteStartElement('campoExtra')
+						
+						&XMLWriter.WriteElement('codigo', '66')
+						&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ou do CTe/CTe-OS ##\\
+						
+						&XMLWriter.WriteEndElement()
+						
+						&XMLWriter.WriteEndElement()
+					EndIf
+					
+					//## Caso a UF favorecida for do RIO DE JANEIRO ##\\	
+				Case &sdtGNREitem.UFFavorecida = 'RJ'
+					If (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100102')
+						&XMLWriter.WriteStartElement('camposExtras')
+						
+						&XMLWriter.WriteStartElement('campoExtra')
+						
+						&XMLWriter.WriteElement('codigo', '117')
+						&XMLWriter.WriteElement('valor',trim(&ElementoDataEmissao)) //## Data de Emissão ##\\
+						
+						&XMLWriter.WriteEndElement()
+						
+						&XMLWriter.WriteEndElement()		
+					EndIf
+					
+					//## Caso a UF favorecida for do RIO GRANDE DO NORTE ##\\
+				Case &sdtGNREitem.UFFavorecida = 'RN'
+					If (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100129')
+						&XMLWriter.WriteStartElement('camposExtras')
+						
+						&XMLWriter.WriteStartElement('campoExtra')
+						
+						&XMLWriter.WriteElement('codigo', '97')
+						&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+						
+						&XMLWriter.WriteEndElement()
+						
+						&XMLWriter.WriteEndElement()	
+					EndIf			
+					
+					//## Caso a UF favorecida for de RONDONIA ##\\
+				Case &sdtGNREitem.UFFavorecida = 'RO'
+					Do Case
+						Case (&sdtGNREItem.GnreRecCod = '100129')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '83')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+						Case (&sdtGNREItem.GnreRecCod = '100099') Or (&sdtGNREItem.GnreRecCod = '100102')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '52')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+					EndCase					
+					
+					//## Caso a UF favorecida for de RORAIMA ##\\
+				Case &sdtGNREitem.UFFavorecida = 'RR' 
+					Do Case
+						Case &sdtGNREItem.GnreRecCod = '100102'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '36')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+							
+						Case &sdtGNREItem.GnreRecCod = '100099'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '50')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()
+					EndCase
+					
+					//## Caso a UF favorecida for de SERGIPE ##\\	
+				Case &sdtGNREitem.UFFavorecida = 'SE'
+					Do Case
+						Case (&sdtGNREItem.GnreRecCod = '100030') or (&sdtGNREItem.GnreRecCod = '100099') or (&sdtGNREItem.GnreRecCod = '100102') or (&sdtGNREItem.GnreRecCod = '100129')
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '77')
+							&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()	
+							
+						Case &sdtGNREItem.GnreRecCod = '100056'
+							&XMLWriter.WriteStartElement('camposExtras')
+							
+							&XMLWriter.WriteStartElement('campoExtra')
+							
+							&XMLWriter.WriteElement('codigo', '115')
+							&XMLWriter.WriteElement('valor',trim(&ElementoDataEmissao)) //## Data de Emissão ##\\
+							
+							&XMLWriter.WriteEndElement()
+							
+							&XMLWriter.WriteEndElement()	
+							
+					EndCase
+					
+				Case &sdtGNREitem.UFFavorecida = 'TO'
+					If &sdtGNREItem.GnreRecCod = '100099' Or &sdtGNREItem.GnreRecCod = '100102' Or &sdtGNREItem.GnreRecCod = '100129'
+						&XMLWriter.WriteStartElement('camposExtras')
+						
+						&XMLWriter.WriteStartElement('campoExtra')
+						
+						&XMLWriter.WriteElement('codigo', '106')
+						&XMLWriter.WriteElement('valor','...') //## Chave de Acesso da NFe ##\\
+						
+						&XMLWriter.WriteEndElement()
+						
+						&XMLWriter.WriteStartElement('campoExtra')
+						
+						&XMLWriter.WriteElement('codigo', '107')
+						&XMLWriter.WriteElement('valor',trim(&NfeChave)) //## Chave de Acesso da NFe ##\\
+						
+						&XMLWriter.WriteEndElement()
+						
+						&XMLWriter.WriteEndElement()
+					EndIf
+					
+			EndCase
+			//###################\\
+			
+			
+			&XMLWriter.WriteEndElement()
+			
+			&XMLWriter.WriteEndElement()
+			
+			//## Valor Total da NFE ##\\
+			&XMLWriter.WriteElement('valorGNRE', &sdtGNREItem.ValorPrincipal)
+			
+			&ElementoDataPagamento = str(Year(&Today)) + '-' + padL(trim(str(Month(&Today))), 2, '0') + '-' + padL(trim(str(day(&Today))), 2, '0')
+			&XMLWriter.WriteElement('dataPagamento', trim(&ElementoDataPagamento))
+			
+			
+			For Each Order EmpCod, FilCod, NfeCod
+				Where EmpCod = &ContextEmpCod
+				Where FilCod = &sdtGNREItem.FiLCod
+				Where NfeCod = &sdtGNREItem.NfeCod
+				
+				NfeEmiGnre = Status_SimNao.Sim
+				
+				Exit
+				
+			EndFor
+			
+    		&XMLWriter.WriteEndElement()
+
+			
+			&XMLWriter.WriteEndElement()
+			
+			&XMLWriter.WriteEndElement()
+
+
+			&XMLWriter.Close()
+			
+			Commit
+			
+			Exit
+		EndIf
+	EndFor
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ContextEmpCod, in:&ContextFiLCod, In:&sdtGnre, in:&NomeFisico, In:&NfeNum, In:&GNREVlrTot);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ContextEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ContextEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ContextFiLCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ContextFiLCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCnpj</Value></Property><Property><Name>Description</Name><Value>CNPJ Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLWriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLWriter</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CEP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CEP</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>40</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>40</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="CnpjCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CnpjCpf</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>40</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>40</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="DataVencimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVencimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dias</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ElementoDataEmissao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ElementoDataEmissao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ElementoDataPagamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ElementoDataPagamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ElementoDataVencimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ElementoDataVencimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ElementoIE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ElementoIE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ElementoMunicipiodestinatario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ElementoMunicipiodestinatario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCidUfeIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCidUfeIbge</Value></Property><Property><Name>Description</Name><Value>Ibge</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GNREVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GNREVlrTot</Value></Property><Property><Name>Description</Name><Value>Valor da GNRE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChave">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChave</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>44</Value></Property><Property><Name>AttMaxLen</Name><Value>44</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeFisico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeFisico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGNRE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGNRE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGNRE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGNREItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGNREItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGNRE.sdtGNREItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TelefoneEmitente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TelefoneEmitente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GnreDetCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GnreDetCod</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GnreDocTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GnreDocTip</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxValorFecp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxValorFecp</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGerarXmlGNRE</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

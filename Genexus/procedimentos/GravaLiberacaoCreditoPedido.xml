@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="35aee281-ab5d-4351-8f38-7973cbf8d2c6" user="WIN-JEAN\jean.fae" versionDate="2023-06-12T12:00:04.0000000Z" lastUpdate="2023-06-07T12:38:41.0000000Z" checksum="bea9fca5be5a3a4b11922d5d9131d2f8" fullyQualifiedName="GravaLiberacaoCreditoPedido" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="de893acc-cce2-4e82-9898-049a9de692b6" name="GravaLiberacaoCreditoPedido" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Liberacao Credito Pedido" parent="prcAcoPed" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[	
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon016_ZerarCancLiberarCredito, &ZerarQtdCanCfgVlr)
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon030_LiberaCreditoDataEmissao, &AlterarDtaCfgVlr)
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon153_AutorizarPagamento, &AutorizaPagamento_TCon153)
+
+&HojeData = Serverdate()
+//GRAVA LOG
+&TabelaVarchar = 'PEDIDO'
+&LogErpTabIsLog = prcGetIsGravarLog.Udp(&EmpCod, &TabelaVarchar)
+if &LogErpTabIsLog = true
+	&LogErpRegGUID.SetEmpty()
+	&LogErpRegCod1 = trim(Str(&PedCod))
+	&LogErpRegTip = TrnMode.Update
+Endif
+
+Do Case
+	Case &OqueFazer = 'CAN' //CAncela Credito
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedStsAna = Status_Analisado.NaoAnalisado
+			
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsAna', trim(toformattedString(PedStsAna)), trim(toformattedString(&PedStsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), ' / / ', &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), '', &LogErpRegGUID )
+			Endif
+			
+			PedStsAna = &PedStsAna
+			PedObsAna = &PedObsAna
+			
+			PedStsPgto = 'N'
+			PedDtaCrd.SetEmpty()
+			PedStsCrd.SetEmpty()			
+			
+			Exit
+		EndFor
+		
+		Commit		
+		
+		CriticasPedido.Call( &EmpCod, &FilCod, &PedCod, TipoCriticaPedido.DesautorizadoCredito, &PesCod)
+		
+	Case &OqueFazer = 'PAR' //LIBERADO PARCIAL
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedStsAna = Status_Analisado.AutorizadoParcial
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsAna', trim(toformattedString(PedStsAna)), trim(toformattedString(&PedStsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+				If PedStsCrd = Status_Autorizado.NAO_AUTORIZADO
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), ' / / ', &LogErpRegGUID )
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), '', &LogErpRegGUID )
+				Endif
+			Endif
+		
+			PedStsAna = &PedStsAna
+			PedObsAna = &PedObsAna
+			
+			If PedStsCrd = Status_Autorizado.NAO_AUTORIZADO
+				PedDtaCrd.SetEmpty()
+				PedStsCrd.SetEmpty()
+				PedStsPgto = 'N'
+			EndIf
+			
+			Exit
+		EndFor
+		
+		Commit
+		
+	Case &OqueFazer = 'ANA'
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedStsAna = Status_Analisado.Analisado
+			
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsAna', trim(toformattedString(PedStsAna)), trim(toformattedString(&PedStsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+				If PedStsCrd = Status_Autorizado.NAO_AUTORIZADO
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), ' / / ', &LogErpRegGUID )
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), '', &LogErpRegGUID )
+				Endif
+			Endif
+		
+			PedStsAna = &PedStsAna
+			PedObsAna = &PedObsAna
+			
+			If PedStsCrd = Status_Autorizado.NAO_AUTORIZADO
+				PedDtaCrd.SetEmpty()
+				PedStsCrd.SetEmpty()
+				PedStsPgto = 'N'
+			EndIf
+			
+			Exit
+		EndFor
+		
+		Commit
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.Analisado, &PesCod)
+		
+	Case &OqueFazer = 'AUTM'
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+					
+			&PedStsCrd = Status_Autorizado.AUTORIZADO
+			&OldPedObsAna = PedObsAna
+			PedObsAna += ' ' + &PedObsAna.Trim()
+			PedObsAna = trim(PedObsAna)
+			
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsAna', trim(toformattedString(PedStsAna)), trim(toformattedString(&PedStsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(&OldPedObsAna)), trim(toformattedString(PedObsAna)), &LogErpRegGUID )
+				
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), trim(toformattedString(&PedStsCrd)), &LogErpRegGUID )
+				
+				If &AlterarDtaCfgVlr = 'S'
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaEms', trim(toformattedString(PedDtaEms)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+				Endif
+			Endif
+		
+			PedDtaCrd = &HojeData
+			PedStsCrd = &PedStsCrd
+			
+			If &AlterarDtaCfgVlr = 'S'
+				PedDtaEms = &HojeData
+			EndIF
+			
+			if &ZerarQtdCanCfgVlr = 'S'
+				For Each Order EmpCod, FilCod, PedCod, PedItmCod
+					Where PedQtdCan <> 0
+					PedQtdCan = 0
+				EndFor
+			EndIf
+			
+			Exit
+		EndFor
+		
+		Commit
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.LiberadoCredito, &PesCod)
+	Case &OqueFazer = 'AUT'
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedStsCrd = Status_Autorizado.AUTORIZADO
+			
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), trim(toformattedString(&PedStsCrd)), &LogErpRegGUID )
+				
+				If &AlterarDtaCfgVlr = 'S'
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaEms', trim(toformattedString(PedDtaEms)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+				Endif
+			Endif
+				
+			PedDtaCrd = &HojeData
+			PedStsCrd = &PedStsCrd
+			PedObsAna = &PedObsAna
+			
+			If &AlterarDtaCfgVlr = 'S'
+				PedDtaEms = serverdate()
+			EndIF
+			
+			if &ZerarQtdCanCfgVlr = 'S'
+				For Each Order EmpCod, FilCod, PedCod, PedItmCod
+					Where PedQtdCan <> 0
+					PedQtdCan = 0
+				EndFor
+			EndIf
+			
+			Exit
+		EndFor
+		
+		Commit
+		
+		CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.LiberadoCredito, &PesCod)
+		
+	Case &OqueFazer = 'AUP'
+		if &AutorizaPagamento_TCon153 <> 'N' //Nao fazer nada
+			For Each Order EmpCod, FilCod, PedCod
+				Where EmpCod = &EmpCod
+				Where FilCod = &FilCod
+				Where PedCod = &PedCod
+				
+				&PedStsCrd = Status_Autorizado.AUTORIZADO
+				
+				if &LogErpTabIsLog = true
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+					prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), trim(toformattedString(&PedStsCrd)), &LogErpRegGUID )
+					
+					If &AlterarDtaCfgVlr = 'S'
+						prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaEms', trim(toformattedString(PedDtaEms)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+					Endif
+				Endif
+			
+				if &AutorizaPagamento_TCon153 = 'A' or &AutorizaPagamento_TCon153.IsEmpty()
+					PedStsPgto = 'S'
+				Endif
+				
+				PedDtaCrd = &HojeData
+				PedStsCrd = &PedStsCrd 
+				PedObsAna = &PedObsAna
+				
+				If &AlterarDtaCfgVlr = 'S'
+					PedDtaEms = &HojeData
+				EndIF
+				
+				if &ZerarQtdCanCfgVlr = 'S'
+					For Each Order EmpCod, FilCod, PedCod, PedItmCod
+						Where PedQtdCan <> 0
+						PedQtdCan = 0
+					EndFor
+				EndIf
+				
+				Exit
+			EndFor
+			
+			Commit
+			
+			CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.LiberadoCredito, &PesCod)
+		Else
+			CriticasPedido.Call(&EmpCod, &FilCod, &PedCod, TipoCriticaPedido.LiberadoCredito, -1)
+		Endif
+		
+	Case &OqueFazer = 'DES'
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			
+			&PedStsCrd = Status_Autorizado.NAO_AUTORIZADO
+			
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedDtaCrd', trim(toformattedString(PedDtaCrd)), trim(toformattedString(&HojeData)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedStsCrd', trim(toformattedString(PedStsCrd)), trim(toformattedString(&PedStsCrd)), &LogErpRegGUID )
+			Endif
+					
+			PedDtaCrd = &HojeData
+			PedStsCrd = &PedStsCrd
+			PedStsPgto = 'N'
+			PedObsAna = &PedObsAna
+			
+			Exit
+		EndFor
+		
+		Commit
+		
+		CriticasPedido.Call( &EmpCod, &FilCod, &PedCod, TipoCriticaPedido.DesautorizadoCredito, &PesCod)
+		
+	Case &OqueFazer = 'XXX'
+		For Each Order EmpCod, FilCod, PedCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+				
+			if &LogErpTabIsLog = true
+				prcGravaLog_Registros.Call(&LogErpRegTip, &EmpCod, &FilCod, &LogErpRegCod1, '', '', &TabelaVarchar, &Pgmname, &wwpContextUserName, 'PedObsAna', trim(toformattedString(PedObsAna)), trim(toformattedString(&PedObsAna)), &LogErpRegGUID )
+			Endif
+		
+			PedObsAna = &PedObsAna
+			
+			Exit
+		EndFor
+		
+		Commit
+EndCase
+
+PedNovStsCod_FORMULA.Call( &EmpCod, &FilCod, &PedCod)
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod, in:&PesCod, in:&wwpContextUserName, in:&OqueFazer, in:&PedObsAna);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueFazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueFazer</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:OqueFazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZerarQtdCanCfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZerarQtdCanCfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AlterarDtaCfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AlterarDtaCfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedObsAna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedObsAna</Value></Property><Property><Name>Description</Name><Value>Obs Analise Credito</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedObsAna</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutorizaPagamento_TCon153">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutorizaPagamento_TCon153</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabelaVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabelaVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogErpTabIsLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogErpTabIsLog</Value></Property><Property><Name>Description</Name><Value>Log Erp Tab Is Log</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogErpTabIsLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogErpRegCod1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogErpRegCod1</Value></Property><Property><Name>Description</Name><Value>Codigo Tabela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogErpRegCod1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogErpRegTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogErpRegTip</Value></Property><Property><Name>Description</Name><Value>Update/Insert/Delete</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogErpRegTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogErpRegGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogErpRegGUID</Value></Property><Property><Name>Description</Name><Value>GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogErpRegGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsAna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsAna</Value></Property><Property><Name>Description</Name><Value>Pedido Analise</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsAna</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsCrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsCrd</Value></Property><Property><Name>Description</Name><Value>Pedido Crédito</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsCrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OldPedObsAna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OldPedObsAna</Value></Property><Property><Name>Description</Name><Value>Obs Analise Credito</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedObsAna</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContextUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContextUserName</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:wwpContextUserName</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaLiberacaoCreditoPedido</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="WINJEAN\jeanfae" versionDate="2025-06-23T14:26:37.0000000Z" lastUpdate="2025-06-23T12:35:12.0000000Z" checksum="78e916a271cbc51b2dfdb950f4f8f420" fullyQualifiedName="Pega_Arquivo_DFe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="efe530ae-a44f-4cac-91df-71cf936eb2af" name="Pega_Arquivo_DFe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Pega_Arquivo_DFe" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+	&mensagem = 'Pega o DF-e no arquivo: '
+	
+	&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() +"DFe\" + &FilCpj +'-'+padL(trim(&NroNSU),15,'0')+'-nfe.xml' //DFe lote
+	&mensagem += &ArquivoPronto
+	
+	do 'Mensagem'
+	&File.Source = &ArquivoPronto
+	If &File.Exists()
+		&XMLReader.Open(&ArquivoPronto)
+		&ret = &XmlReader.ReadType(1, 'resNFe') 
+		if &ret <> 0
+			&XmlReader.Read()
+			Do while &XmlReader.Name <> 'resNFe'
+				
+				Do Case
+					Case &XmlReader.Name = 'chNFe'
+						&ManCha = retornaSoNumeros.Udp(&XMLReader.Value)
+					Case &XmlReader.Name = 'CNPJ'
+						&ManCpfCnpj = &XMLReader.Value
+					Case &XmlReader.Name = 'CPF'
+						&ManCpfCnpj = &XMLReader.Value
+					Case &XmlReader.Name = 'xNome'
+						&ManRaz = &XMLReader.Value
+					Case &XmlReader.Name = 'IE'
+						&ManInsEst = &XMLReader.Value
+					Case &XmlReader.Name = 'dhEmi'
+						&ManDtaIni = YmdHmstoT(val(substr(&XMLReader.Value,1,4)),val(substr(&XMLReader.Value,6,2)),val(substr(&XMLReader.Value,9,2)),val(substr(&XMLReader.Value,12,2)),val(substr(&XMLReader.Value,15,2)),Val(substr(&XMLReader.Value,18,2)))
+					Case &XmlReader.Name = 'tpNF'
+						If val(&XMLReader.Value) = 0
+							&ManTip = EntradaSaida.Entrada
+						Else
+							&ManTip = EntradaSaida.Saida
+						EndIf
+						
+					Case &XmlReader.Name = 'vNF'
+						&ManVal = val(&XMLReader.Value)
+					Case &XmlReader.Name = 'dhRecbto'
+						&ManDtaRcb = &XMLReader.Value
+					Case &XmlReader.Name = 'nProt'
+						&ManProt = &XMLReader.Value
+					Case &XmlReader.Name = 'cSitNFe'
+						&cSitNFe = val(&XMLReader.Value)
+				EndCase
+				
+				&XmlReader.Read()		
+				if &XmlReader.EOF
+					Exit
+				endif					
+			EndDo
+			&XMLReader.Close()
+			
+			&mensagem = 'Arquivo XML encontrado com sucesso'
+			&SolMsg = &mensagem
+			
+			GravaManifestacao.call(&EmpCod,&FilCod,&ManCpfCnpj,&ManCha,&ManRaz,&ManInsEst,&ManDtaIni,&ManTip,&ManVal,&ManDtaRcb,&ManProt,&cSitNFe,&ArquivoPronto,&NroNSU, 'NFE', &outManCod)
+			GravaXmlNota2.Call(&EmpCod, &FilCpj, &ManCha, &NroNSU,&sdtConfiguracoesPasta, &IsExisteXml)
+			do 'Mensagem'
+		EndIf		
+	Else
+		&ArquivoPronto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() +"DFe\" + &FilCpj +'-'+padL(trim(&NroNSU),15,'0')+'-procNFe.xml' //NOTA FISCAL PRONTA
+		
+		&NfeArqXml = ''
+		&xmlNFe.Open(&ArquivoPronto)    
+		Do While  not &xmlNFe.EOF
+			&NfeArqXml += &xmlNFe.ReadRawXML()
+			&xmlNFe.Read()
+		Enddo
+		&xmlNFe.Close()
+		
+		leituraXmlDanfe.Call(&NfeArqXml, &NfeProc)
+		
+		&ManCha = &NfeProc.protNFe.infProt.chNFe
+		
+		if not &NfeProc.NFe.infNFe.emit.CNPJ.IsEmpty()
+			&ManCpfCnpj = &NfeProc.NFe.infNFe.emit.CNPJ
+		Else
+			&ManCpfCnpj = &NfeProc.NFe.infNFe.emit.CPF
+		Endif
+	
+		&ManRaz = &NfeProc.NFe.infNFe.emit.xNome
+		
+		&ManInsEst = &NfeProc.NFe.infNFe.emit.IE
+		
+		&ManDtaIni = YmdHmstoT(val(substr(&NfeProc.Nfe.infNFe.ide.dhEmi,1,4)),val(substr(&NfeProc.Nfe.infNFe.ide.dhEmi,6,2)),val(substr(&NfeProc.Nfe.infNFe.ide.dhEmi,9,2)),val(substr(&NfeProc.Nfe.infNFe.ide.dhEmi,12,2)),val(substr(&NfeProc.Nfe.infNFe.ide.dhEmi,15,2)),Val(substr(&NfeProc.Nfe.infNFe.ide.dhEmi,18,2)))
+		
+		If &NfeProc.NFe.infNFe.ide.tpNF = '0'
+			&ManTip = EntradaSaida.Entrada
+		Else
+			&ManTip = EntradaSaida.Saida
+		EndIf
+	
+		&ManVal = val(&NfeProc.Nfe.infNFe.total.ICMSTot.vNF)
+		
+		&ManDtaRcb = &NfeProc.protNFe.infProt.dhRecbto
+		
+		&ManProt = &NfeProc.protNFe.infProt.nProt
+		
+		&cSitNFe = 1 //fixei autorizada
+		
+		GravaManifestacao.call(&EmpCod,&FilCod,&ManCpfCnpj,&ManCha,&ManRaz,&ManInsEst,&ManDtaIni,&ManTip,&ManVal,&ManDtaRcb,&ManProt,&cSitNFe,&ArquivoPronto,&NroNSU, 'NFE', &outManCod)
+		GravaXmlNota2.Call(&EmpCod,&FilCpj, &ManCha, &NroNSU,&sdtConfiguracoesPasta, &IsExisteXml)
+				
+		&mensagem = 'Arquivo XML não encontrado'
+		&SolMsg = &mensagem
+		do 'Mensagem'
+	EndIf
+
+
+
+
+Sub 'Mensagem'
+	msg(&mensagem  + ' Hora: ' + serverTime(),status)
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod, in:&FilCod, in:&FilCpj,in:&NroNSU,in:&sdtConfiguracoesPasta,out:&SolMsg);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="XMLReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLReader</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPronto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPronto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NroNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NroNSU</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManCha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManCha</Value></Property><Property><Name>Description</Name><Value>Chave da Nota</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManCha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManCpfCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManCpfCnpj</Value></Property><Property><Name>Description</Name><Value>CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManCpfCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManRaz</Value></Property><Property><Name>Description</Name><Value>Razão </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManInsEst">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManInsEst</Value></Property><Property><Name>Description</Name><Value>Ie</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManInsEst</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManDtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManDtaIni</Value></Property><Property><Name>Description</Name><Value>Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManDtaIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManTip</Value></Property><Property><Name>Description</Name><Value>Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManVal</Value></Property><Property><Name>Description</Name><Value>Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManDtaRcb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManDtaRcb</Value></Property><Property><Name>Description</Name><Value>Recibo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManDtaRcb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManProt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManProt</Value></Property><Property><Name>Description</Name><Value>Protocolo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManProt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cSitNFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cSitNFe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExisteXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExisteXml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outManCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outManCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeArqXml</Value></Property><Property><Name>Description</Name><Value>Arq.Xml</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xmlNFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xmlNFe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProc</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:TNFeProc</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Pega_Arquivo_DFe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

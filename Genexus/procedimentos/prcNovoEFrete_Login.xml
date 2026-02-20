@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:36:14.0000000Z" checksum="fa2c901599c6a9a24282cc05d35483cb" fullyQualifiedName="prcNovoEFrete_Login" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="d802ffc7-0fa7-4651-b31b-c5365a7dbe9b" name="prcNovoEFrete_Login" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Novo EFrete_Login" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[// O conteúdo da tag Integrador deve ser uma CONSTANTE, pois é ela quem identifica seu sistema de gestão,
+//Suporte e-FRETE:	Seguem credenciais para uso em ambiente de homologação:
+//Integrador:		JASPI SISTEMAS DE INFORMÁTICA
+//CNPJ:				21826923000177
+//Usuário:			usuario@jaspi
+//Senha:			usuario#jaspi
+//Hash:				b754b48e-8c22-4cfc-bb0a-3524a76284c9
+
+LoadWWPContext(&Context)
+//Config do Servidor
+HostWebServiceEfrete.Call(&EmpWebHost, &ExecuteUrl, &Usuario, &Senha, &Hash)
+&ExecuteUrl			+= 'Logon/Login'
+
+&HttpClient.Host	= 	&EmpWebHost
+&HttpClient.Secure	= 	1
+
+//Header do JSON
+&HttpClient.AddHeader(!'Content-Type', !'application/json')
+&HttpClient.AddHeader(!'Accept-Encoding', !'gzip, deflate, br')
+
+//Corpo do Xml
+&XmlBody 	= 	'{'
+&XmlBody	+=	'	"Integrador": "'+ &Hash.Trim() +'",'
+&XmlBody	+=	'	"Usuario": "'+ &Usuario.Trim() +'",'
+&XmlBody	+=	'	"Senha": "'+ &Senha.Trim() +'",'
+&XmlBody	+=	'	"Versao": "1"'
+&XmlBody	+=	'}'
+
+//Realiza o Envio ao WebService
+&HttpClient.AddString(Trim(&XmlBody))
+&HttpClient.Execute('POST',&ExecuteUrl)
+
+//Grava o Envio ao padrão usuário
+padraoUsuario.Call('G', '#EFRETELOGIN', &Context.PesCod, &Context.EmpCod, &XmlBody, &PadDtaMod)
+
+If &HttpClient.StatusCode = 200
+	
+	&XmlBody = &HttpClient.ToString()
+	&PosicaoSucesso = StrSearch(&XmlBody, '"Sucesso"')
+
+	&PosicaoSucesso = &PosicaoSucesso + 11
+	&Status 		= SubStr(&XmlBody, &PosicaoSucesso, 4)
+	
+	If &Status = 'true'
+		&PosicaoProtocoloServico	= StrSearch(&XmlBody, '"Token"')
+		&PosicaoProtocoloServico	= &PosicaoProtocoloServico + 8
+		&ProtocoloServico			= SubStr(&XmlBody, &PosicaoProtocoloServico, 4)
+				
+		&Token						= SubStr(&XmlBody, 16, 59)
+		&Erro 						= 200
+	Else
+		&PosicaoSucesso = StrSearch(&XmlBody, '"Mensagem"')
+		&PosicaoSucesso = &PosicaoSucesso + 13
+		
+		&PosicaoFinal	= StrSearch(&XmlBody, '"Codigo"')
+		&PosicaoFinal	= &PosicaoFinal - &PosicaoSucesso - 8
+		&Status			= SubStr(&XmlBody, &PosicaoSucesso, &PosicaoFinal)
+		
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro LogIn!",'Ocorreu um erro ao realizar o LogIn. ERRO: '+ Trim(&Status), DVMessageType.error, "", DVMessageBoolean.True,""))
+	EndIf
+	
+	padraoUsuario.Call('G', '#EFRETELOGINRESPOSTA', &Context.PesCod, &Context.EmpCod, &XmlBody, &PadDtaMod)
+
+Else
+    msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro LogIn!", &HttpClient.StatusCode.ToString() + ": " + &HttpClient.ErrDescription, DVMessageType.error, "", DVMessageBoolean.True,""))
+EndIf
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(Out:&Token, Out:&ProtocoloServico, Out:&Erro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpResponse</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoProtocoloServico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoProtocoloServico</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoToken">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoToken</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProtocoloServico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProtocoloServico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>12</Value></Property><Property><Name>AttMaxLen</Name><Value>12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlBody</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoSucesso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoFinal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Usuario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Usuario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Senha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Senha</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hash</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEnviarCertificado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEnviarCertificado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcNovoEFrete_Login</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

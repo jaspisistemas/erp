@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="f7a9321b-7dc0-4d0d-b851-ccf805fb6a31" user="WINJEAN\jeanfae" versionDate="2025-06-30T11:45:07.0000000Z" lastUpdate="2025-06-27T19:15:38.0000000Z" checksum="a9343d0c3595076857e8285f7385aab8" fullyQualifiedName="api_erp.prcFaturamentoFiscal" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="73de2f0e-c89d-4d4a-bdab-49edecaacbe3" name="prcFaturamentoFiscal" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Faturamento Fiscal" parent="api_erp.prdwid" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+//parm(in:&EmpCod, in:&collFilCod, in:&Mes, in:&Ano, in:&WD_FATURAMENTOFISCALAutNiv, in:&WD_FATURAMENTOFISCALCTEAutNiv, inout:&sdtRetornoWbsEtc);
+
+
+//cte
+if &WD_FATURAMENTOFISCALCTEAutNiv > 0
+	For Each Order EmpCod, FilCod, CteCod
+		Where EmpCod = &EmpCod
+		Where FilCod in &collFilCod 
+		//Where CteLctAtuGra.IsEmpty() or CteLctAtuGra.IsNull() or CteLctAtuGra = Status_SimNao_PS.Sim //atualizar Grafico //JDF nao sei se precisa.
+		//CteDtaEms
+		Where CteAnoEms = &Ano
+		Where CteMesEms = &Mes When not &Mes.IsEmpty()
+		Where CteProTer = Nota_ProPriaTerceira.PROPRIA
+		Where CteSts = Status_NFe.Autorizada
+		
+		&CteMoeda += CteVlrTotPreSer
+		&CteQuantidade += 1
+	EndFor
+
+	if &CteMoeda > 0 and &CteQuantidade > 0
+		&CteMediaMoeda = Round(&CteMoeda/&CteQuantidade, 2)
+	Endif
+
+	&sdtRetornoWbsEtc.c1 = trim(toformattedString(&CteMoeda)) //total Cte
+	&sdtRetornoWbsEtc.c2 = trim(toformattedString(&CteMediaMoeda)) //media
+	&sdtRetornoWbsEtc.c3 = trim(toformattedString(&CteQuantidade)) //qtd cte
+EndIf
+
+//nfe
+if &WD_FATURAMENTOFISCALAutNiv > 0
+	//ATUALIZA DATAS DE FATURAMENTO
+	For Each Order EmpCod, FilCod, NfeCod
+		Where EmpCod = &EmpCod
+		Where FilCod in &collFilCod
+		Where  (NfeDtaFat.IsEmpty() or NfeDtaFat.IsNull()) or (NfeDtaFat_Mes.IsEmpty() or NfeDtaFat_Mes.IsNull())
+		or (NfeDtaFat_Ano.IsEmpty() or NfeDtaFat_Ano.IsNull())
+			
+		&NfeDtaFat = NfePedDtaFat_FORMULA
+		NfeDtaFat = &NfeDtaFat
+		if &NfeDtaFat.IsEmpty()
+			NfeDtaFat_Mes = 0
+			NfeDtaFat_Ano = 0
+		Else
+			NfeDtaFat_Mes = &NfeDtaFat.Month()
+			NfeDtaFat_Ano = &NfeDtaFat.Year()
+		Endif
+	
+	EndFor
+	
+	commit
+	
+
+	For Each Order EmpCod, FilCod, NfeFin, NfeDtaFat_Ano
+		Where EmpCod = &EmpCod
+		Where FilCod in &collFilCod
+		where NfeDtaFat_Ano = &Ano
+		Where NfeDtaFat_Mes = &Mes when not &Mes.IsEmpty()
+		Where (NfeSts = Status_Nfe.Autorizada) or (NfeProTer = Nota_ProPriaTerceira.TERCEIROS and NfeSts = Status_Nfe.Digitando) 
+		Where NfeFin = NotaFinalidade.EmissaoNormal
+		Where NfeLctGerFin = Status_SimNao.Sim
+		
+		If NfeEntSai = Status_EntradaSaida.Saida
+			&NfeSaidaMoeda += NfeVlrTot
+		Else
+			&NfeEntradaMoeda += NfeVlrTot
+		Endif		
+		
+	EndFor
+
+	Do CAse
+		CAse &NfeEntradaMoeda > &NfeSaidaMoeda and &NfeEntradaMoeda > 5000
+			
+			&Count =  &NfeEntradaMoeda / 5000
+			&Count += 1
+			&BaseMoeda = &Count*5000
+			
+		CAse &NfeSaidaMoeda > &NfeEntradaMoeda and &NfeSaidaMoeda > 5000
+		
+			&Count = &NfeSaidaMoeda / 5000
+			&Count += 1
+			&BaseMoeda = &Count*5000
+//			&BaseMoeda = round((&NfeSaidaMoeda + 5000),0)
+			
+		Otherwise
+			&BaseMoeda = 5000
+	EndCAse
+
+
+		&sdtRetornoWbsEtc.c4 = trim(toformattedString(&NfeSaidaMoeda)) //Total Saida
+		&sdtRetornoWbsEtc.c5 = trim(toformattedString(&NfeEntradaMoeda)) //Total Entrada
+		&sdtRetornoWbsEtc.c6 = trim(toformattedString(&BaseMoeda)) //Base Graficoooo
+Endif
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&collFilCod, in:&Mes, in:&Ano, in:&WD_FATURAMENTOFISCALAutNiv, in:&WD_FATURAMENTOFISCALCTEAutNiv, inout:&sdtRetornoWbsEtc);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WD_FATURAMENTOFISCALCTEAutNiv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WD_FATURAMENTOFISCALCTEAutNiv</Value></Property><Property><Name>Description</Name><Value>Nivel Autorizacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutNiv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WD_FATURAMENTOFISCALAutNiv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WD_FATURAMENTOFISCALAutNiv</Value></Property><Property><Name>Description</Name><Value>Nivel Autorizacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AutNiv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornoWbsEtc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornoWbsEtc</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornoWbsEtc, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="collFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>collFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteQuantidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteQuantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>idTHOUSANDSEP</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteMediaMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteMediaMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaFat</Value></Property><Property><Name>Description</Name><Value>Fat.Pedido/Faturado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeSaidaMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeSaidaMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeEntradaMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeEntradaMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BaseMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BaseMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcFaturamentoFiscal</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

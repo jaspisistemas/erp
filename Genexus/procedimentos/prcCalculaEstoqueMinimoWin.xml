@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="a5796923-382b-4c68-a2ab-fd9c110c915c" user="WIN-JEAN\jean.fae" versionDate="2022-08-29T17:01:12.0000000Z" lastUpdate="2022-08-29T15:12:44.0000000Z" checksum="dbcafa766a84958d8ad9c6b29573387c" fullyQualifiedName="prcCalculaEstoqueMinimoWin" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="7ef12381-0a16-40ee-af3f-15a57fd66f31" name="prcCalculaEstoqueMinimoWin" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Calcula Estoque Minimo Win" parent="EstPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&HojeData = ServerDate()
+&IsExecutou = false
+&sdtAgendadorFiltros.FromXml(&AgdFiltro)
+&QtdDiasApuracao  = 0
+&QtdDiasRepeticao = 0
+
+For &sdtAgendadorFiltrosItem in &sdtAgendadorFiltros
+	
+	Do case
+		case &sdtAgendadorFiltrosItem.AgdFiltro = 'AGDQTDDIASAPURACAO' //Qtd dias apuração
+			&QtdDiasApuracao = val(&sdtAgendadorFiltrosItem.AgdValue)
+			
+		case &sdtAgendadorFiltrosItem.AgdFiltro = 'AGDQTDDIASREPETICAO' //Qtd dias repetição
+			&QtdDiasRepeticao = val(&sdtAgendadorFiltrosItem.AgdValue)
+			
+		Case &sdtAgendadorFiltrosItem.AgdFiltro = 'AGDINCVENABE' //Incluir Vendas Abertas
+			&IncluirVendasAbertas = iif(&sdtAgendadorFiltrosItem.AgdValue = 'S', Status_SimNao.Sim, Status_SimNao.Nao)
+			
+		Case &sdtAgendadorFiltrosItem.AgdFiltro = 'AGDINCVENPER' //Incluir vendas perdidas
+			&IncluirVendasPerdidas = iif(&sdtAgendadorFiltrosItem.AgdValue = 'S', Status_SimNao.Sim, Status_SimNao.Nao)
+			
+		Case &sdtAgendadorFiltrosItem.AgdFiltro = 'AGDINCMAIMEN' //Incluir Maior Menor
+			&IncluirMaiorMenor = iif(&sdtAgendadorFiltrosItem.AgdValue = 'S', Status_SimNao.Sim, Status_SimNao.Nao)
+			
+	EndCase
+EndFor
+
+&iniPedDtaEms = &HojeData.AddDays(- &QtdDiasApuracao )
+&finPedDtaEms = &HojeData
+&limiteData = &HojeData.AddDays(-&QtdDiasRepeticao)
+
+&FilPrzEst = 0
+For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+    &FilPrzEst = FilPrzEst
+	Exit
+EndFor
+
+&Total = 0
+&Count = 0
+
+&AuxGrupHie = &GrupHie.Trim() + '.'
+For Each Order EmpCod,ProCod,ProSts,ProUltAtuCalMin
+	Where EmpCod = &EmpCod
+	Where ProCod > 0
+	Where ProSts = Status_Produto.ATIVO
+	where ProUltAtuCalMin <= &limiteData or ProUltAtuCalMin.IsNull() or ProUltAtuCalMin.IsEmpty()
+	&Total += 1
+EndFor
+
+//PRODUTOS VENDIDO NO PERIODO
+For Each Order EmpCod,ProCod,ProSts,ProUltAtuCalMin
+	Where EmpCod = &EmpCod
+	Where ProCod > 0
+	Where ProSts = Status_Produto.ATIVO
+	where ProUltAtuCalMin <= &limiteData  or ProUltAtuCalMin.IsNull() or ProUltAtuCalMin.IsEmpty()
+	
+	ProUltAtuCalMin = &HojeData
+	If ProPadForCod <> &AuxProPadForCod
+		&AuxProPadForCod = ProPadForCod
+		&PesForPrzTot = RetornaDiasSeguracaoFornecedor.Udp(EmpCod, ProPadForCod)
+	EndIf
+	
+	&TotalDiasBase = &PesForPrzTot + &FilPrzEst + ProMarSeg + ProSetPrzEst
+	
+	&TotalVendido = 0
+	&TotalCancelado = 0
+	
+	&MaiorVendidaCancelada = 0
+	&MenorVendidaCancelada = 0
+	&MaiorVendida = 0
+	&MenorVendida = 0
+	
+	&InicialCalculo = RetornaDataPrimeiraSaida.Udp(EmpCod, &FilCod, ProCod, 1)
+	If (&InicialCalculo < &iniPedDtaEms)
+		&InicialCalculo = &iniPedDtaEms
+	EndiF
+	
+	&ProCod = ProCod
+	
+	do 'SomaPedidoProdutos'
+	if &IncluirMaiorMenor <> Status_SimNao.Sim
+		&TotalCancelado -= (&MenorVendidaCancelada + &MaiorVendidaCancelada)
+	Endif
+
+	If &TotalCancelado < 0
+		&TotalCancelado = 0
+	EndIF
+	
+	if &IncluirMaiorMenor <> Status_SimNao.Sim
+		&TotalVendido -= (&MaiorVendida + &MenorVendida)
+	Endif
+
+	If &TotalVendido < 0
+		&TotalVendido = 0
+	EndIF		
+
+	if &IncluirVendasPerdidas = Status_SimNao.Sim
+		&TotalVendido += &TotalCancelado
+	EndIF
+	
+	&DiasApuracao = (&finPedDtaEms - &InicialCalculo)
+	
+	if &DiasApuracao = 0
+		&EstMin = &TotalVendido
+	else
+		&EstMin = (&TotalVendido / &DiasApuracao) 
+		If &TotalDiasBase <> 0
+			&EstMin = &EstMin * &TotalDiasBase
+		EndiF
+	endif
+	&EstMin += &UtilizadaProducao
+	GravaEstoqueMinimo.Call(EmpCod, &FilCod, ProCod, 1, &EstMin, &TotalDiasBase, &TotalVendido, &InicialCalculo, &finPedDtaEms)
+
+	commit
+EndFor
+
+
+sub 'SomaPedidoProdutos'
+	&UtilizadaProducao.SetEmpty()
+	prcSelecionaPedidos_MinimoReceitaAgendador.Call(&EmpCod, &FilCod, &ProCod, &UtilizadaProducao)
+	
+	For Each Order EmpCod, FilCod, PedProEstProCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PedProEstProCod = &ProCod
+		Where PedDtaFic >= &InicialCalculo and PedDtaFic <= &finPedDtaEms
+		//		Where PedDtaFat >= &InicialCalculo and PedDtaFat <= &finPedDtaEms when &IncluirVendasAbertas <> Status_SimNao.Sim
+		Where LctCalMin = Status_SimNao.Sim
+		Where LctAtuEst = Status_EntradaSaida.Saida
+		Where (PedSts = Status_Pedido.FECHADO or PedSts = Status_Pedido.SEPARANDO) or (PedSts in (Status_Pedido.FECHADO,Status_Pedido.SEPARANDO,Status_Pedido.ABERTO) and &IncluirVendasAbertas = Status_SimNao.Sim)
+		
+		If &MenorVendidaCancelada = 0
+			&MenorVendidaCancelada = PedQtdCan
+		EndIF
+		
+		If &MenorVendida = 0
+			&MenorVendida = PedQtd
+		EndIF
+	
+		&TotalVendido += PedQtd
+		&TotalCancelado += PedQtdCan
+				
+		If PedQtd > &MaiorVendida
+			&MaiorVendida = PedQtd
+		EndIF	
+		
+		If PedQtdCan > &MaiorVendidaCancelada
+			&MaiorVendidaCancelada = PedQtdCan
+		EndIF
+		
+		If &MenorVendida > PedQtd and PedQtd > 0
+			&MenorVendida = PedQtd
+		EndIF
+		
+		if &MenorVendidaCancelada > PedQtdCan and PedQtdCan > 0
+			&MenorVendidaCancelada = PedQtdCan
+		EndIF
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&AgdFiltro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilPrzEst">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilPrzEst</Value></Property><Property><Name>Description</Name><Value>Dias Manter Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPrzEst</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxProPadForCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxProPadForCod</Value></Property><Property><Name>Description</Name><Value>Fornecedor Padrao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProPadForCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesForPrzTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesForPrzTot</Value></Property><Property><Name>Description</Name><Value>Prazo Total</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesForPrzTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InicialCalculo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InicialCalculo</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finPedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finPedDtaEms</Value></Property><Property><Name>Description</Name><Value>Pedido Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniPedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniPedDtaEms</Value></Property><Property><Name>Description</Name><Value>Pedido Data Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalCancelado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalCancelado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalVendido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalVendido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IncluirVendasPerdidas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IncluirVendasPerdidas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IncluirVendasAbertas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IncluirVendasAbertas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiasApuracao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiasApuracao</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDiasBase">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDiasBase</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstMin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstMin</Value></Property><Property><Name>Description</Name><Value>Estoque Minimo Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstMin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MenorVendida">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MenorVendida</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MenorVendidaCancelada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MenorVendidaCancelada</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MaiorVendida">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MaiorVendida</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MaiorVendidaCancelada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MaiorVendidaCancelada</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxGrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxGrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IncluirMaiorMenor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IncluirMaiorMenor</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgdFiltro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdFiltro</Value></Property><Property><Name>Description</Name><Value>Filtro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdFiltro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExecutou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExecutou</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgendadorFiltros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgendadorFiltros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorFiltros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgendadorFiltrosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgendadorFiltrosItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorFiltros.sdtAgendadorFiltrosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdDiasApuracao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdDiasApuracao</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdDiasRepeticao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdDiasRepeticao</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="limiteData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>limiteData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UtilizadaProducao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UtilizadaProducao</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:QuantidadeGrande</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcCalculaEstoqueMinimoWin</Value></Property><Property><Name>Description</Name><Value>prc Calcula Estoque Minimo Win</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="289aa680-579b-4b7e-986e-6f923edcd581" user="WINJEAN\jeanfae" versionDate="2025-11-07T11:33:01.0000000Z" lastUpdate="2025-11-06T11:58:28.0000000Z" checksum="134142f049e0a6fd52f08d70b1e6f788" fullyQualifiedName="PedNovStsFinCod_FORMULA" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="fcdf54f8-a217-4dd1-9f76-3abb982ad012" name="PedNovStsFinCod_FORMULA" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Ped Nov Sts Fin Cod_FORMULA" parent="Lancamentos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon010_LiberarCreditoPedido, &AutorizarCreditoPedido)
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon194_ExigirAutorizacaoFechaCompra, &AutorizarCreditoPedidoEntrada)
+
+	
+//DIGITANDO - (Opcao televendas informa termino)
+//CONDICIONAL
+//orcamento /aberto 
+//Analise /analisado /autoriado /nao autorizado (Autorizacao de credito/Analise em duas etapas)
+//em producao /produzido (se tiver selecionado pedido para producao)
+//emabalando /embalado 
+//faturado /despachado
+
+For each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	
+	//&PedSts = PedSts
+	
+	Do Case
+		Case PedStsFut = VendaFutura.BloqueiaVendaFutura  //aqui pega o pedido de origem de uma ordem de carregamento que no caso ele foi bloqueado como venda futura
+		//e ajusta o novo status conforme condições abaixo, o sttsus é alterado no procedimento AtualizaVendaFutura o mesmo que bloqueia.
+			&IsPagto = RetornaUmItemPago.udp(EmpCod, FilCod, PedCod)
+			If &IsPagto = False //se não tiver pgto no ENTR.FUTURA cancela o financeiro
+				&Status = 'CANCELADO'
+				&IsAutorizado = false
+				&StsOrd = 90
+			EndIf
+		
+			//Ao abrir uma ordem de carregamento, se não tiver mais nehuma referencia, volta o pedido principal para aberto.
+			&IsUmReferenciado = RetornaUmPedidoReferencia.Udp(EmpCod, FilCod, PedCod)
+			If &IsUmReferenciado = false and  &IsPagto = False
+				&Status = 'ABERTO'
+				&IsAutorizado = false
+				&StsOrd = 20
+			EndIf
+		
+		Case PedStsFin = Status_Financeiro.CANCELADO
+			&Status = 'CANCELADO'
+			&IsAutorizado = false
+			&StsOrd = 90
+			
+			//		Case PedStsFin = Status_Financeiro.ABERTO 
+		Otherwise
+			&IsAutorizado = true
+			if ((&AutorizarCreditoPedido = 'S' or &AutorizarCreditoPedido = 'X') and LctAtuSal = Status_EntradaSaida.Saida) or (&AutorizarCreditoPedidoEntrada = 'S' and LctAtuSal = Status_EntradaSaida.Entrada)
+				//Opcao Analise/analisado
+				Do CAse
+					Case (PedStsCrd = Status_Autorizado.AUTORIZADO or (PedCliCrd = 999999999.99))
+						&Status = 'AUTORIZ.'	
+						&StsOrd = 40
+						
+						if PedStsPgto = 'S' //JDF Eliandro nao quis mais o Status Aut.Pgto //PAramento TCon153
+							&Status = 'AUT.PGTO'
+							&StsOrd = 40
+						EndIF
+						
+						RetornaTotalDuplicatasDoPedido.Call(EmpCod, FilCod, PedCod, &TotalDuplicataMoeda)
+						PedStsFinIsPar = false
+						if &TotalDuplicataMoeda <> PedVlrFin and &TotalDuplicataMoeda > 0
+							PedStsFinIsPar = true
+							&Status = 'P.PARCIAL'
+							&StsOrd = 40
+						Endif
+					
+						RetornaTotalDuplicatasDoPedido.Call(EmpCod, FilCod, PedCod, &TotalPago)
+						RetornaTotalCreditoDoPedido.Call(EmpCod, FilCod, PedCod, &TotalCredito)
+						&PedVlrSld = (PedVlrFin - &TotalPago - &TotalCredito)
+						
+						If &PedVlrSld <=0 and &TotalCredito > 0 // aqui somente a ordem de carregamento recebe crédito então se tiver todo o pedido com credito cancela financeiro.
+							&Status = 'CANCELADO'
+							&IsAutorizado = false
+							&StsOrd = 40
+						EndIf
+						
+					Case not PedDtaCrd.IsEmpty()
+						&Status = 'NÃO.AUTOR.'
+						&IsAutorizado = false
+						&StsOrd = 40
+						
+					Case PedStsAna = Status_Analisado.Analisado
+						&Status = 'ANALISADO'
+						&IsAutorizado = false
+						&StsOrd = 35
+						
+					Case PedStsAna = Status_Analisado.AutorizadoParcial
+						&Status = 'AUTORIZ.P'
+						&IsAutorizado = false
+						&StsOrd = 35
+						
+					Otherwise
+						&Status = 'ANALISE'
+						&IsAutorizado = false
+						&StsOrd = 30
+						
+						//						If PedFrpTip = TipoDuplicata.DEPOSITO
+						//							&Status = 'AG.DEPÓSITO'
+						//						Endif
+				EndCase
+			Else
+				&Status = 'AUTORIZ.'	
+				&StsOrd = 40
+			
+				RetornaTotalDuplicatasDoPedido.Call(EmpCod, FilCod, PedCod, &TotalPago)
+				RetornaTotalCreditoDoPedido.Call(EmpCod, FilCod, PedCod, &TotalCredito)
+				&PedVlrSld = (PedVlrFin - &TotalPago - &TotalCredito)
+				PedStsFinIsPar = false
+				Do Case
+					CAse &PedVlrSld <=0 and &TotalCredito > 0 // aqui somente a ordem de carregamento recebe crédito então se tiver todo o pedido com credito cancela financeiro.
+						&Status = 'CANCELADO'
+						&IsAutorizado = false
+						&StsOrd = 40
+						
+					Case &TotalPago <> PedVlrFin and &TotalPago > 0 //JDF Mostrar pagamentos parciais
+						PedStsFinIsPar = true
+						&Status = 'P.PARCIAL'
+						&StsOrd = 40
+				EndCAse
+			
+				
+			EndIF
+			
+	EndCAse
+	
+	&PedStsCod = PedStsFinCod 
+	do 'getStatus'
+	PedNovStsFinCod = &StsCod
+	
+	Exit
+EndFor
+
+Commit
+
+sub 'getStatus'
+	For Each Order EmpCod, StsNom
+		Where EmpCod = &EmpCod
+		Where StsNom = &Status
+		//Where StsPed = &PedSts
+		
+		if StsWs = Status_WsUsu.Usuario
+			StsWs = Status_WsUsu.WebService
+			
+			commit
+		EndiF
+		
+		if StsCrd <> true or StsCrd.IsEmpty() or StsCrd.IsNull()
+			StsCrd = true
+			
+			commit
+		EndiF
+		
+		&StsCod = StsCod
+		Exit
+	When none
+		UltimoCodigoEmpresa.Call(domParCod.STATUSPEDIDO, &EmpCod, 0, &StsCod)
+		
+		new
+			EmpCod = &EmpCod
+			StsCod = &StsCod
+			StsNom = &Status
+			StsWs = Status_WsUsu.WebService
+			//StsPed = &PedSts
+			StsOrd = &StsOrd
+			StsPaiCod = &StsCod
+			StsCrd = true
+		EndNEw
+		
+		Commit
+	EndFor
+
+	For Each Order EmpCod, StsCod
+		Where EmpCod = &EmpCod
+		Where StsCod = &PedStsCod
+		Where StsWs <> Status_WsUsu.WebService
+		//Where StsPed = &PedSts
+		Where StsPaiCod = &StsCod
+		Where StsCrd = true
+		&StsCod = &PedStsCod
+	EndFor
+EndSUb
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutorizarCreditoPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutorizarCreditoPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutorizado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutorizado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StsCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:StsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StsOrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StsOrd</Value></Property><Property><Name>Description</Name><Value>Ordem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:StsOrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedStsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedStsCod</Value></Property><Property><Name>Description</Name><Value>Ped Sts Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedStsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDuplicataMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDuplicataMoeda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPagto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPagto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrSld">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrSld</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalCredito">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalCredito</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalPago">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalPago</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsUmReferenciado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsUmReferenciado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AutorizarCreditoPedidoEntrada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AutorizarCreditoPedidoEntrada</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>PedNovStsFinCod_FORMULA</Value></Property><Property><Name>Description</Name><Value>Ped Nov Sts Fin Cod_FORMULA</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

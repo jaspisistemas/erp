@@ -1,0 +1,728 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="760b9acb-491a-4172-8496-89332dd04203" user="WINJEAN\jeanfae" versionDate="2025-12-08T13:21:24.0000000Z" lastUpdate="2025-12-04T14:21:06.0000000Z" checksum="53679e809deba2492cf59206e56c202b" fullyQualifiedName="prcGeraSolicitacaoImpressao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="287426f6-9190-4503-8e83-1009d7fe4757" name="prcGeraSolicitacaoImpressao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Gera Solicitacao Impressao" parent="etiquetachat" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+RetornaConfiguracoesPastas.Call(&EmpCod, &Filcod, &sdtConfiguracoesPasta)
+//formatacao do tamanho da etiqueta
+For EAch ORder EmpCod, TipEtqCod
+	Where EmpCod = &EmpCod
+	Where TipEtqCod = &TipEtqCod
+	
+	&sdtEtiquetaDireta.TipEtQtdCol = TipEtQtdCol
+	&sdtEtiquetaDireta.TipEtqAlt = TipEtqAlt
+	&sdtEtiquetaDireta.TipEtqLar = (TipEtqLar*TipEtQtdCol)+TipEtqMrgEsq+TipEtqMrgDir
+	if TipEtQtdCol > 1
+		&sdtEtiquetaDireta.TipEtqLar += ((TipEtQtdCol-1)*TipEtqEspCol)
+	Endif
+
+	&sdtEtiquetaDireta.TipEtqFor = TipEtqFor
+	&sdtEtiquetaDireta.TipEtqEspCol = TipEtqEspCol
+	&sdtEtiquetaDireta.TipEtqMrgEsq = TipEtqMrgEsq
+	&sdtEtiquetaDireta.TipEtqMrgDir = TipEtqMrgDir
+	&sdtEtiquetaDireta.TipEtqGap = TipEtqGap
+	&sdtEtiquetaDireta.TipEtqSpe = TipEtqSpe
+	&sdtEtiquetaDireta.TipEtqDen = TipEtqDen
+	
+	&TipEtqJson = TipEtqJson
+	Exit
+EndFor
+
+//Dados da Filial
+For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &Filcod
+	&FIlFan = FilFan
+	&FilCpj = FilCpj
+		
+	&FilPesCod = FilPesCod
+	Exit	
+EndFor
+
+//Dados da Pessoa
+if &PesCod > 0
+	For Each ORder EmpCod, PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		
+		&PesFan =  PesFan
+		
+		if PesTip = TIpOPEssoa.JURIDICA
+			&PesCnpj = PesCnpj
+		Else
+			&PesCnpj = PesCpf
+		Endif
+	
+		Exit
+	EndFor
+Endif
+
+//tabela Preco
+if not &TabCod.IsEmpty()
+	For Each Order EmpCod,TabCod, TabColCod
+		Where EmpCod = &EmpCod
+		Where TabCod = &TabCod
+		Where TabColCod = &PrimeiraTabColCod
+		
+		&Coluna1 = TabColNom
+		Exit
+	EndFor
+
+	For Each Order EmpCod,TabCod, TabColCod
+		Where EmpCod = &EmpCod
+		Where TabCod = &TabCod
+		Where TabColCod = &SegundaTabColCod	
+		
+		&Coluna2 = TabColNom
+		Exit
+	EndFor
+Endif
+
+
+
+//adicionar produtos a serem impressos.
+For Each Order EtqCod, EtqItmCod
+	Where EtqCod = &EtqCod
+	
+	&sdtDesignerConfig.FromJson(&TipEtqJson)
+	
+	&sdtEtiquetaDiretaProdutos = new()	
+	&sdtEtiquetaDiretaProdutos.TipEtqQtd = EtqQtd 
+	
+	&ProCod = EtqProCod
+	&ProGraCod = EtqProGraCod
+	if &ProGraCod = 0
+		&ProGraCod = 1
+	EndIf
+
+	do 'getProduto'
+
+	do 'getEstoque'
+	
+	if not &TabCod.IsEmpty()
+		do 'GetPreco'
+	endIf
+
+	//dados extras produto
+	&sdtDadosAdicionaisEtiqueta.FromJson(EtqProObsAdi)		
+	&sdtDesignerConfig.image = ''
+	For &sdtDesignerConfigElements in &sdtDesignerConfig.elements
+		
+		Do CAse
+			CAse &sdtDesignerConfigElements.id like 'LAYOUT_RETANGULO'
+				//nao faz nada
+				
+			CAse &sdtDesignerConfigElements.id like '%PES_%'
+				Do CAse
+					CAse &sdtDesignerConfigElements.id = 'PES_CNPJ'
+						&sdtDesignerConfigElements.value = &PesCnpj
+						
+					CAse &sdtDesignerConfigElements.id = 'PES_FAN'
+						&sdtDesignerConfigElements.value = &PesFan
+						
+					CAse &sdtDesignerConfigElements.id = 'PES_LOGIMG'
+						do 'getImagemCliente'
+				EndCase
+			
+			CAse &sdtDesignerConfigElements.id like '%FIL_%' //Dados da Filial
+				Do CAse 
+					CAse &sdtDesignerConfigElements.id = 'FIL_FAN'
+						&sdtDesignerConfigElements.value = &FIlFan
+						
+					Case &sdtDesignerConfigElements.id = 'FIL_CNPJ'
+						&sdtDesignerConfigElements.value = trim(toformattedString(&FilCpj))
+						
+					Case &sdtDesignerConfigElements.id = 'FIL_LOG'
+						do 'getImagemClienteFilial'
+				EndCAse				
+				
+			CAse &sdtDesignerConfigElements.id like '%PRO_%' //dados do produto
+				Do CAse
+					CAse &sdtDesignerConfigElements.id = 'PRO_REFNOM' //Nome do produto
+						If EtqNovProCod.IsEmpty() or EtqNovProCod.IsNull()
+							&sdtDesignerConfigElements.value = trim(str(EtqProCod))
+						Else		
+							&sdtDesignerConfigElements.value = trim(EtqNovProCod)
+						EndIF
+						
+						&sdtDesignerConfigElements.value += ' - ' +EtqProNom.Trim()
+						if not EtqProGraNom.IsEmpty()
+							&sdtDesignerConfigElements.value += ' | ' + trim(EtqProGraNom)
+						EndIF
+						
+					CAse &sdtDesignerConfigElements.id = 'PRO_NOM' //Nome do produto
+						&sdtDesignerConfigElements.value = EtqProNom.Trim()
+						if not EtqProGraNom.IsEmpty()
+							&sdtDesignerConfigElements.value += ' | ' + trim(EtqProGraNom)
+						EndIF
+						
+					CAse &sdtDesignerConfigElements.id = 'PRO_CODREF' //Referencia
+						If EtqNovProCod.IsEmpty() or EtqNovProCod.IsNull()
+							&sdtDesignerConfigElements.value = 'COD: '+trim(str(EtqProCod))
+						Else		
+							&sdtDesignerConfigElements.value = 'COD: '+trim(EtqNovProCod)
+						EndIF
+						
+					CAse &sdtDesignerConfigElements.id = 'PRO_REF' //Referencia
+						If EtqNovProCod.IsEmpty() or EtqNovProCod.IsNull()
+							&sdtDesignerConfigElements.value = trim(str(EtqProCod))
+						Else		
+							&sdtDesignerConfigElements.value = trim(EtqNovProCod)
+						EndIF
+						
+					Case &sdtDesignerConfigElements.id = 'PRO_QTDEMB' //Qtd. Embalagem'					
+						&sdtDesignerConfigElements.value = trim(toformattedString(EtqProQtdEmb))
+						
+					CAse &sdtDesignerConfigElements.id = 'PRO_BAR' //Codigo de Barras
+						&sdtDesignerConfigElements.value = EtqProBar
+						
+					Case &sdtDesignerConfigElements.id = 'PRO_BARIMG' //GERA imagem codigo barras
+						&TipoCodigoBarras = TipoCodigoBarras.CODE128//_30x600
+						
+						//valida se é ean13 valido
+						validaEAN13.Call(EtqProCod, EtqProBar, &EtqProBar, &Mensagem)
+						
+						//CODIGO BARRAS
+						&link = &sdtConfiguracoesPasta.PastaDiretorioTempFis + trim(&TipoCodigoBarras) + trim(EtqProBar) + '.jpg'
+						&NomeImagem = &sdtConfiguracoesPasta.PastaDiretorioTempFis + trim(&TipoCodigoBarras) + trim(EtqProBar) + '.jpg'
+						If not EtqProBar.IsEmpty()
+							&File.Source = &NomeImagem
+							if not &File.Exists()
+								ExeCodigoBarrasWinWeb_qrCode.Call(&sdtConfiguracoesPasta, &TipoCodigoBarras, EtqProBar,  EtqProBar)
+							EndIF
+							If &File.Exists()
+								
+								&link = &link.Replace('\', '/')
+								&BlobFile.FromURL(&link)
+								
+								&blob = &BlobFile
+								&Content64 = &blob.ToBase64String()	
+								&sdtDesignerConfigElements.value = &Content64 //&link //&Content64
+								&sdtDesignerConfigElements.ext = 'jpg'
+							EndIF
+						EndIf
+						
+					Case &sdtDesignerConfigElements.id = "PRO_MAISCOD"
+						&sdtDesignerConfigElements.value = &sdtDadosAdicionaisEtiqueta.CodigosExtrasImpressaoEtiqueta			
+					Case &sdtDesignerConfigElements.id = "PRO_CORNOM"
+						&sdtDesignerConfigElements.value = &sdtDadosAdicionaisEtiqueta.ProCorNom
+					Case &sdtDesignerConfigElements.id = "PRO_DESC-ETIQ"
+						&sdtDesignerConfigElements.value = &sdtDadosAdicionaisEtiqueta.ProDesEtq1
+					CAse &sdtDesignerConfigElements.id = "PRO_MED-FIN"
+						&sdtDesignerConfigElements.value = &sdtDadosAdicionaisEtiqueta.ProDesEtq2
+					Case &sdtDesignerConfigElements.id = "PRO_QTD-DET"
+						&sdtDesignerConfigElements.value = &sdtDadosAdicionaisEtiqueta.ProDesEtq3
+						
+					Case &sdtDesignerConfigElements.id = "PRO_CAIXACOM"
+						&EmbalagemComUnidades = ''
+						if &TabPrc1 > 0 and &ProEtqEmbQtd > 0
+							&CaixaMoeda = &TabPrc1 * &ProEtqEmbQtd
+							&ProEtqEmbVarchar = trim(toformattedString(&ProEtqEmbQtd))
+							RetiraZerosDepoisVirgula.Call(&ProEtqEmbVarchar, &ProEtqEmbVarchar)
+							Do CAse
+								CAse &ProEtqEmbRef = 'A' //CAIXA C/ X UNIDADES
+									&EmbalagemComUnidades = FORMAT('CX C/%1 R$ %2', trim(toformattedString(&ProEtqEmbVarchar)), trim(ToformattedString(&CaixaMoeda)))
+									
+								CAse &ProEtqEmbRef = 'B'//FARDO C/ X UNIDADES
+									&EmbalagemComUnidades = FORMAT('FD C/%1 R$ %2', trim(toformattedString(&ProEtqEmbVarchar)), trim(ToformattedString(&CaixaMoeda)))
+									
+								CAse &ProEtqEmbRef = 'C'//PACOTEC/ X UNIDADES
+									&EmbalagemComUnidades = FORMAT('PCT C/%1 R$ %2', trim(toformattedString(&ProEtqEmbVarchar)), trim(ToformattedString(&CaixaMoeda)))
+							EndCAse
+						Endif
+						
+						&sdtDesignerConfigElements.value = &EmbalagemComUnidades
+						
+					Case &sdtDesignerConfigElements.id = "PRO_PRECOPORUND"	
+						&PrecoPorLitro = ''
+						if &TabPrc1 > 0 and &ProEtqUndQtd > 0
+							&ValorUnitario = round(&TabPrc1 / &ProEtqUndQtd, 2)
+							Do CAse
+								CAse &ProEtqUndRef ='A' //PREÇO POR 1 KG
+									&PrecoPorLitro=FORMAT('Preço 1 Kg: R$ %1', trim(toformattedString(&ValorUnitario)))
+								CAse &ProEtqUndRef ='B' //PREÇO POR 1 LITRO 
+									&PrecoPorLitro=FORMAT('Preço 1 Litro: R$ %1', trim(toformattedString(&ValorUnitario)))
+								CAse &ProEtqUndRef ='C' //PREÇO POR 1 UNIDADE
+									&PrecoPorLitro=FORMAT('Preço 1 Unid.: R$ %1', trim(toformattedString(&ValorUnitario)))
+							EndCAse
+						Endif
+						
+						&sdtDesignerConfigElements.value = &PrecoPorLitro
+						
+				Endcase
+				
+			CAse &sdtDesignerConfigElements.id like '%TAB%' //dados de estoque 
+			
+				Do CAse
+					CAse &sdtDesignerConfigElements.id = "TAB_PRC1"
+						&sdtDesignerConfigElements.value = trim(toformattedString(&TabPrc1))
+					CAse &sdtDesignerConfigElements.id = "TAB_PRC1_TIT"
+						&sdtDesignerConfigElements.value = trim(&Coluna1)
+					CAse &sdtDesignerConfigElements.id = "TAB_PRC2"
+						&sdtDesignerConfigElements.value = trim(toformattedString(&TabPrc2))
+					CAse &sdtDesignerConfigElements.id = "TAB_PRC2_TIT"
+						&sdtDesignerConfigElements.value = trim(&Coluna2)
+				EndCase
+				
+			CAse &sdtDesignerConfigElements.id like '%EST_%' //dados de estoque
+				Do CAse				
+					CAse &sdtDesignerConfigElements.id = 'EST_LOT' or &sdtDesignerConfigElements.id = 'EST_LOTAV' //LOte do produto
+						&sdtDesignerConfigElements.value = trim(EtqProNroLot)
+						
+					CAse &sdtDesignerConfigElements.id = 'EST_LOC' //LOCACAO
+						&sdtDesignerConfigElements.value = trim(&EstLoc)		
+						
+					CAse &sdtDesignerConfigElements.id = 'EST_LOC-REF' //LOCACAO + Referencia
+						
+						if &EstLoc.IsEmpty()
+							&CodigoProduto = 'COD'
+						Else
+							&CodigoProduto = &EstLoc.Trim()
+						EndIf
+						
+						If EtqNovProCod.IsEmpty() or EtqNovProCod.IsNull()
+							&CodigoProduto += ': ' + trim(str(EtqProCod))
+						Else
+							&CodigoProduto += ': ' + trim(EtqNovProCod)
+						EndIF	
+						
+						&sdtDesignerConfigElements.value = trim(&CodigoProduto)
+				Endcase
+				
+		EndCAse
+	EndFor	
+	
+	&sdtEtiquetaDiretaProdutos.TipEtqJson = &sdtDesignerConfig.ToJson()	
+	&sdtEtiquetaDireta.produtos.Add(&sdtEtiquetaDiretaProdutos)
+EndFor
+
+PrcGravaImpressaoDataHora.Call(&EmpCod, &EmpImpCod, 'ETIQUETAPRODUTO', 0,0, &wwpContextPesCod, &sdtEtiquetaDireta.ToJson(), 0, &FiDtaIni, &Today)
+
+sub 'getProduto'
+	For Each Order EmpCod, ProCod
+		Where EmpCod = &EmpCod
+		WHere ProCod = &ProCod
+		
+		&ProEtqUndQtd = ProEtqUndQtd
+		&ProEtqUndRef = ProEtqUndRef
+		
+		&ProEtqEmbRef = ProEtqEmbRef
+		&ProEtqEmbQtd = ProEtqEmbQtd
+		
+		Exit
+	EndFor
+EndSub
+
+sub 'getImagemClienteFilial'
+	&PesAnxTipNom = format('#LOGO_ETIQUETA%1#', trim(Str(&TipEtqCod)))
+	For Each Order EmpCod, PesCod, PesAnxCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &FilPesCod
+		Where PesAnxTipNom = &PesAnxTipNom
+		
+		if not PesAnxArq.IsEmpty() and not PesAnxArq.IsNull()
+			&PesAnxArq = PesAnxArq		
+			&AuxArquivoTemporario = pathToUrl(PesAnxArq)
+			
+			&index = &AuxArquivoTemporario.IndexOf('PublicTem')
+			&AuxArquivoTemporario = substr(&AuxArquivoTemporario, &index, 900)
+			
+			&File.Source = 'jaspi_QrCode_dll'
+			&ArquivoTemporario = trim(&File.GetPath()) +'/'+ &AuxArquivoTemporario
+			&File.Close()
+			
+			&ArquivoTemporario = &ArquivoTemporario.Replace('\', '/')
+			&BlobFile.FromURL(&ArquivoTemporario)
+			
+			if &BlobFile.IsEmpty()
+				&Content64 = ''
+			Else
+				&blob = &BlobFile
+				&sdtDesignerConfigElements.value = &blob.ToBase64String()	
+				&sdtDesignerConfigElements.ext = PesAnxExt
+			Endif
+			
+		Else
+			retornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &SdtConfiguracoesPasta )			
+			&link = &SdtConfiguracoesPasta.PastaDiretorioFisico.Trim() +'\anexos\'+ trim(str(EmpCod)) + '\' + trim(PesAnxGuidNom)+'_'+trim(PesAnxGuid.ToString()) +'.'+ trim(PesAnxGuidExt)
+			
+			&link = &link.Replace('\', '/')
+			&BlobFile.FromURL(&link)
+			
+					
+				&blob = &BlobFile
+				&sdtDesignerConfigElements.value = &blob.ToBase64String()	
+				&sdtDesignerConfigElements.ext = PesAnxExt
+				
+		EndIf
+		
+		Exit
+	EndFor
+EndSub
+
+sub 'getImagemCliente'
+	&PesAnxTipNom = format('#LOGO_ETIQUETA%1#', trim(Str(&TipEtqCod)))
+	
+	For Each Order EmpCod, PesCod, PesAnxCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		Where PesAnxTipNom = &PesAnxTipNom
+		
+		if not PesAnxArq.IsEmpty() and not PesAnxArq.IsNull()
+			&PesAnxArq = PesAnxArq		
+			&AuxArquivoTemporario = pathToUrl(PesAnxArq)
+			
+			&index = &AuxArquivoTemporario.IndexOf('PublicTem')
+			&AuxArquivoTemporario = substr(&AuxArquivoTemporario, &index, 900)
+			
+			&File.Source = 'jaspi_QrCode_dll'
+			&ArquivoTemporario = trim(&File.GetPath()) +'/'+ &AuxArquivoTemporario
+			&File.Close()
+			
+			&ArquivoTemporario = &ArquivoTemporario.Replace('\', '/')
+			&BlobFile.FromURL(&ArquivoTemporario)
+			
+			if &BlobFile.IsEmpty()
+				&Content64 = ''
+			Else
+				&blob = &BlobFile
+				&sdtDesignerConfigElements.value = &blob.ToBase64String()	
+				&sdtDesignerConfigElements.ext = PesAnxExt
+			Endif
+		
+		Else
+			retornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &SdtConfiguracoesPasta )			
+			&ArquivoTemporario = &SdtConfiguracoesPasta.PastaDiretoriovirtual.Trim() +'appjaspi\anexos\'+ trim(str(EmpCod)) + '\' + trim(PesAnxGuidNom)+'_'+trim(PesAnxGuid.ToString()) +'.'+ trim(PesAnxGuidExt)
+		EndIf
+		
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'getEstoque'
+	For each order EmpCod, FilCod, ProCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FiLCod
+		Where ProCod = &ProCod
+		&EstLoc = EstLoc
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'GetPreco'
+	&TabPrc1 = 0
+	&TabPrc2 = 0
+	For Each Order EmpCod, TabCod
+		Where EmpCod = &EmpCod
+		Where TabCod = &TabCod
+
+		For Each Order EmpCod, TabCod, ProCod, ProGraCod
+			Where ProCod = &ProCod
+			Where ProGraCod = &ProGraCod
+			
+			Do CAse
+				CAse &PrimeiraTabColCod = 1
+					&TabPrc1 = TabPrc1
+				CAse &PrimeiraTabColCod = 2
+					&TabPrc1 = TabPrc2
+				CAse &PrimeiraTabColCod = 3
+					&TabPrc1 = TabPrc3
+				CAse &PrimeiraTabColCod = 4
+					&TabPrc1 = TabPrc4
+				CAse &PrimeiraTabColCod = 5
+					&TabPrc1 = TabPrc5
+				CAse &PrimeiraTabColCod = 6
+					&TabPrc1 = TabPrc6
+				CAse &PrimeiraTabColCod = 7
+					&TabPrc1 = TabPrc7
+				CAse &PrimeiraTabColCod = 8
+					&TabPrc1 = TabPrc8
+				CAse &PrimeiraTabColCod = 9
+					&TabPrc1 = TabPrc9
+			EndCase
+		
+			Do CAse
+				CAse &SegundaTabColCod = 1
+					&TabPrc2 = TabPrc1
+				CAse &SegundaTabColCod = 2
+					&TabPrc2 = TabPrc2
+				CAse &SegundaTabColCod = 3
+					&TabPrc2 = TabPrc3
+				CAse &SegundaTabColCod = 4
+					&TabPrc2 = TabPrc4
+				CAse &SegundaTabColCod = 5
+					&TabPrc2 = TabPrc5
+				CAse &SegundaTabColCod = 6
+					&TabPrc2 = TabPrc6
+				CAse &SegundaTabColCod = 7
+					&TabPrc2 = TabPrc7
+				CAse &SegundaTabColCod = 8
+					&TabPrc2 = TabPrc8
+				CAse &SegundaTabColCod = 9
+					&TabPrc2 = TabPrc9
+			EndCase
+		
+		EndFor
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&Filcod, in:&EtqCod, in:&TipEtqCod, in:&PesCod, in:&TabCod, in:&PrimeiraTabColCod, in:&SegundaTabColCod, in:&EmpImpCod, in:&wwpContextPesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipEtqCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipEtqCod</Value></Property><Property><Name>Description</Name><Value>Tipo Etiqueta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TipEtqCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEtiquetaDireta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEtiquetaDireta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEtiquetaDireta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEtiquetaDiretaProdutos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEtiquetaDiretaProdutos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEtiquetaDireta.produtosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EtqCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EtqCod</Value></Property><Property><Name>Description</Name><Value>Codigo Temp.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EtqCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Filcod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Filcod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDesignerConfig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDesignerConfig</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDesignerConfig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDesignerConfigElements">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDesignerConfigElements</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDesignerConfig.elementsItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Acesso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FIlFan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FIlFan</Value></Property><Property><Name>Description</Name><Value>Filial Nome Fantasia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PEsCOd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PEsCOd</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipEtqJson">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipEtqJson</Value></Property><Property><Name>Description</Name><Value>Json com a extrutura da etiqueta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TipEtqJson</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrimeiraTabColCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrimeiraTabColCod</Value></Property><Property><Name>Description</Name><Value>Coluna</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SegundaTabColCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SegundaTabColCod</Value></Property><Property><Name>Description</Name><Value>Coluna</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstLoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstLoc</Value></Property><Property><Name>Description</Name><Value>Estoque Locação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstLoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpImpCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FiDtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FiDtaIni</Value></Property><Property><Name>Description</Name><Value>Inicio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FiDtaIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContextPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContextPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoCodigoBarras">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoCodigoBarras</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:TipoCodigoBarras</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CodBarrasImage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CodBarrasImage</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Image</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeImagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeImagem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Blob">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Blob</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property></Properties>
+        </Variable>
+        <Variable Name="link">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>link</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BlobFile">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BlobFile</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:BlobFile</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Content64">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Content64</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EtqProBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EtqProBar</Value></Property><Property><Name>Description</Name><Value>Cod.Barras</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EtqProBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CodigoProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CodigoProduto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilImg_LogRel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilImg_LogRel</Value></Property><Property><Name>Description</Name><Value>Logo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property><Property><Name>idATTEXT</Name><Value>jpg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabPrc1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabPrc1</Value></Property><Property><Name>Description</Name><Value>Preço Coluna 1</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabPrc1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabPrc2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabPrc2</Value></Property><Property><Name>Description</Name><Value>Preço Coluna 2</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabPrc2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDadosAdicionaisEtiqueta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDadosAdicionaisEtiqueta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDadosAdicionaisEtiqueta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFan</Value></Property><Property><Name>Description</Name><Value>Pessoa Nome Fantasia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCnpj</Value></Property><Property><Name>Description</Name><Value>Pessoa Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxTipNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxTipNom</Value></Property><Property><Name>Description</Name><Value>Pes Anx Tip Nom</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxTipNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesAnxArq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesAnxArq</Value></Property><Property><Name>Description</Name><Value>Arquivo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesAnxArq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxArquivoTemporario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxArquivoTemporario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoTemporario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoTemporario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Coluna1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Coluna1</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Coluna2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Coluna2</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa da Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorUnitario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorUnitario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrecoPorLitro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrecoPorLitro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEtqUndRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEtqUndRef</Value></Property><Property><Name>Description</Name><Value>Unidade Medida Referencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProEtqUndRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEtqUndQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEtqUndQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade do Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProEtqUndQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmbalagemComUnidades">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmbalagemComUnidades</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaixaMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaixaMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEtqEmbVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEtqEmbVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEtqEmbRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEtqEmbRef</Value></Property><Property><Name>Description</Name><Value>Unidade Embalagem do Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProEtqEmbRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProEtqEmbQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProEtqEmbQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade Embalagem do produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProEtqEmbQtd</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGeraSolicitacaoImpressao</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

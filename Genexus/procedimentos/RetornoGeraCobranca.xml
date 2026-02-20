@@ -1,0 +1,1325 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="SRVORDIG\Administrador" versionDate="2025-07-18T13:37:03.0000000Z" lastUpdate="2025-07-14T12:13:19.0000000Z" checksum="ce36590b2b08d06cf79b999de68d28d4" fullyQualifiedName="RetornoGeraCobranca" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="fad10b13-14c8-4547-a703-cf1de79198b1" name="RetornoGeraCobranca" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Retorno Gera Cobranca" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&SdtBaixadeRemessa.Clear()
+
+&ResultadoAbertura = DFROpen(&selectedURL, 400, '', '', 'ISO-8859-1')//Tenta abrir o arquivo								
+If &ResultadoAbertura = 0
+	Do while &ResultadoNext  = 0 
+		&ResultadoLeitura    = DFRGTxt(&CampoUnico,400)
+		If &ResultadoLeitura = 0						
+			If (len(&CampoUnico) = 400) // If arquivo for de 400 prisção e diferente da ultima linha
+				If (substr(&CampoUnico,1,1) <> '9')
+					If (substr(&CampoUnico,1,1) = '0') // If Primeira linha do Arquivo 
+						&INformacaoMensagem = substr(&CampoUnico,1,19)
+						If  (&INformacaoMensagem <> '02RETORNO01COBRANCA') and (&INformacaoMensagem <> '02RETORNO01COBRANÇA') 
+							MSG('Este arquivo não tem o padrão 02RETORNO01COBRANÇA, por isso não é um arquivo retorno verifique! ' + trim(&INformacaoMensagem))
+							Return
+						Endif			
+						
+						&RemRetCodEmp = substr(&CampoUnico,27,20)
+						&BanCod    = substr(&CampoUnico,77,3)
+						&RemFilRaz = substr(&CampoUnico,47,30)
+						&RemRetArq = substr(&CampoUnico,95,19)
+						&DtaArq    = substr(&CampoUnico,95,2) +'/'+substr(&CampoUnico,97,2)+'/'+substr(&CampoUnico,99,2)
+						&RemDtaArq = ctod(&DtaArq)
+						&RemRetTxt = &CampoUnico
+						If &BanCod = '748'
+							&CtaBanCrt  = Str(Val(Substr(&CampoUnico, 27,5))) // 021 a 037 Beneficiário no Banco(Zero,Carteira,Agência,Conta Corrente)		
+							&ano = VAL(substr(&CampoUnico,95,4))
+							&mes = Val(substr(&CampoUnico,99,2))
+							&dia = Val(substr(&CampoUnico,101,2))
+							&RemDtaArq = YMDtoD(&ano,&mes,&dia)
+							&RemRetArq = substr(&CampoUnico,95,19)
+						EndIf
+					
+						GravaArquivoRetorno.Call(&parEmpCod,&RemRetCodEmp,&RemDtaArq,&RemFilRaz,&RemRetTxt,  &SdtBaixadeRemessa.ToJson(), 0)
+					Else	
+						Do Case   
+							
+							Case &BanCod = '001' // BANCO DO BRASIL
+								&RetBanCod    = trim(substr(&CampoUnico,109,2))	     // 109 a 110 Identificação de Ocorrência
+								&RetBanCodMov = trim(substr(&CampoUnico,87,2))       // Natureza do recebimento/ motivo de erros
+								Do 'Busca_Ocorrencia'
+								&DtaCre       = substr(&CampoUnico,111,2) +'/'+substr(&CampoUnico,113,2)+'/'+substr(&CampoUnico,115,2)
+								&DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+								&DtaCre       = substr(&CampoUnico,176,2) +'/'+substr(&CampoUnico,178,2)+'/'+substr(&CampoUnico,180,2)
+								&RemDtaCreDta = ctod(&DtaCre)                        // 296 a 301 Data do Crédito                     
+								&RemCreBloNro = substr(&CampoUnico,64,17)            // 071 a 082 Identificação do Título no Banco
+								&RemCreChv    = trim(substr(&CampoUnico,39,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+								//&EmpCod       = Val(trim(substr(&CampoUnico,39,4)))  // 038 a 041 Empresa Código 
+								&RemFilCod    = val(trim(substr(&CampoUnico,43,4)))  // 042 a 045 Filial Código	
+								&RemCreSeq    = val(trim(substr(&CampoUnico,47,8)))  // 046 a 062 Sequência Duplicata
+								&RemCreDupNro = trim(Substr(&CampoUnico, 117, 10))   // 117 a 126 Número do Documento
+								&RemCreVlrDup    = val(substr(&CampoUnico,153,13))   // 153 a 165 Valor do Título
+								&RemCreVlrTar    = val(substr(&CampoUnico,182,7))    // 176 a 188 Valor Despesa
+								&RemCreVlrOut    = val(substr(&CampoUnico,189,13))   // 189 a 201 Outras despesas
+								&RemCrePagVlrDsc = val(substr(&CampoUnico,241,13))   // 241 a 253 Desconto Concedido
+								&RemCrePagVlr    = val(substr(&CampoUnico,254,13))   // 254 a 266 Valor Pago
+								&RemCrePagVlrJur = val(substr(&CampoUnico,267,13))   // 267 a 279 Juros de Mora		
+								&RemCreVlrDup    = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+								&RemCreVlrTar    = IIf(&RemCreVlrTar > 0,(&RemCreVlrTar / 100 ),0)      // Valor Despesa      
+								&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+								&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+								&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+								&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+								&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut)                      // Soma Das Despesas
+								&RemRetTxt += NewLine()+&CampoUnico
+								
+							Case &BanCod = '237' //BRADESCO
+								&RetBanCod    = trim(substr(&CampoUnico,109,2))	     // 109 a 110 Identificação de Ocorrência
+								&RetBanCodMov = trim(substr(&CampoUnico,319,10))
+								Do 'Busca_Ocorrencia'
+								&DtaCre       = substr(&CampoUnico,111,2) +'/'+substr(&CampoUnico,113,2)+'/'+substr(&CampoUnico,115,2)
+								&DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+								&DtaCre       = substr(&CampoUnico,296,2) +'/'+substr(&CampoUnico,298,2)+'/'+substr(&CampoUnico,300,2)
+								&RemDtaCreDta = ctod(&DtaCre)                        // 296 a 301 Data do Crédito		
+								&CtaBanCrt   = Str(Val(Substr(&CampoUnico, 30, 7)))           // 021 a 037 Beneficiário no Banco(Zero,Carteira,Agência,Conta Corrente)		
+								&RemCreBloNro = substr(&CampoUnico,71,11)            // 071 a 082 Identificação do Título no Banco
+								&RemCreChv    = trim(substr(&CampoUnico,38,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+								//&EmpCod       = val(trim(substr(&CampoUnico,38,4)))  // 038 a 041 Empresa Código 
+								&RemFilCod    = val(trim(substr(&CampoUnico,42,4)))  // 042 a 045 Filial Código	
+								&RemCreSeq    = val(trim(substr(&CampoUnico,46,8)))  // 046 a 062 Sequência Duplicata
+								&RemCreDupNro = trim(Substr(&CampoUnico, 117, 10))   // 117 a 126 Número do Documento
+								&RemCreVlrDup    = val(substr(&CampoUnico,153,13))   // 153 a 165 Valor do Título
+								&RemCreVlrTar    = val(substr(&CampoUnico,176,13))   // 176 a 188 Valor Despesa
+								&RemCreVlrOut    = val(substr(&CampoUnico,189,13))   // 189 a 201 Outras despesas
+								&RemCrePagVlrDsc = val(substr(&CampoUnico,241,13))   // 241 a 253 Desconto Concedido
+								&RemCrePagVlr    = val(substr(&CampoUnico,254,13))   // 254 a 266 Valor Pago
+								&RemCrePagVlrJur = val(substr(&CampoUnico,267,13))   // 267 a 279 Juros de Mora		
+								&RemCreVlrDup    = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+								&RemCreVlrTar    = IIf(&RemCreVlrTar > 0,(&RemCreVlrTar / 100 ),0)      // Valor Despesa      
+								&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+								&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+								&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+								&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+								&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut)                      // Soma Das Despesas
+								&RemRetTxt += NewLine()+&CampoUnico
+								
+							Case &BanCod = '133' //CRESOL
+								&RetBanCod    = trim(substr(&CampoUnico,109,2))	     // 109 a 110 Identificação de Ocorrência
+								&RetBanCodMov = trim(substr(&CampoUnico,319,10))
+								Do 'Busca_Ocorrencia'
+								&DtaCre       = substr(&CampoUnico,111,2) +'/'+substr(&CampoUnico,113,2)+'/'+substr(&CampoUnico,115,2)
+								&DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+								&DtaCre       = substr(&CampoUnico,296,2) +'/'+substr(&CampoUnico,298,2)+'/'+substr(&CampoUnico,300,2)
+								&RemDtaCreDta = ctod(&DtaCre)                        // 296 a 301 Data do Crédito		
+								&CtaBanCrt    = Str(Val(Substr(&CampoUnico, 30, 7)))           // 021 a 037 Beneficiário no Banco(Zero,Carteira,Agência,Conta Corrente)		
+								&RemCreBloNro = substr(&CampoUnico,71,11)            // 071 a 082 Identificação do Título no Banco
+								&RemCreChv    = trim(substr(&CampoUnico,38,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+								//&EmpCod       = val(trim(substr(&CampoUnico,38,4)))  // 038 a 041 Empresa Código 
+								&RemFilCod    = val(trim(substr(&CampoUnico,42,4)))  // 042 a 045 Filial Código	
+								&RemCreSeq    = val(trim(substr(&CampoUnico,46,8)))  // 046 a 062 Sequência Duplicata
+								&RemCreDupNro = trim(Substr(&CampoUnico, 117, 10))   // 117 a 126 Número do Documento
+								&RemCreVlrDup    = val(substr(&CampoUnico,153,13))   // 153 a 165 Valor do Título
+								&RemCreVlrTar    = val(substr(&CampoUnico,176,13))   // 176 a 188 Valor Despesa
+								&RemCreVlrOut    = val(substr(&CampoUnico,189,13))   // 189 a 201 Outras despesas
+								&RemCrePagVlrDsc = val(substr(&CampoUnico,241,13))   // 241 a 253 Desconto Concedido
+								&RemCrePagVlr    = val(substr(&CampoUnico,254,13))   // 254 a 266 Valor Pago
+								&RemCrePagVlrJur = val(substr(&CampoUnico,267,13))   // 267 a 279 Juros de Mora		
+								&RemCreVlrDup    = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+								&RemCreVlrTar    = IIf(&RemCreVlrTar > 0,(&RemCreVlrTar / 100 ),0)      // Valor Despesa      
+								&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+								&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+								&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+								&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+								&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut)                      // Soma Das Despesas
+								&RemRetTxt += NewLine()+&CampoUnico
+								
+							Case &BanCod = '748' //SICREDI
+								&Hibrido  = substr(&CampoUnico,18,1) //Híbrido  “H”
+								If &Hibrido <> 'H'
+									&DtaCre       = substr(&CampoUnico,111,2) +'/'+substr(&CampoUnico,113,2)+'/'+substr(&CampoUnico,115,2)
+									&DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+									&ano = VAL(substr(&CampoUnico,329,4))
+									&mes = Val(substr(&CampoUnico,333,2))
+									&dia = Val(substr(&CampoUnico,335,2))
+									&RemDtaCreDta = YMDtoD(&ano,&mes,&dia)
+									&RemTip = substr(&CampoUnico,14,1)							
+									&RetBanCod    = trim(substr(&CampoUnico,109,2))	     // 109 a 110 Identificação de Ocorrência
+									&RetBanCodMov = trim(substr(&CampoUnico,319,10))
+									Do 'Busca_Ocorrencia'
+									
+									&RemCreBloNro = substr(&CampoUnico,48,8)             // 071 a 082 Identificação do Título no Banco
+									//&RemCreChv    = trim(substr(&CampoUnico,38,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+									//&parEmpCod       = val(trim(substr(&CampoUnico,38,4)))  // 038 a 041 Empresa Código 
+									//&RemFilCod    = val(trim(substr(&CampoUnico,42,4)))  // 042 a 045 Filial Código	
+									//&RemCreSeq    = val(trim(substr(&CampoUnico,46,8)))  // 046 a 062 Sequência Duplicata
+									&RemCreDupNro = trim(Substr(&CampoUnico, 117, 10))   // 117 a 126 Número do Documento
+									&RemCreVlrDup = val(substr(&CampoUnico,153,13))      // 153 a 165 Valor do Título
+									If &RetBanCod = '28' and &RemTip = 'A' //Com Cobrança 
+										&RemCreVlrTar = val(substr(&CampoUnico,176,13))   // 176 a 188 Valor Despesa
+									Else
+										&RemCreVlrTar = val(substr(&CampoUnico,153,13))   // 176 a 188 Valor Despesa
+									EndIf
+									&RemCreVlrOut    = val(substr(&CampoUnico,189,13))   // 189 a 201 Despesas de custas de protesto
+									&RemCrePagVlrDsc = val(substr(&CampoUnico,241,13))   // 241 a 253 Desconto Concedido
+									&RemCrePagVlr    = val(substr(&CampoUnico,254,13))   // 254 a 266 Valor Pago
+									&RemCrePagVlrJur = val(substr(&CampoUnico,267,13))   // 267 a 279 Juros de Mora
+									&RemCrePagVlrMlt = val(substr(&CampoUnico,280,13))   // 280 a 292 Multa	
+									&RemCreVlrDup    = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+									&RemCreVlrTar    = IIf(&RemCreVlrTar > 0,(&RemCreVlrTar / 100 ),0)      // Valor Despesa      
+									&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+									&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+									&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+									&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+									&RemCrePagVlrMlt = IIf(&RemCrePagVlrMlt > 0,(&RemCrePagVlrMlt / 100),0) // Multa
+									&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut + &RemCrePagVlrMlt )  // Soma Das Despesas
+									&RemRetTxt += NewLine()+&CampoUnico	
+								EndIf
+							Case &BanCod = '756' // BANCO DO SICOOB
+								&RetBanCod    = trim(substr(&CampoUnico,109,2))	     // 109 a 110 Identificação de Ocorrência
+								&RetBanCodMov = trim(substr(&CampoUnico,81,2))
+								Do 'Busca_Ocorrencia'
+								&DtaCre       = substr(&CampoUnico,111,2) +'/'+substr(&CampoUnico,113,2)+'/'+substr(&CampoUnico,115,2)
+								&DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+								&DtaCre       = substr(&CampoUnico,176,2) +'/'+substr(&CampoUnico,178,2)+'/'+substr(&CampoUnico,180,2)
+								&RemDtaCreDta = ctod(&DtaCre)                        // 296 a 301 Data do Crédito                     
+								&RemCreBloNro = substr(&CampoUnico,63,11)            // 071 a 082 Identificação do Título no Banco
+								&RemCreChv    = trim(substr(&CampoUnico,38,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+								//&EmpCod       = Val(trim(substr(&CampoUnico,39,4)))  // 038 a 041 Empresa Código 
+								&RemFilCod    = val(trim(substr(&CampoUnico,42,4)))  // 042 a 045 Filial Código	
+								&RemCreSeq    = val(trim(substr(&CampoUnico,46,8)))  // 046 a 062 Sequência Duplicata
+								&RemCreDupNro = trim(Substr(&CampoUnico, 117, 10))   // 117 a 126 Número do Documento
+								&RemCreVlrDup    = val(substr(&CampoUnico,153,13))   // 153 a 165 Valor do Título
+								&RemCreVlrTar    = val(substr(&CampoUnico,182,7))    // 176 a 188 Valor Despesa
+								&RemCreVlrOut    = val(substr(&CampoUnico,189,13))   // 189 a 201 Outras despesas
+								&RemCrePagVlrDsc = val(substr(&CampoUnico,241,13))   // 241 a 253 Desconto Concedido
+								&RemCrePagVlr    = val(substr(&CampoUnico,254,13))   // 254 a 266 Valor Pago
+								&RemCrePagVlrJur = val(substr(&CampoUnico,267,13))   // 267 a 279 Juros de Mora		
+								&RemCreVlrDup    = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+								&RemCreVlrTar    = IIf(&RemCreVlrTar > 0,(&RemCreVlrTar / 100 ),0)      // Valor Despesa      
+								&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+								&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+								&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+								&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+								&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut)                      // Soma Das Despesas
+								&RemRetTxt += NewLine()+&CampoUnico
+								
+							Case &BanCod = '099' // BANCO DO SICOOB
+								&RetBanCod    = trim(substr(&CampoUnico,109,2))	     // 109 a 110 Identificação de Ocorrência
+								&RetBanCodMov = trim(substr(&CampoUnico,81,2))
+								Do 'Busca_Ocorrencia'
+								&DtaCre       = substr(&CampoUnico,111,2) +'/'+substr(&CampoUnico,113,2)+'/'+substr(&CampoUnico,115,2)
+								&DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+								&DtaCre       = substr(&CampoUnico,296,2) +'/'+substr(&CampoUnico,298,2)+'/'+substr(&CampoUnico,300,2)
+								&RemDtaCreDta = ctod(&DtaCre)                        // 296 a 301 Data do Crédito                     
+								&CtaBanCrt    = Str(Val(Substr(&CampoUnico, 30, 7))) // 021 a 037 Beneficiário no Banco(Zero,Carteira,Agência,Conta Corrente)		
+								&RemCreBloNro = substr(&CampoUnico,71,11)            // 071 a 082 Identificação do Título no Banco
+								&RemCreChv    = trim(substr(&CampoUnico,38,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+//								&EmpCod       = val(trim(substr(&CampoUnico,38,4)))  // 038 a 041 Empresa Código 
+								&RemFilCod    = val(trim(substr(&CampoUnico,42,4)))  // 042 a 045 Filial Código	
+								&RemCreSeq    = val(trim(substr(&CampoUnico,46,8)))  // 046 a 062 Sequência Duplicata
+								&RemCreDupNro = trim(Substr(&CampoUnico, 117, 10))   // 117 a 126 Número do Documento
+								&RemCreVlrDup    = val(substr(&CampoUnico,153,13))   // 153 a 165 Valor do Título
+								&RemCreVlrTar    = val(substr(&CampoUnico,176,13))   // 176 a 188 Valor Despesa
+								&RemCreVlrOut    = val(substr(&CampoUnico,189,13))   // 189 a 201 Outras despesas
+								&RemCrePagVlrDsc = val(substr(&CampoUnico,241,13))   // 241 a 253 Desconto Concedido
+								&RemCrePagVlr    = val(substr(&CampoUnico,254,13))   // 254 a 266 Valor Pago
+								&RemCrePagVlrJur = val(substr(&CampoUnico,267,13))   // 267 a 279 Juros de Mora		
+								&RemCreVlrDup    = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+								&RemCreVlrTar    = IIf(&RemCreVlrTar > 0,(&RemCreVlrTar / 100 ),0)      // Valor Despesa      
+								&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+								&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+								&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+								&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+								&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut)                      // Soma Das Despesas
+								&RemRetTxt += NewLine() + &CampoUnico
+								
+						EndCase
+						Do 'Procura_Duplica'					
+					EndIf
+				Else
+					&RemRetTxt += NewLine()+&CampoUnico
+					GravaArquivoRetorno.Call(&parEmpCod,&RemRetCodEmp,&RemDtaArq,&RemFilRaz,&RemRetTxt, &SdtBaixadeRemessa.ToJson(), 0)
+					
+					MSG('Arquivo Retorno Importado com sucesso!')
+					Exit
+				EndIf
+			Else
+				If substr(&CampoUnico,1,3) = '756'  // (len(&CampoUnico) = 240) Comentei pois o arquivo estava fora do padrão do manual, e voltava 172 posições.
+					&BanCod    = substr(&CampoUnico,1,3)
+					&RemFilRaz = substr(&CampoUnico,73,30) 
+					&DtaArq    = substr(&CampoUnico,144,2) +'/'+substr(&CampoUnico,146,2)+'/'+substr(&CampoUnico,150,2)
+					&RemDtaArq = ctod(&DtaArq)
+					
+					Do Case
+						Case (substr(&CampoUnico,1,3) = '756')
+							Do Case
+								Case substr(&CampoUnico,8,1) = '1' //Lote	
+									&ano = VAL(substr(&CampoUnico,204,4))
+									&mes = Val(substr(&CampoUnico,202,2))
+									&dia = Val(substr(&CampoUnico,200,2))
+									&RemDtaCreDta = YMDtoD(&ano,&mes,&dia)	
+									&RemRetTxt += NewLine()+&CampoUnico	
+									
+								Case substr(&CampoUnico,8,1) = '3'  and substr(&CampoUnico,14,1) = 'T' //Segmento
+									&RetBanCod    = trim(substr(&CampoUnico,16,2))
+									&RemCreChv    = trim(substr(&CampoUnico,106,25))      // 038 a 062 Nº Controle do Participante (Uso da Empresa)
+									//&parEmpCod       = val(trim(substr(&CampoUnico,38,4)))  // 038 a 041 Empresa Código 
+									&RemFilCod    = val(trim(substr(&CampoUnico,110,4)))  // 042 a 045 Filial Código	
+									&RemCreSeq    = val(trim(substr(&CampoUnico,114,8)))  // 046 a 062 Sequência Duplicata
+									&RetBanCodMov = trim(substr(&CampoUnico,214,10))
+									&RemCreBloNro = substr(&CampoUnico,38,20) 
+									&RemCreDupNro = trim(Substr(&CampoUnico, 63, 12))   // 59 a 74 Número do Documento é da 59 mas como pegava muitos zeros na esquerda eu diminui
+									&RemCreVlrDup = val(substr(&CampoUnico,82,15))      // 153 a 165 Valor do Título
+									&RemCreVlrDup = IIf(&RemCreVlrDup > 0,(&RemCreVlrDup / 100),0)       // Valor do Título	
+									Do 'Busca_Ocorrencia'
+									&RemRetTxt += NewLine()+&CampoUnico	
+									
+								Case substr(&CampoUnico,8,1) = '3' and substr(&CampoUnico,14,1) = 'U' //Segmento
+//									&DtaCre       = substr(&CampoUnico,146,2) +'/'+substr(&CampoUnico,148,2)+'/'+substr(&CampoUnico,150,4)
+//									&DtaOco       = ctod(&DtaCre)
+									
+									&DtaCre       = substr(&CampoUnico,138,2) +'/'+substr(&CampoUnico,140,2)+'/'+substr(&CampoUnico,142,4)
+								    &DtaOco       = ctod(&DtaCre)                        // 111 a 116 Data Ocorrência no Banco
+								    &DtaCre       = substr(&CampoUnico,146,2) +'/'+substr(&CampoUnico,148,2)+'/'+substr(&CampoUnico,150,4)
+								    &RemDtaCreDta = ctod(&DtaCre) 
+									
+									&RemCreVlrOut    = val(substr(&CampoUnico,108,15))   // 189 a 201 Despesas de custas de protesto
+									&RemCrePagVlrDsc = val(substr(&CampoUnico,33,15))   // 241 a 253 Desconto Concedido
+									&RemCrePagVlr    = val(substr(&CampoUnico,78,15))   // 254 a 266 Valor Pago
+									&RemCrePagVlrJur = val(substr(&CampoUnico,18,15))   // 267 a 279 Juros de Mora
+									&RemCreVlrOut    = IIf(&RemCreVlrOut > 0,(&RemCreVlrOut / 100 ),0)      // Outras despesas
+									&RemCrePagVlrDsc = IIf(&RemCrePagVlrDsc > 0,(&RemCrePagVlrDsc / 100),0) // Desconto Concedido
+									&RemCrePagVlr    = IIf(&RemCrePagVlr > 0,(&RemCrePagVlr / 100),0)       // Valor Pago
+									&RemCrePagVlrJur = IIf(&RemCrePagVlrJur > 0,(&RemCrePagVlrJur / 100),0) // Juros de Mora
+									&RemCreVlrDsp    = (&RemCreVlrTar + &RemCreVlrOut + &RemCrePagVlrMlt )  // Soma Das Despesas
+									&RemRetTxt += NewLine()+&CampoUnico	
+									Do 'Procura_Duplica'	
+							EndCase
+					EndCase
+				Else
+					MSG('Arquivo fora do padrão 400 Verifique! Arquivo com '+trim(str(len(&CampoUnico)))+' posições.')
+					Exit
+				EndIf
+			EndiF						 
+		EndIf
+		&ResultadoNext =  DFRNext()                            
+	EndDo
+	&resultadoNext = DFRClose()
+	MSG('Importação Concluída!')
+Else
+	msg('Não Foi Possível Abrir o Arquivo!')
+EndIF
+
+// ##########################
+Do 'Processar_Retorno'
+
+//###########################
+Sub 'Busca_Ocorrencia' 
+	&RetMotCod = Substr(&RetBanCodMov, 1, 2)
+    &RetBaNom = ''
+    &Erro = 0
+    For Each Order BanCod,EmpCod,RetBanCod
+		Where BanCod = &BanCod
+		Where EmpCod = &parEmpCod
+    	Where RetBanCod = &RetBanCod
+		
+		&RetBanNom = trim(RetBanCod)+' '+subStr(trim(RetBanNom),1,20)
+		&RetPlanCod = RetPlanCod
+		&RetUtiPlanDup = RetUtiPlanDup
+		&RetPlanCatTip = RetPlanCatTip
+		&IsBanRetObs = True
+		
+		
+		For Each Order BanCod, EmpCod, RetBanCod, RetMotCod
+			Where RetMotCod = &RetMotCod
+			&RetBanNom = trim(&RetBanCod)+' '+subStr(trim(RetMotNom),1,20)
+			Exit
+		EndFor
+	
+    when none
+        &Erro = 1
+		&IsBanRetObs = false
+        &RetBanNom = trim(&RetBanCod) +' *OBS NÃO ENCONTRADA'
+    EndFor     
+
+EndSub
+
+Sub 'Procura_Duplica'
+	 // 1.Opcao procura as duplicatas Pela Chave do ERP- Jaspi
+	GetDuplicataChaveERP.Call(&parEmpCod,&RemFilCod,&RemCreSeq,&OutFilCod,&OutCreCod,&IsAchou)
+
+ 	If &IsAchou <> true // 1.Opcao procura as duplicatas Pela Chave outros Sistemas
+		&RemFilCod = val(substr(&RemCreChv,11,4))
+		&RemCreSeq = val(substr(&RemCreChv,15,7))
+		GetDuplicataChaveOutras.Call(&parEmpCod,&RemFilCod,&RemCreSeq,&OutFilCod,&OutCreCod,&IsAchou)
+ 	EndIf
+	
+	If &IsAchou <> true // 3.Opcao procura as duplicatas pelo Nosso Número  e Convenio (Codigo beneficiario)
+		GetDuplicataNro.Call(&parEmpCod,&RemCreBloNro,&CtaBanCrt,&OutFilCod,&OutCreCod,&IsAchou)
+	EndIf
+
+    For Each Order EmpCod,FilCod,CreCod,CreRecPag
+	    Where EmpCod = &parEmpCod 
+		Where FilCod = &OutFilCod
+		Where CreCod = &OutCreCod
+		Where CreRecPag = ReceberPagar.Receber // Duplicata a Receber
+		Where CreSts <> Status_Duplicata.CANCELADA
+		
+		if &RetUtiPlanDup = true and not CrePlanCod.IsEmpty()
+			&RetPlanCod = CrePlanCod
+		EndIF
+		
+		&JurVct = 0
+		&Multa = 0
+		&QtdDias.SetEmpty()
+		
+		if ((&RetBanCod = '05' and &BanCod = '001') or (&RetBanCod = '06') or (&RetBanCod = '15') or (&RetBanCod = '17'))
+			&CreQtdDias   = &DtaOco - CreDtaVct
+			If &CreQtdDias > 0
+				retornaFeriadoPeriodo.Call(EmpCod, 'S', CreCliCobCidCod, CreDtaVct, &DtaOco, &QtdDias)
+				
+				if &QtdDias > 1
+					CalculaJuros.Call(EmpCod, CreCbrJurCod, CreDtaVct, &DtaOco, CreVlrDup, &JurVct, CreCbrMltVlr, &Multa)
+				EndIF
+			EndiF
+		EndiF
+	
+		if &CreCbrCod <> CreCbrCod //BUSCA AS TARIFAS DOS BOLETOS
+			&CreCbrCod = CreCbrCod
+			do 'getLocalCobranca'
+		Endif
+		
+		If (CreVlrSdo > 0 and (&RetBanCod = '06' or &RetBanCod = '28' or &RetBanCod = '15' or &RetBanCod = '17' or &RetBanCod = '10' or &RetBanCod = '48')) or (&RetBanCod <> '06' and &RetBanCod <> '28' and &RetBanCod <> '15' and &RetBanCod <> '17')   // Ainda tem vlor a Receber
+			
+			if (&RetBanCod = '28') and (&CbrTaxBol > 0 or &CbrTaxVlrMaxBol > 0 or &CbrTaxVlrMinBol > 0) //CASO CADASTROOU TAXA VAI SER LANCAMENTO MANUAL
+				//QUANDO VIER 28 IGNORAR PARA BRADESCO
+			Else
+				&SdtBaixadeRemessaItem = new()
+				&CreVlrSdo = CreVlrSdo
+				&CreDtaRet = CreDtaRet		
+				
+				&SdtBaixadeRemessaItem.DevJur       = &JurVct
+				&SdtBaixadeRemessaItem.DevMul       = &Multa
+				&SdtBaixadeRemessaItem.DevTot       = &Multa + &JurVct
+				
+				&SdtBaixadeRemessaItem.EmpCod       = EmpCod
+				&SdtBaixadeRemessaItem.FilCod       = FilCod
+				&SdtBaixadeRemessaItem.CreCod       = CreCod
+				&SdtBaixadeRemessaItem.CreDupNro    = CreDupNro
+				&SdtBaixadeRemessaItem.CrePedCod    = CrePedCod
+				&SdtBaixadeRemessaItem.CreDtaEms    = CreDtaEms
+				&SdtBaixadeRemessaItem.CreCliCod    = CreCliCod
+				&SdtBaixadeRemessaItem.CreCliRaz    = CreCliRaz
+				&SdtBaixadeRemessaItem.CreSts       = CreSts
+				&SdtBaixadeRemessaItem.CreDtaVct    = CreDtaVct
+				
+				If &RetBanCod = '02' and CreBloNro.IsEmpty()
+					CreBloNro = &RemCreBloNro
+				EndIf
+				If &RetBanCod =  '28'
+					&SdtBaixadeRemessaItem.CreVlrDup = &RemCreVlrTar
+					&SdtBaixadeRemessaItem.RemCrePagVlr = &RemCreVlrTar
+				Else
+					&SdtBaixadeRemessaItem.CreVlrDup = CreVlrDup
+					&SdtBaixadeRemessaItem.RemCrePagVlr = &RemCrePagVlr
+				EndIf
+				&SdtBaixadeRemessaItem.CreBloNro    = CreBloNro
+				&SdtBaixadeRemessaItem.CreChv       = CreChv
+				&SdtBaixadeRemessaItem.CreCbrCod    = CreCbrCod
+				&SdtBaixadeRemessaItem.CreCbrCtaBanCod = CreCbrCtaBanCod
+				&SdtBaixadeRemessaItem.RemFilRaz    = &RemFilRaz
+				&SdtBaixadeRemessaItem.RemDtaArq    = &RemDtaArq
+				&SdtBaixadeRemessaItem.RemCbrNroCon = &RemCbrNroCon
+				&SdtBaixadeRemessaItem.RemCtaBanCrt = &CtaBanCrt
+				&SdtBaixadeRemessaItem.RemDtaOco    = &DtaOco
+				&SdtBaixadeRemessaItem.RemRetBanCodMot = &RetBanCodMov
+				
+				&SdtBaixadeRemessaItem.RemRetBanCod = &RetBanCod
+				if &RetBanCod = '28'
+					&SdtBaixadeRemessaItem.RemRetBanCod = 'TAXA'
+					&RemCrePagVlrDsc = 0
+					&RemCrePagVlrJur = 0
+				Endif
+				
+				&SdtBaixadeRemessaItem.RemRetBanNom = &RetBanNom
+				&SdtBaixadeRemessaItem.IsBanRetObs  = &IsBanRetObs
+				&SdtBaixadeRemessaItem.RemRetPlanCod = &RetPlanCod
+				&SdtBaixadeRemessaItem.RemRetPlanCatTip = &RetPlanCatTip
+				&SdtBaixadeRemessaItem.RemDtaCreDta = &RemDtaCreDta
+				&SdtBaixadeRemessaItem.RemCreBloNro = &RemCreBloNro
+				&SdtBaixadeRemessaItem.RemCreChv    = &RemCreChv
+				&SdtBaixadeRemessaItem.RemCreDupNro = &RemCreDupNro 
+				&SdtBaixadeRemessaItem.RemCreVlrDup = &RemCreVlrDup
+				&SdtBaixadeRemessaItem.RemCreVlrTar = &RemCreVlrTar
+				&SdtBaixadeRemessaItem.RemCreVlrOut = &RemCreVlrOut
+				
+				&SdtBaixadeRemessaItem.RemCrePagVlrDsc = &RemCrePagVlrDsc
+				&SdtBaixadeRemessaItem.RemCrePagVlrJur = &RemCrePagVlrJur
+				
+				if &RetBanCod <> '28'
+					&AuxRemCrePagVlr = (&RemCrePagVlr - &RemCrePagVlrJur) + &RemCrePagVlrDsc
+					Do Case
+						CAse &AuxRemCrePagVlr > CreVlrDup
+							&SdtBaixadeRemessaItem.RemCrePagVlrJur +=  &AuxRemCrePagVlr - CreVlrDup
+							
+						Case &AuxRemCrePagVlr > 0
+							&SdtBaixadeRemessaItem.RemCrePagVlrDsc += CreVlrDup - &AuxRemCrePagVlr
+					EndCase		
+				EndIf
+				
+				&SdtBaixadeRemessaItem.IsEncontrada = true
+				&SdtBaixadeRemessaItem.IsBaixada = false
+				&SdtBaixadeRemessaItem.CreObs = ''
+				&SdtBaixadeRemessaItem.CreAdmCod = CreAdmCod
+				&SdtBaixadeRemessaItem.CreCliPesEmpSecCod = CreCliPesEmpSecCod
+				&SdtBaixadeRemessa.Add(&SdtBaixadeRemessaItem)
+				
+				
+				if (&RetBanCod = '06') and (&CbrTaxBol > 0 or &CbrTaxVlrMaxBol > 0 or &CbrTaxVlrMinBol > 0) //CASO CADASTROOU TAXA VAI SER LANCAMENTO MANUAL
+					if (CreFrpPgtoTip = TipoDuplicata.DUPLICATA) //Duplicata
+						Do CAse
+							CAse &CbrTaxBol <> 0 //CAso tenha taxa definida
+								&ValorTarifaPixBoleto = round(CreVlrDup * (&CbrTaxBol / 100), 2)
+								Do Case
+									CAse &ValorTarifaPixBoleto > &CbrTaxVlrMaxBol
+										&ValorTarifaPixBoleto = &CbrTaxVlrMaxBol
+									Case &ValorTarifaPixBoleto <= &CbrTaxVlrMinBol
+										&ValorTarifaPixBoleto = &CbrTaxVlrMinBol
+								EndCAse
+							Case &CbrTaxVlrMinBol > 0
+								&ValorTarifaPixBoleto = &CbrTaxVlrMinBol
+							CAse &CbrTaxVlrMaxBol > 0
+								&ValorTarifaPixBoleto = &CbrTaxVlrMaxBol
+						EndCAse	
+						&TarifaPlanCod = RetornaCodigoPlanoContas.Udp(EmpCod, &CbrTaxPlanHieBol)
+					Else //Pix
+						Do CAse
+							CAse &CbrTaxPix <> 0 //CAso tenha taxa definida
+								&ValorTarifaPixBoleto = round(CreVlrDup * (&CbrTaxPix / 100), 2)
+								Do Case
+									CAse &ValorTarifaPixBoleto > &CbrTaxVlrMaxPix
+										&ValorTarifaPixBoleto = &CbrTaxVlrMaxPix
+									Case &ValorTarifaPixBoleto <= &CbrTaxVlrMinPix
+										&ValorTarifaPixBoleto = &CbrTaxVlrMinPix
+								EndCAse
+							Case &CbrTaxVlrMinPix > 0
+								&ValorTarifaPixBoleto = &CbrTaxVlrMinPix
+							CAse &CbrTaxVlrMaxPix > 0
+								&ValorTarifaPixBoleto = &CbrTaxVlrMaxPix
+						EndCAse
+						&TarifaPlanCod = RetornaCodigoPlanoContas.Udp(EmpCod, &CbrTaxPlanHiePix)
+					Endif
+					
+					if &ValorTarifaPixBoleto > 0
+						//CASO VIER LIQUIDACAO PARA OS BANCOS GRAVAR TARIFA SE HAVER CADASTRO
+						
+						&SdtBaixadeRemessaItem = new()					
+						
+						&SdtBaixadeRemessaItem.EmpCod       = EmpCod
+						&SdtBaixadeRemessaItem.FilCod       = FilCod
+						&SdtBaixadeRemessaItem.CreCod       = CreCod
+						&SdtBaixadeRemessaItem.CreDupNro    = CreDupNro
+						&SdtBaixadeRemessaItem.CrePedCod    = CrePedCod
+						&SdtBaixadeRemessaItem.CreDtaEms    = CreDtaEms
+						&SdtBaixadeRemessaItem.CreCliCod    = CreCliCod
+						&SdtBaixadeRemessaItem.CreCliRaz    = CreCliRaz
+						&SdtBaixadeRemessaItem.CreSts       = CreSts
+						&SdtBaixadeRemessaItem.CreDtaVct    = CreDtaVct
+						
+						&SdtBaixadeRemessaItem.CreVlrDup = CreVlrDup
+						&SdtBaixadeRemessaItem.RemCrePagVlr = 0
+						&SdtBaixadeRemessaItem.RemCreVlrTar = &ValorTarifaPixBoleto
+						
+						&SdtBaixadeRemessaItem.CreBloNro    = CreBloNro
+						&SdtBaixadeRemessaItem.CreChv       = CreChv
+						&SdtBaixadeRemessaItem.CreCbrCod    = CreCbrCod
+						&SdtBaixadeRemessaItem.CreCbrCtaBanCod = CreCbrCtaBanCod
+						&SdtBaixadeRemessaItem.RemFilRaz    = &RemFilRaz
+						&SdtBaixadeRemessaItem.RemDtaArq    = &RemDtaArq
+						&SdtBaixadeRemessaItem.RemCbrNroCon = &RemCbrNroCon
+						&SdtBaixadeRemessaItem.RemCtaBanCrt = &CtaBanCrt
+						if &DtaOco.IsEmpty()
+							&SdtBaixadeRemessaItem.RemDtaOco    = &RemDtaCreDta
+						Else
+							&SdtBaixadeRemessaItem.RemDtaOco    = &DtaOco
+						Endif
+					
+						&SdtBaixadeRemessaItem.RemRetBanCodMot = ''
+						&SdtBaixadeRemessaItem.RemRetBanCod = 'TAXA'
+						&SdtBaixadeRemessaItem.RemRetBanNom = '28 - TARIFA BANCARIA'
+						
+						&SdtBaixadeRemessaItem.RemRetPlanCod = &TarifaPlanCod
+						&SdtBaixadeRemessaItem.RemRetPlanCatTip = 'D' //DEBITO
+						&SdtBaixadeRemessaItem.RemDtaCreDta = &RemDtaCreDta 
+						&SdtBaixadeRemessaItem.RemCreBloNro = &RemCreBloNro
+						&SdtBaixadeRemessaItem.RemCreChv    = &RemCreChv
+						&SdtBaixadeRemessaItem.RemCreDupNro = &RemCreDupNro
+						&SdtBaixadeRemessaItem.RemCreVlrDup = CreVlrDup
+						
+						&SdtBaixadeRemessaItem.RemCreVlrOut = 0
+						&SdtBaixadeRemessaItem.RemCrePagVlrDsc = 0
+						&SdtBaixadeRemessaItem.RemCrePagVlrJur = 0
+						
+						&SdtBaixadeRemessaItem.IsEncontrada = true
+						&SdtBaixadeRemessaItem.IsBaixada = false
+						&SdtBaixadeRemessaItem.CreObs = ''
+						&SdtBaixadeRemessa.Add(&SdtBaixadeRemessaItem)
+					Endif
+				Endif
+			Endif
+		Else
+			&SdtBaixadeRemessaItem = new()
+			&PagEmpCod = EmpCod
+			&PagFilCod = FilCod
+			&PagCreCod = CreCod
+			&SdtBaixadeRemessaItem.DevJur       = &JurVct
+			&SdtBaixadeRemessaItem.DevMul       = &Multa
+			&SdtBaixadeRemessaItem.DevTot       = &Multa + &JurVct
+			
+			&SdtBaixadeRemessaItem.EmpCod       = EmpCod
+			&SdtBaixadeRemessaItem.FilCod       = FilCod
+			&SdtBaixadeRemessaItem.CreCod       = CreCod
+			&SdtBaixadeRemessaItem.CreDupNro    = CreDupNro
+			&SdtBaixadeRemessaItem.CrePedCod    = CrePedCod
+			&SdtBaixadeRemessaItem.CreDtaEms    = CreDtaEms
+			&SdtBaixadeRemessaItem.CreCliCod    = CreCliCod
+			&SdtBaixadeRemessaItem.CreCliRaz    = CreCliRaz
+			&SdtBaixadeRemessaItem.CreSts       = CreSts
+			&SdtBaixadeRemessaItem.CreDtaVct    = CreDtaVct
+			&SdtBaixadeRemessaItem.CreBloNro    = CreBloNro
+			&SdtBaixadeRemessaItem.CreChv       = CreChv
+			&SdtBaixadeRemessaItem.CreCbrCod    = CreCbrCod
+			&SdtBaixadeRemessaItem.CreCbrCtaBanCod = CreCbrCtaBanCod
+			&SdtBaixadeRemessaItem.RemFilRaz    = &RemFilRaz
+			&SdtBaixadeRemessaItem.RemDtaArq    = &RemDtaArq
+			&SdtBaixadeRemessaItem.RemCbrNroCon = &CbrNroCon
+			&SdtBaixadeRemessaItem.RemCtaBanCrt = &CtaBanCrt
+			&SdtBaixadeRemessaItem.RemDtaOco    = &DtaOco
+			&SdtBaixadeRemessaItem.RemDtaCreDta = &RemDtaCreDta
+			&SdtBaixadeRemessaItem.RemCreDupNro = &RemCreDupNro 
+			&SdtBaixadeRemessaItem.RemCreVlrDup = &RemCreVlrDup
+			&SdtBaixadeRemessaItem.RemCreVlrTar = &RemCreVlrTar
+			
+			&SdtBaixadeRemessaItem.RemRetBanCod = &RetBanCod
+			if &RetBanCod = '28'
+				&SdtBaixadeRemessaItem.RemRetBanCod = 'TAXA'
+				&RemCrePagVlrDsc = 0
+				&RemCrePagVlrJur = 0
+			Endif
+			&SdtBaixadeRemessaItem.RemRetBanNom = &RetBanNom
+			&SdtBaixadeRemessaItem.IsBanRetObs  = &IsBanRetObs
+			&SdtBaixadeRemessaItem.RemRetBanCodMot = &RetBanCodMov
+			&SdtBaixadeRemessaItem.RemRetPlanCod = &RetPlanCod
+			&SdtBaixadeRemessaItem.RemRetPlanCatTip = &RetPlanCatTip
+			&SdtBaixadeRemessaItem.RemCreBloNro = &RemCreBloNro
+			&SdtBaixadeRemessaItem.RemCreChv    = &RemCreChv			
+			&SdtBaixadeRemessaItem.RemCreVlrOut = &RemCreVlrOut
+			&SdtBaixadeRemessaItem.RemCrePagVlrDsc = &RemCrePagVlrDsc		
+			&SdtBaixadeRemessaItem.RemCrePagVlrJur = &RemCrePagVlrJur
+			&SdtBaixadeRemessaItem.IsEncontrada = True
+			&SdtBaixadeRemessaItem.IsBaixada = True
+			If &RetBanCod =  '28'
+				&SdtBaixadeRemessaItem.CreVlrDup = &RemCreVlrTar
+				&SdtBaixadeRemessaItem.RemCrePagVlr = &RemCreVlrTar
+				&SdtBaixadeRemessaItem.CreObs    = 'Tarifa já Lançada. Verifique!'
+				&MovTip = TipoMovimento.DespesaRemessa
+			Else
+				&SdtBaixadeRemessaItem.CreVlrDup = CreVlrDup
+				&SdtBaixadeRemessaItem.RemCrePagVlr = &RemCrePagVlr
+				&SdtBaixadeRemessaItem.CreObs    = 'Duplicata já Baixada. Verifique!'
+				&MovTip = TipoMovimento.receitaRemessa
+			EndIf
+			&SdtBaixadeRemessaItem.CreAdmCod = CreAdmCod
+			&SdtBaixadeRemessaItem.CreCliPesEmpSecCod = CreCliPesEmpSecCod
+			Do 'BuscaMovimento'
+			&SdtBaixadeRemessa.Add(&SdtBaixadeRemessaItem)
+		EndIf
+		
+		Exit
+	When none
+		&SdtBaixadeRemessaItem = new()
+		&SdtBaixadeRemessaItem.RemDtaOco    = &DtaOco
+		&SdtBaixadeRemessaItem.RemDtaCreDta = &RemDtaCreDta
+		&SdtBaixadeRemessaItem.RemFilRaz = &RemFilRaz
+		&SdtBaixadeRemessaItem.RemDtaArq = &RemDtaArq
+		&SdtBaixadeRemessaItem.RemCbrNroCon = &CbrNroCon
+		&SdtBaixadeRemessaItem.RemCtaBanCrt = &CtaBanCrt
+		&SdtBaixadeRemessaItem.CreDupNro = &RemCreDupNro 
+		&SdtBaixadeRemessaItem.CrePedCod    = 0
+		&SdtBaixadeRemessaItem.CreVlrDup = &RemCreVlrDup
+		&SdtBaixadeRemessaItem.RemCreVlrTar = &RemCreVlrTar
+		&SdtBaixadeRemessaItem.RemCrePagVlr = 0
+		&SdtBaixadeRemessaItem.RemRetBanCodMot = &RetBanCodMov
+		&SdtBaixadeRemessaItem.RemRetBanCod = &RetBanCod
+		if &RetBanCod = '28'
+			&SdtBaixadeRemessaItem.RemRetBanCod = 'TAXA'
+			&RemCrePagVlrDsc = 0		
+			&RemCrePagVlrJur = 0
+		Endif
+		&SdtBaixadeRemessaItem.RemRetBanNom = &RetBanNom
+		&SdtBaixadeRemessaItem.IsBanRetObs  = &IsBanRetObs
+		&SdtBaixadeRemessaItem.RemRetPlanCod = &RetPlanCod
+		&SdtBaixadeRemessaItem.RemRetPlanCatTip = &RetPlanCatTip
+		&SdtBaixadeRemessaItem.CreBloNro    = &RemCreBloNro
+		&SdtBaixadeRemessaItem.RemCreVlrOut = &RemCreVlrOut
+		&SdtBaixadeRemessaItem.RemCrePagVlrDsc = &RemCrePagVlrDsc		
+		&SdtBaixadeRemessaItem.RemCrePagVlrJur = &RemCrePagVlrJur
+		&SdtBaixadeRemessaItem.IsEncontrada = False
+		&SdtBaixadeRemessaItem.IsBaixada = False
+		&SdtBaixadeRemessaItem.CreObs = 'Duplicata NÃO ENCONTRADA. Verifique!'
+		&SdtBaixadeRemessa.Add(&SdtBaixadeRemessaItem)
+	EndFor
+
+//	GravaArquivoRetorno.Call(&parEmpCod,&RemRetCodEmp,&RemDtaArq,&RemFilRaz,&RemRetTxt, &SdtBaixadeRemessa.ToJson())
+	&WEBSESSION.Set('Retorno_cobranca',&SdtBaixadeRemessa.ToJson())
+EndSub
+
+Sub 'getLocalCobranca'
+	&CbrTaxPix.SetEmpty()
+	&CbrTaxVlrMaxPix.SetEmpty()
+	&CbrTaxVlrMinPix.SetEmpty()
+	&CbrTaxPlanHiePix.SetEmpty()
+	
+	//TAXA BOLETO 
+	&CbrTaxBol.SetEmpty()
+	&CbrTaxVlrMaxBol.SetEmpty()
+	&CbrTaxVlrMinBol.SetEmpty()
+	&CbrTaxPlanHieBol.SetEmpty()
+	
+	For each Order EmpCod, CbrCod
+		Where EmpCod 	= &parEmpCod
+		Where CbrCod 	= &CreCbrCod
+		
+		//		&CbrCtaBanAgeCod 	= CbrCtaBanAgeCod
+		//		&CbrCtaBanAgeDig 	= CbrCtaBanAgeDig
+		//		&CbrCtaBanCrt 		= CbrCtaBanCrt
+		//		&CbrCtaBanBanCod 	= CbrCtaBanBanCod
+		//		&CbrCtaBanBanNom	= CbrCtaBanBanNom
+		//		&CbrNroCon 			= CbrNroCon
+		
+		//TAXA PIX
+		&CbrTaxPix = CbrTaxPix
+		&CbrTaxVlrMaxPix = CbrTaxVlrMaxPix
+		&CbrTaxVlrMinPix = CbrTaxVlrMinPix
+		&CbrTaxPlanHiePix = CbrTaxPlanHiePix
+		
+		//TAXA BOLETO 
+		&CbrTaxBol = CbrTaxBol
+		&CbrTaxVlrMaxBol = CbrTaxVlrMaxBol
+		&CbrTaxVlrMinBol = CbrTaxVlrMinBol
+		&CbrTaxPlanHieBol = CbrTaxPlanHieBol
+		
+		Exit
+	EndFor
+EndSub
+
+Sub 'Processar_Retorno'
+	&SdtBaixadeRemessa.Sort('RemRetBanCod')
+	For &SdtBaixadeRemessaItem in &SdtBaixadeRemessa
+		&RemRetBanCod = &SdtBaixadeRemessaItem.RemRetBanCod
+		&RemRetBanCodMot = &SdtBaixadeRemessaItem.RemRetBanCodMot
+		&auxEmpCod = &SdtBaixadeRemessaItem.EmpCod
+		&auxFilCod = &SdtBaixadeRemessaItem.FilCod
+		&auxCreCod = &SdtBaixadeRemessaItem.CreCod
+		&AuxCreSts = &SdtBaixadeRemessaItem.CreSts
+		&AuxCrePedCod = &SdtBaixadeRemessaItem.CrePedCOd
+		&auxCreCliCod = &SdtBaixadeRemessaItem.CreCliCod
+		&auxCreCliRaz = &SdtBaixadeRemessaItem.CreCliRaz
+		&auxDtaOco = &SdtBaixadeRemessaItem.RemDtaOco
+		&auxCreChv = &SdtBaixadeRemessaItem.CreChv
+		&auxCreCbrCod = &SdtBaixadeRemessaItem.CreCbrCod
+		&auxCreCbrCtaBanCod = &SdtBaixadeRemessaItem.CreCbrCtaBanCod
+		&auxRemCreBloNro = &SdtBaixadeRemessaItem.RemCreBloNro
+		&auxRemCreDupNro = &SdtBaixadeRemessaItem.RemCreDupNro
+		&auxRemCrePagVlr = &SdtBaixadeRemessaItem.RemCrePagVlr
+		&auxRemCreVlrTar = &SdtBaixadeRemessaItem.RemCreVlrTar
+		&auxRemCreVlrOut = &SdtBaixadeRemessaItem.RemCreVlrOut
+		&auxRemDtaCreDta = &SdtBaixadeRemessaItem.RemDtaCreDta
+		&auxRemCrePagVlrDsc = &SdtBaixadeRemessaItem.RemCrePagVlrDsc
+		&auxRemCrePagVlrJur = &SdtBaixadeRemessaItem.RemCrePagVlrJur
+		&IsBaixada      = &SdtBaixadeRemessaItem.IsBaixada
+		&AuxPlanCod = &SdtBaixadeRemessaItem.RemRetPlanCod
+		
+		&AuxCreAdmCod = &SdtBaixadeRemessaItem.CreAdmCod
+		&SdtBaixadeRemessaItem.CreAdmCod = 0
+		
+		If &SdtBaixadeRemessaItem.IsEncontrada = True
+			Do Case  // Os tipo estão em Documentation
+				CAse ((&RemRetBanCod = '28') or (&RemRetBanCod = 'TAXA')) //TAXA
+					DuplicataBaixaLct.Call(&auxEmpCod,&auxFilCod,&auxCreCod,&AuxCreSts,&auxDtaOco,&auxCreCbrCod,&auxCreCbrCtaBanCod,&BanCod,'TAXA',&auxRemCrePagVlr,&auxRemCreVlrTar,&auxRemCreVlrOut,&auxRemDtaCreDta,&auxRemCrePagVlrDsc,&auxRemCrePagVlrJur,&auxRemCreDupNro,&auxCreCliCod,&auxCreCliRaz, &AuxPlanCod)
+					
+				Case ((&RemRetBanCod = '05' and &BanCod = '001') or (&RemRetBanCod = '06') or (&RemRetBanCod = '15') or (&RemRetBanCod = '17'))
+					If &IsBaixada = False
+						DuplicataBaixaLct.Call(&auxEmpCod,&auxFilCod,&auxCreCod,&AuxCreSts,&auxDtaOco,&auxCreCbrCod,&auxCreCbrCtaBanCod,&BanCod,&RemRetBanCod,&auxRemCrePagVlr,&auxRemCreVlrTar,&auxRemCreVlrOut,&auxRemDtaCreDta,&auxRemCrePagVlrDsc,&auxRemCrePagVlrJur,&auxRemCreDupNro,&auxCreCliCod,&auxCreCliRaz, &AuxPlanCod)
+						RemessaAutorizaCreditoPedido.Call(&auxEmpCod, &auxFilCod, &AuxCrePedCod, &PesCod, &WWpContextUserName)
+						&SdtBaixadeRemessaItem.CreAdmCod = &AuxCreAdmCod //JDF SO PREENCHER QUANDO FOR BAIXA
+					EndIf
+				Case &RemRetBanCod = '19' and &BanCod = '237' //ENVIO Cartório
+					DuplicataProtesto.Call(&auxEmpCod,&auxFilCod,&auxCreCod, &auxDtaOco, 'CARTORIO')		
+					
+				Case &RemRetBanCod = '10' and substr(&RemRetBanCodMot,1,2) = '14' and &BanCod = '237' //// 10-BAIXADO CONFORME INSTRUCOES DA AGENCIA /  14-ENTRADA PROTESTO
+					DuplicataProtesto.Call(&auxEmpCod,&auxFilCod,&auxCreCod, &auxDtaOco, 'PROTESTO')
+					
+				Case ((&RemRetBanCod = '10' and substr(&RemRetBanCodMot,1,2) = '20' and &BanCod = '237') or (&BanCod = '756' and &RemRetBanCod = '48'))  // 10-BAIXADO CONFORME INSTRUCOES DA AGENCIA /  20-TRANSFERIDO P/ DESCONTO 
+					GravaDescontoPelaRemessa.call(&auxEmpCod,&auxFilCod,&auxCreCod,&RemRetArq,&auxDtaOco,&Obs_350)
+					&SdtBaixadeRemessaItem.CreObs = &Obs_350
+					
+					If (&BanCod = '756' and &RemRetBanCod = '48') 
+						Do 'Grava_data_retorno'
+					EndIf
+				Case (&RemRetBanCod = '02') or (&RemRetBanCod = '03' and substr(&RemRetBanCodMot,1,2) = '63')
+					Do 'Grava_data_retorno'
+					
+				Case &RemRetBanCod = '03' and substr(&RemRetBanCodMot,1,2) = '09' and &BanCod = '237'  // 03 - Entrada Regitada  Motivo 09 = Nosso número duplicado
+					AtualizarNossoNumero.Call(&auxEmpCod,&auxFilCod,&auxCreCod,&auxRemCreBloNro)
+					
+			EndCase
+			
+			Do 'GravaOcorrencia'
+		EndIf		
+	EndFor
+	
+	For &SdtBaixadeRemessaItem in &SdtBaixadeRemessa
+		 if &SdtBaixadeRemessaItem.CreAdmCod > 0
+			&ppJASPI_DuplicatasPagasdtDuplicatasItems = new()
+			&ppJASPI_DuplicatasPagasdtDuplicatasItems.CreCod = &SdtBaixadeRemessaItem.CreAdmCod
+			&ppJASPI_DuplicatasPagasdtDuplicatasItems.CliCodSync = &SdtBaixadeRemessaItem.CreCliPesEmpSecCod
+			&ppJASPI_DuplicatasPagasdtDuplicatas.Duplicatas.Items.Add(&ppJASPI_DuplicatasPagasdtDuplicatasItems)
+		 Endif
+	 Endfor
+ 
+	//LIBERA LICENCA
+	if &ppJASPI_DuplicatasPagasdtDuplicatas.Duplicatas.Items.Count > 0
+		prcAtualizaStatusLiberado.Call('S', &parEmpCod, 1, &ppJASPI_DuplicatasPagasdtDuplicatas)
+	Endif
+EndSub
+
+
+Sub 'Grava_data_retorno'
+    For Each Order EmpCod,FilCod,CreCod
+	    Where EmpCod = &auxEmpCod
+		Where FilCod = &auxFilCod
+		Where CreCod = &auxCreCod
+		If CreDtaRet.IsEmpty()
+	        CreDtaRet = &DtaOco
+		EndIf
+		exit
+    EndFor
+	Commit
+EndSub
+
+Sub 'GravaOcorrencia'
+	For Each Order EmpCod,RemFilCod,RemCreSeq
+	    Where EmpCod = &auxEmpCod
+		Where RemFilCod = &auxFilCod
+		Where RemCreSeq = &auxCreCod
+		RemOcoCod = &RetBanCod
+		RemDtaRet = &DtaOco
+		exit
+	EndFor
+	Commit
+EndSub
+
+Sub 'BuscaMovimento'
+	If &MovTip = TipoMovimento.ReceitaRemessa
+		For each Order EmpCod,FilCod,CreCod
+			Where EmpCod = &PagEmpCod
+			Where FilCod = &PagFilCod
+			Where CreCod = &PagCreCod
+			&SdtBaixadeRemessaItem.CreMovCod = CreMovCod
+			&SdtBaixadeRemessaItem.CreMovItmCod = CreMovItmCod
+			Exit
+		EndFor
+	Else
+		For each Order EmpCod,MovTip,MovCreFilCod,MovCreCod
+			Where EmpCod = &PagEmpCod
+			Where MovTip = &MovTip
+			Where MovCreFilCod = &PagFilCod
+			Where MovCreCod = &PagCreCod
+			&SdtBaixadeRemessaItem.CreMovCod = MovCod
+			&SdtBaixadeRemessaItem.CreMovItmCod = MovItmCod
+			Exit
+		EndFor
+	EndIf
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&parEmpCod, in:&PesCod, in:&selectedURL, in:&WWpContextUserName);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoLeitura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoLeitura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>400</Value></Property><Property><Name>AttMaxLen</Name><Value>400</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCod</Value></Property><Property><Name>Description</Name><Value>Banco Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetBanCod</Value></Property><Property><Name>Description</Name><Value>Retorno Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetBaNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetBaNom</Value></Property><Property><Name>Description</Name><Value>Retorno Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetBanNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaOco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaOco</Value></Property><Property><Name>Description</Name><Value>Data Ocorrência no Banco</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanCrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanCrt</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nro Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanCrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaCre">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaCre</Value></Property><Property><Name>Description</Name><Value>Data do SubString</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemFilCod</Value></Property><Property><Name>Description</Name><Value>Remessa Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreSeq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreSeq</Value></Property><Property><Name>Description</Name><Value>Remessa Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemCreSeq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreChv</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreDupNro</Value></Property><Property><Name>Description</Name><Value>Duplicata Numero</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreVlrTar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreVlrTar</Value></Property><Property><Name>Description</Name><Value>Valor de Tarifas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemDtaCreDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemDtaCreDta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreVlrOut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreVlrOut</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreVlrDsp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreVlrDsp</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetBanNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetBanNom</Value></Property><Property><Name>Description</Name><Value>Retorno Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetBanNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlr</Value></Property><Property><Name>Description</Name><Value>Valor Pagamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaRet</Value></Property><Property><Name>Description</Name><Value>Cobrança Data Retorno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="selectedURL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>selectedURL</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtBaixadeRemessaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtBaixadeRemessaItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBaixadeRemessa.SdtBaixadeRemessaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtBaixadeRemessa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtBaixadeRemessa</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBaixadeRemessa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemRetBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemRetBanCod</Value></Property><Property><Name>Description</Name><Value>Retorno Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxDtaOco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxDtaOco</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreChv</Value></Property><Property><Name>Description</Name><Value>Duplicata Chave</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCrePagVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCrePagVlr</Value></Property><Property><Name>Description</Name><Value>Valor Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCreDupNro</Value></Property><Property><Name>Description</Name><Value>Duplicata Numero</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCreVlrTar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCreVlrTar</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCreVlrOut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCreVlrOut</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemDtaCreDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemDtaCreDta</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCrePagVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCrePagVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCbrCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCbrCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Retorno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetPlanCatTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetPlanCatTip</Value></Property><Property><Name>Description</Name><Value>Plano Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetPlanCatTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WEBSESSION">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WEBSESSION</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemFilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemFilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OutFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OutFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OutCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OutCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PagEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PagEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PagFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PagFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PagCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PagCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaArq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaArq</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemDtaArq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemDtaArq</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBaixada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBaixada</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetBanCodMov">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetBanCodMov</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemRetBanCodMot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemRetBanCodMot</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxRemCreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxRemCreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemRetCodEmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemRetCodEmp</Value></Property><Property><Name>Description</Name><Value>Código Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemRetCodEmp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemRetTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemRetTxt</Value></Property><Property><Name>Description</Name><Value>Arquivo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemRetTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBanRetObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBanRetObs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCliRaz</Value></Property><Property><Name>Description</Name><Value>Cliente Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlrMlt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlrMlt</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dia</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTip</Value></Property><Property><Name>Description</Name><Value>Movimento Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemTip</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetUtiPlanDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetUtiPlanDup</Value></Property><Property><Name>Description</Name><Value>Utilizar Plano Dup.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetUtiPlanDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCrePedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCrePedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreQtdDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreQtdDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurVct</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Multa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Multa</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetMotCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetMotCod</Value></Property><Property><Name>Description</Name><Value>Motivo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetMotCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="INformacaoMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>INformacaoMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreAdmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreAdmCod</Value></Property><Property><Name>Description</Name><Value>Codigo ADm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreAdmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_DuplicatasPagasdtDuplicatasItems">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_DuplicatasPagasdtDuplicatasItems</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_DuplicatasPagasdtDuplicatas_Item</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_DuplicatasPagasdtDuplicatas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_DuplicatasPagasdtDuplicatas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_DuplicatasPagasdtDuplicatas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreSts</Value></Property><Property><Name>Description</Name><Value>Duplicata </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Obs_350">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Obs_350</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Obs_350</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemRetArq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemRetArq</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>20</Value></Property><Property><Name>AttMaxLen</Name><Value>20</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrNroCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrNroCon</Value></Property><Property><Name>Description</Name><Value>Número Convênio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrNroCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCbrNroCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCbrNroCon</Value></Property><Property><Name>Description</Name><Value>Número Convênio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrNroCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWpContextUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWpContextUserName</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:wwpContextUserName</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxPlanHieBol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxPlanHieBol</Value></Property><Property><Name>Description</Name><Value>Plano Contas Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxPlanHieBol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxVlrMinBol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxVlrMinBol</Value></Property><Property><Name>Description</Name><Value>Valor Maximo Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxVlrMinBol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxVlrMaxBol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxVlrMaxBol</Value></Property><Property><Name>Description</Name><Value>Valor Minimo Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxVlrMaxBol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxBol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxBol</Value></Property><Property><Name>Description</Name><Value>Taxa Cobranca Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxBol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxPlanHiePix">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxPlanHiePix</Value></Property><Property><Name>Description</Name><Value>Plano Contas Pix</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxPlanHiePix</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxVlrMinPix">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxVlrMinPix</Value></Property><Property><Name>Description</Name><Value>Valor Maximo Pix</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxVlrMinPix</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxVlrMaxPix">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxVlrMaxPix</Value></Property><Property><Name>Description</Name><Value>Valor Minimo Pix</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxVlrMaxPix</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTaxPix">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTaxPix</Value></Property><Property><Name>Description</Name><Value>Taxa Cobranca Pix</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTaxPix</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TarifaPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TarifaPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorTarifaPixBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorTarifaPixBoleto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hibrido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hibrido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <InnerHtml><![CDATA[<FONT size=3>
+<P align=left></P><FONT size=3>
+<P> </FONT><B><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">Para Cobrança com Registro e sem Registro. </P></B></FONT></FONT><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">
+<P>02..Entrada Confirmada (verificar motivo na posição 319 a 328 ) </P>
+<P>03..Entrada Rejeitada ( verificar motivo na posição 319 a 328) </P>
+<P>06..Liquidação normal (sem motivo) </P>
+<P>09..Baixado Automat. via Arquivo (verificar motivo posição 319 a 328) </P>
+<P>10..Baixado conforme instruções da Agência(verificar motivo pos.319 a 328) descontada</P>
+<P>11..Em Ser - Arquivo de Títulos pendentes (sem motivo) </P>
+<P>12..Abatimento Concedido (sem motivo) </P>
+<P>13..Abatimento Cancelado (sem motivo) </P>
+<P>14..Vencimento Alterado (sem motivo) </P>
+<P>15..Liquidação em Cartório (sem motivo) </P>
+<P>16..Título Pago em Cheque – Vinculado </P>
+<P>17..Liquidação após baixa ou Título não registrado (sem motivo) </P>
+<P>18..Acerto de Depositária (sem motivo) </P>
+<P>19..Confirmação Receb. Inst. de Protesto (verificar motivo pos.295 a 295) </P>
+<P>20..Confirmação Recebimento Instrução Sustação de Protesto (sem motivo) </P>
+<P>21..Acerto do Controle do Participante (sem motivo) </P>
+<P>22..Título Com Pagamento Cancelado </P>
+<P>23..Entrada do Título em Cartório (sem motivo) </P>
+<P>24..Entrada rejeitada por CEP Irregular (verificar motivo pos.319 a 328) </P>
+<P>25..Confirmação Receb.Inst.de Protesto Falimentar (verificar pos.295 a 295) </P>
+<P>27..Baixa Rejeitada (verificar motivo posição 319 a 328) </P>
+<P>28..Débito de tarifas/custas (verificar motivo na posição 319 a 328) </P>
+<P>29..Ocorrências do Pagador (NOVO) </P>
+<P>30..Alteração de Outros Dados Rejeitados (verificar motivo pos.319 a 328) </P>
+<P>32..Instrução Rejeitada (verificar motivo posição 319 a 328) </P>
+<P>33..Confirmação Pedido Alteração Outros Dados (sem motivo) </P>
+<P>34..Retirado de Cartório e Manutenção Carteira (sem motivo) </P>
+<P>35..Desagendamento do débito automático (verificar motivos pos. 319 a 328) </P>
+<P>40 Estorno de pagamento </FONT></FONT><B><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">(Novo) </P></B></FONT></FONT><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">
+<P>55 Sustado judicial </FONT></FONT><B><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">(Novo) </P></B></FONT></FONT><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New"><FONT size=3>
+<P>68..Acerto dos dados do rateio de Crédito (verificar motivo posição de status do registro tipo 3) </P>
+<P>69..Cancelamento dos dados do rateio (verificar motivo posição de status do registro tipo 3) </P></FONT><B><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">
+<P>Nota: </B></FONT></FONT><FONT size=3><FONT face="Times New Roman">Para as ocorrências sem motivos, as posições serão informadas com Zeros.</FONT> </P></FONT></FONT></FONT></FONT>]]></InnerHtml>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RetornoGeraCobranca</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

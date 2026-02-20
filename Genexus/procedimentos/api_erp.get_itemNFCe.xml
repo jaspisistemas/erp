@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="bfc50589-8947-4552-847b-80bfdf8aee52" user="WINJEAN\jeanfae" versionDate="2025-10-23T18:06:20.0000000Z" lastUpdate="2025-10-16T19:17:10.0000000Z" checksum="6d82ef26cf49f264e299ab3e8a376724" fullyQualifiedName="api_erp.get_itemNFCe" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="b9272b23-f682-4b29-a155-5f417c8d97c7" name="get_itemNFCe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="get_item NFCe" parent="api_erp.Notas" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+//&PadObs = format('nfe:%1,fil:%2,Ref:%3, itm:%4', trim(toformattedString(&NfeCod)), trim(toformattedString(&FilCod)), &ProRef, trim(toformattedString(&NfeItmCod)))
+//padraousuario.Call('G', 'set_cliente', 1, 1, &PadObs, &PadDtaMod)
+//padraousuario.Call('G', 'set_cliente1', 1, 1, &sdtItemNfeLongVarchar, &PadDtaMod)
+	
+if &IsAcessoConcedido = true
+	&ProRef = &parProRef
+	
+	if &NfeItmCod > 0
+		For Each Order EmpCod, FilCod, NfeCod
+			Where EmpCod = &wwpContext.EmpCod
+			Where FilCod = &FilCod
+			Where NfeCod = &NfeCod
+			Where NfeItmCod = &NfeItmCod
+			&ProRef = NfeProGraRef
+			Exit
+		When none
+			&sdtItemNfe.sts = 'E001'
+			&sdtItemNfe.obs = 'Item da Nota não localizado!'
+			Return
+		EndFor		
+	Endif
+
+	&sdtItemNfe.NfeCod = &NfeCod
+	&sdtItemNfe.FilCod = &FilCod
+	&sdtItemNfe.nfeItmCod = &NfeItmCod
+		
+	RetornaProdutoReferencia.Call(&wwpContext.EmpCod, &ProRef, &NfeProCod, &NfeProGraCod, &NfeProNom, &IsAchouProduto, &ProReqVlr, &ProReqQtd, &ProBarQtd, &erroMensagem)
+	
+	For Each Order EmpCod, FilCod, NfeCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where NfeCod = &NfeCod	
+		
+		&FilTabCod = FilTabCod
+		if FilBasImp = 0
+			&FilBasImp = FilCod
+		Else
+			&FilBasImp = FilBasImp
+		EndIF
+		
+		&NfeSts = NfeSts
+		RetornaRegimeTributarioFilial.Call(EmpCod, &FilBasImp, &FilRegTrib, &CImpOriUfeCod)
+		
+		&PedCliCidUfeCod = NfeCliCidUF
+		&LctBasImpCod = NfeLctBasImp
+		&NfeCliCod = NfeCliCod
+		
+		Exit
+	When none
+		&sdtItemNfe.sts = 'E001'
+		&sdtItemNfe.obs = 'Nota não localizada!'
+		Return
+	EndFor
+
+	&DataHoje = serverdate()
+	
+	For Each Order EmpCod, ProCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where ProCod = &NfeProCod
+		Where ProGraCod = &NfeProGraCod
+		
+		//CODIGO DE BARRAS
+		&NfeProBar = ''
+		&AuxMensagem = ''
+		&Varchar = Substr(trim(ProGraBar), 1, 3)
+		if &Varchar <> '333' and not &Varchar.IsEmpty()
+			ValidaEAN13.Call(ProCod, ProGraBar, &NfeProBar, &AuxMensagem)
+		Else
+			&AuxMensagem = 'invalido'
+		EndiF
+		
+		if not &AuxMensagem.IsEmpty()
+			&sdtItemNfe.ProBar = &NfeProBar
+		Else
+			if not ProBarTrib.IsEmpty() and not ProBarTrib.IsNull()
+				&sdtItemNfe.ProBar = &NfeProBar
+				&sdtItemNfe.ProBarTrib = ProBarTrib
+			Else
+				&sdtItemNfe.ProBar = &NfeProBar
+				&sdtItemNfe.ProBarTrib = &NfeProBar				
+			Endif		
+		EndIF
+	
+		&sdtItemNfe.ProCod = ProCod
+		
+		&sdtItemNfe.ProRef = ProGraRef
+		
+		if ProNomNF.IsEmpty() or ProNomNF.IsNull()
+			&sdtItemNfe.ProNom = ProNomGra
+		Else
+			&sdtItemNfe.ProNom = ProNomNF
+			IF ProGraCod > 1
+				&sdtItemNfe.ProNom += ' | ' +trim(ProGraNom)
+			Endif
+		Endif
+	
+		&sdtItemNfe.NfeProDadAdi = ProDetNfe
+		&sdtItemNfe.NfeEmbUnd = ProEmbUnd
+		If not ProUndTrib.IsEmpty() and not ProUndTrib.IsNull()
+			&sdtItemNfe.NfeEmbUndTrib = ProUndTrib
+		Else
+			&sdtItemNfe.NfeEmbUndTrib = ProEmbUndTrib
+		Endif
+	
+		&sdtItemNfe.NfeNcmCod = NcmCod
+		&sdtItemNfe.NfeNcmCest = trim(Str(ProNcmCest))
+		&sdtItemNfe.ProCatCod = ProCatCod
+		&sdtItemNfe.ProOriTriCod = ProOriTriCod
+		
+		&sdtItemNfe.ProObrAnp = Status_simNao.Sim
+			
+		RetornaPrecoUnitarioVenda.Call(EmpCod, &FilTabCod, '', ProCod,  ProGraCod, 1, &DataHoje, &PedDtaVct, &NfeProVlrUnt)
+		&sdtItemNfe.NfeProVlrUnt = &NfeProVlrUnt
+		&Moeda5 = &NfeProVlrUnt
+		&sdtItemNfe.NfeProVlrUntVar = RetiraZerosDepoisVirgulaxCasas.Udp(2, &Moeda5.ToFormattedString())
+		&sdtItemNfe.NfeProVlrUntVar = &sdtItemNfe.NfeProVlrUntVar.Replace(',','.')
+		
+		&ProCatCod = ProCatCod
+				
+		Exit
+	When none
+		If not &ProRef.IsEmpty()
+			&sdtItemNfe.sts = 'E002'
+			&sdtItemNfe.obs = 'Produto não localizado!'
+			Return
+		Endif	
+	EndFor
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where PesCod = &NfeCliCod
+		&PedCliGruImpCod = PesGruImpCod
+		Exit
+	When none
+		&PedCliGruImpCod = 1
+	EndFor
+
+	do 'tabImposto'
+	
+	if &NfeItmCod <> 0
+		do 'loadItemNFe'
+	EndiF	
+	
+	&sdtItemNfe.sts = 'J200'
+	&sdtItemNfe.obs = 'sucesso'
+Endif
+
+
+
+Sub 'tabImposto'
+
+	&sdtItemNfe.NfeCfoCod = ''
+	&sdtItemNfe.NfeSitCod = ''
+	&sdtItemNfe.NfeProCBenef = ''
+	
+	For Each Order EmpCod,CImpTbFilCod,CImpLctCod,CImpOriUfeCod,CImpDstUfeCod,CImpGruImpCod,CImpCatCod,(CImpDtaIni)
+		Where EmpCod = &wwpContext.EmpCod
+		Where CImpTbFilCod = &FilBasImp
+		Where CImpLctCod = &LctBasImpCod
+		Where CImpOriUfeCod = &CImpOriUfeCod
+		Where CImpDstUfeCod = &PedCliCidUfeCod
+		Where CImpGruImpCod = &PedCliGruImpCod
+		Where CImpCatCod = &ProCatCod
+		Where CImpDtaIni <= serverdate()
+		
+		&sdtItemNfe.NfeSitCod = trim(CImpCstCod.ToFormattedString())
+		&sdtItemNfe.NfeCfoCod = CImpCfoCod
+		&sdtItemNfe.NfeProCBenef = CImpCBenef
+		
+		Exit
+	EndFor
+
+EndSub
+
+
+Sub 'loadItemNFe'
+
+	For Each Order EmpCod, FilCod, NfeCod, NfeItmCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where NfeCod = &NfeCod
+		Where NfeItmCod = &NfeItmCod
+		
+		&sdtItemNfe.NfeProDadAdi = NfeProDadAdi
+		&sdtItemNfe.ProNom = NfeProNom
+		
+		&sdtItemNfe.NfeProQtd = NfeProQtd
+		
+		&Moeda6 = NfeProQtd
+		&sdtItemNfe.NfeProQtdVar = RetiraZerosDepoisVirgulaxCasas.Udp(0, &Moeda6.ToFormattedString())
+		&sdtItemNfe.NfeProQtdVar = &sdtItemNfe.NfeProQtdVar.Replace(',','.')
+		
+		&sdtItemNfe.NfeProVlrUnt = NfeProVlrUnt
+		&Moeda5 = NfeProVlrUnt
+		&sdtItemNfe.NfeProVlrUntVar = RetiraZerosDepoisVirgulaxCasas.Udp(2, &Moeda5.ToFormattedString())
+		&sdtItemNfe.NfeProVlrUntVar = &sdtItemNfe.NfeProVlrUntVar.Replace(',','.')
+		
+		&sdtItemNfe.NfeProVlrTot = NfeProVlrTot
+		&Moeda2 = NfeProVlrTot
+		&sdtItemNfe.NfeProVlrTotVar = RetiraZerosDepoisVirgulaxCasas.Udp(2, &Moeda2.ToFormattedString())
+		&sdtItemNfe.NfeProVlrTotVar = &sdtItemNfe.NfeProVlrTotVar.Replace(',','.')
+		
+		&sdtItemNfe.NfeNcmCod = NfeNcmCod
+		&sdtItemNfe.NfeCfoCod = NfeCfoCod
+		&sdtItemNfe.NfeSitCod = NfeSitCod
+		 
+		
+		&sdtItemNfe.NfeEmbUnd = NfeEmbUnd
+		&sdtItemNfe.NfeEmbUndTrib = NfeEmbUndTrib
+	
+//		&NfeProTaxIcmsSt = NfeProTaxIcmsSt
+//		&NfeProTaxIpi = NfeProTaxIpi
+//		&NfeProTaxIcms = NfeProTaxIcms
+//		&NfeProTaxPIS = NfeProTaxPIS
+//		&NfeProTaxCofins = NfeProTaxCofins
+		
+		&sdtItemNfe.NfeProCBenef = NfeProCBenef
+	
+		&sdtItemNfe.ProBar = NfeProBar
+		&sdtItemNfe.ProBarTrib = NfeProBarTrib
+				
+		
+		Exit
+	EndFor
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&FilCod, in:&NfeCod, in:&parProRef, in:&NfeItmCod, out:&sdtItemNfe);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtItemNfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtItemNfe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtItemNfe, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProNom</Value></Property><Property><Name>Description</Name><Value>Descrição Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchouProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchouProduto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProReqVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProReqVlr</Value></Property><Property><Name>Description</Name><Value>Reque Vlr</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProReqVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="erroMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>erroMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProBarQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProBarQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade Embalado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProBarQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProReqQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProReqQtd</Value></Property><Property><Name>Description</Name><Value>Requer Qtd</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProReqQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProBar</Value></Property><Property><Name>Description</Name><Value>Ean Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilTabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilTabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilTabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilBasImp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilBasImp</Value></Property><Property><Name>Description</Name><Value>Filial Base Imposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilBasImp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaVct</Value></Property><Property><Name>Description</Name><Value>Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProVlrUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProVlrUnt</Value></Property><Property><Name>Description</Name><Value>Valor Unit</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProVlrUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctBasImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctBasImpCod</Value></Property><Property><Name>Description</Name><Value>Lançamento Base Imposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctBasImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataHoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataHoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRegTrib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRegTrib</Value></Property><Property><Name>Description</Name><Value>Regime Tributario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRegTrib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCatCod</Value></Property><Property><Name>Description</Name><Value>Categoria Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliGruImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliGruImpCod</Value></Property><Property><Name>Description</Name><Value>Grupo Imposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliGruImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parProRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parProRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moeda5">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moeda5</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>5</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>5</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moeda2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moeda2</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moeda6">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moeda6</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CImpOriUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CImpOriUfeCod</Value></Property><Property><Name>Description</Name><Value>Origem UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CImpOriUfeCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>get_itemNFCe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="e20f1deb-e4fa-48f5-bc73-639ccaa10c06" user="WINJEAN\jeanfae" versionDate="2024-12-12T17:52:31.0000000Z" lastUpdate="2024-12-10T14:09:33.0000000Z" checksum="4da4a03b84a199185f7555983a992f73" fullyQualifiedName="api_erp.set_RecuperarSenha" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="a4cd8214-4029-4135-86ea-69d083580595" name="set_RecuperarSenha" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_Recuperar Senha" parent="api_erp.autenticacao" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&UserName = &ParmUserName.Trim()
+
+if &UserName.IsEmpty()
+Else
+	&User = GAMRepository.GetUserByLogin(&UserAuthTypeName, &UserName, &Errors)	//## Busca um usuário. Caso ocorra algum erro durante a busca, os erros são armazenados na variável &Errors
+	If &Errors.Count = 0	//## Se não houver erros
+		&KeyToChangePassword = &User.RecoverPasswordByKey(&Errors)	//## Tenta recuperar a senha do usuário
+		
+		Do 'BuscaEmailTamplate'	//## Busca um modelo de e-mail para alteração de senha
+		
+		&Application = GAMApplication.Get()	//## Obtém uma instância de Aplicação
+		WWPBaseObjects.WWP_GetParameter.Text("Notification_BaseURL", &LinkURL)	//## Obtém a URL base da aplicação
+		&UsuarioCripto = encrypt64(&UserName, 'E1D89B0D44CD35AFC9CF69E7E556A97B')
+		
+		&BaseURL = &LinkURL + AlterarSenhaPasso2.Link(&IDP_State, &KeyToChangePassword, &UsuarioCripto)	//## Concatena a URL de base da aplicação com a URL da página de alteração de senha
+		
+		&BaseURL = &BaseURL.Replace('autenticacao\', '')
+		&BaseURL = &BaseURL.Replace('autenticacao/', '')
+		
+		//## ALTERA O CORPO DO E-MAIL ##\\
+		&WWPMailBody = &WWPMailBody.Replace(!"[LINK]", &BaseURL)
+		&WWPMailBody = &WWPMailBody.Replace(!"[LOGOFILIAL]", Trim(&FilWebLogo))
+		&WWPMailBody = &WWPMailBody.Replace(!"[LOGOJASPI]", 'https://i.postimg.cc/zBxK6z1W/Logo-JASPI.png')
+		&WWPMailBody = &WWPMailBody.Replace(!"[EMAILUSUARIO]", &User.EMail)
+		&WWPMailBody = &WWPMailBody.Replace(!"[FILIALALT]", &EmpRaz)
+		//##############################\\
+		
+		//## CONFIGURA AS INFORMAÇÕES DO SERVIDOR SMTP E DO REMETENTE DO E-MAIL ##\\
+		&Mail.To.Clear()
+		&Mail.To.New(Format("%1 %2", &User.FirstName, &User.LastName), &User.EMail)
+		&Mail.Subject = 'Alteração de Senha'
+		
+		WWPBaseObjects.WWP_GetParameter.Text(!"SMTP_Host", &TextParameter)
+		&Host 		= &TextParameter
+		&SMTP.Host 	= &TextParameter
+		
+		WWPBaseObjects.WWP_GetParameter.Integer(!"SMTP_Port", &IntegerParameter)
+		&SMTP.Port = &IntegerParameter
+		
+		WWPBaseObjects.WWP_GetParameter.Text(!"SMTP_Username", &TextParameter)
+		&SMTP.UserName = &TextParameter
+		&SMTP.Sender.Address = !"suportejaspilocal@gmail.com"
+		
+		WWPBaseObjects.WWP_GetParameter.Text(!"SMTP_Password", &TextParameter)
+		&SMTP.Password = &TextParameter
+		
+		WWPBaseObjects.WWP_GetParameter.Boolean(!"SMTP_Authentication", &BooleanParameter) //## True
+		If &BooleanParameter
+			&SMTP.Authentication = 1
+		Else
+			&SMTP.Authentication = 0
+		EndIf
+		
+		WWPBaseObjects.WWP_GetParameter.Boolean(!"SMTP_Secure", &BooleanParameter)	//## C# True, Js False
+		If &BooleanParameter
+			&SMTP.Secure = 1
+		Else	
+			&SMTP.Secure = 0
+		EndIf
+	 
+	 	WWPBaseObjects.WWP_GetParameter.Integer(!"SMTP_Timeout", &IntegerParameter)	//## 30 
+		&SMTP.Timeout = &IntegerParameter
+		
+		&Mail.HTMLText = &WWPMailBody
+		
+		&IsOk = &SMTP.Login()
+		//########################################################################\\
+		
+		If &SMTP.ErrCode = 0	//## Se não houver erros na configuração do servidor
+			&SMTP.Send(&Mail)	//## Tenta enviar o e-mail
+			
+			If &SMTP.ErrCode <> 0	//## Se o envio não for bem sucedido
+				&sdtRetornowbs.Sts = 'E001'
+				&sdtRetornowbs.Obs = Format('Falha ao enviar o e-mail: %1 (%2)', &SMTP.ErrDescription, &SMTP.ErrCode)	//## Adiciona uma mensagem de erro.
+			EndIf
+			
+			&SMTP.Logout()	//## Encerra a sessão			
+		Else
+			&sdtRetornowbs.Sts = 'E002'
+			&sdtRetornowbs.Obs = Format("Falha ao iniciar a sessão de e-mail: %1 (%1)", &SMTP.ErrDescription, &SMTP.ErrCode) //## Adiciona uma mensagem de erro.			
+		EndIf
+		
+		If &Message.IsEmpty()	//## Se o envio for bem sucedido
+			&sdtRetornowbs.Sts = 'J200'
+			&sdtRetornowbs.Obs = 'Uma mensagem para o e-mail: ' + Trim(&User.EMail) + ' foi enviado, com instruções para alterar a senha. Verifique a sua caixa de Entrada ou Spam. Caso não seja o E-mail correto, comunique o Suporte!'	//## Exibe uma mensagem informando o envio do e-mail
+		Else
+			&sdtRetornowbs.Sts = 'E003'
+			&sdtRetornowbs.Obs = &Message.ToString()	//## Exibe as mensagens de erro
+		EndIf		
+	Else
+		Do 'DisplayMessages'		
+	Endif
+EndIf
+
+
+Sub 'DisplayMessages'
+
+	For &Error in &Errors
+		if not &Error.Message.IsEmpty() or not &Error.Code.IsEmpty()
+			&sdtRetornowbs.Sts = 'E004'
+			&sdtRetornowbs.Obs += Format(!"%1 (GAM%2)", &Error.Message, &Error.Code)
+		Endif
+	EndFor
+
+EndSub
+
+Sub 'BuscaEmailTamplate'
+
+	&PesExtCod.FromString(&User.ExternalId)	
+	For Each Order EmpCod, PesCod
+		Where PesExtCod = &PesExtCod
+		
+		&AuxEmpCod 	= EmpCod
+		&EmpRaz		= EmpRaz
+		
+		Exit
+	EndFor
+	
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &AuxEmpCod or &AuxEmpCod.IsEmpty()
+		Where Not FilWebLogo.IsEmpty()		
+		&FilWebLogo = FilWebLogo		
+		Exit
+	EndFor
+	
+	&WWPMailTemplateName = 'MailAlterarSenha-Emp-' + Trim(Str(&AuxEmpCod))
+	
+	prcRetornaLayoutEmail.Call(&WWPMailTemplateName, 'AlterarSenha',&WWPMailBody)
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ParmUserName, out:&sdtRetornowbs);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtRetornowbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornowbs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornowbs, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ParmUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ParmUserName</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserName</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="User">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>User</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMUser, GeneXusSecurity</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserAuthTypeName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserAuthTypeName</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GAMDescriptionShort, GeneXusSecurityCommon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Errors">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Errors</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="KeyToChangePassword">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>KeyToChangePassword</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GAMDescriptionMedium, GeneXusSecurityCommon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesExtCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesExtCod</Value></Property><Property><Name>Description</Name><Value>Pessoa código externo GAM</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesExtCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpRaz</Value></Property><Property><Name>Description</Name><Value>Empresa Razão Social Matriz</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilWebLogo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilWebLogo</Value></Property><Property><Name>Description</Name><Value>Link Logo Filial on-line</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilWebLogo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWPMailTemplateName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWPMailTemplateName</Value></Property><Property><Name>Description</Name><Value>Mail Template Name</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WWPMailTemplateName</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWPMailBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWPMailBody</Value></Property><Property><Name>Description</Name><Value>Mail Body</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WWPMailBody</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LinkURL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LinkURL</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BaseURL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BaseURL</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Host">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Host</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOk</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Error">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Error</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Application">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Application</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMApplication, GeneXusSecurity</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UsuarioCripto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UsuarioCripto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IDP_State">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IDP_State</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GAMState, GeneXusSecurityCommon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mail</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:MailMessage</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SMTP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SMTP</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:SMTPSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TextParameter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TextParameter</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IntegerParameter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IntegerParameter</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BooleanParameter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BooleanParameter</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Message">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Message</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_RecuperarSenha</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="bbf648e2-759e-412c-97a8-ae81bb358500" user="LUIZ\LuiZ Henrique" versionDate="2024-10-09T12:31:13.0000000Z" lastUpdate="2024-10-09T11:40:00.0000000Z" checksum="0e72a3aad72878cf969c5e4e560b4bd2" fullyQualifiedName="prcOAuth_SicrediPIX" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c98f2f38-ef30-4d9d-b0ea-aed659fa7a54" name="prcOAuth_SicrediPIX" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc OAuth_Sicredi PIX" parent="API_SICREDI_PIX" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*
+ENDPOINT com funcionalidade de gerar um token necessário para consumir APIs do INTER.
+	° O tempo de vida de um token gerado é de uma hora. Com isso, é possível realizar
+	um número determinado de requisições, de acordo com o rate limit de cada api.
+		Rate Limit: 5 chamadas por minuto, ou uma chamada a cada 12 segundos.
+		
+Neste ENDPOINT, o sistema irá definir alguns valores padrões e montar o body da requisição
+em formato x-ww-form-urlencoded. Posteriormente, montará o header da requisição e adicionar
+o certificado referente a conta bancária na requisição. Após a adição, o sistema irá executar
+um POST na URL referente ao ambiente de produção do banco INTER.
+
+Responses:
+	Sucesso:
+		Code 200 = Sucesso. Token Emitido.
+		
+	Erros:
+		Code 400 = Requisição com formato inválido, por exemplo erro de semântica.
+		Code 403 = Requisição de participante autenticado que viola alguma regra de autorização. Verifique com o suporte do banco.
+		Code 404 = Recurso solicitado não foi encontrado.
+		Code 503 = Serviço não disponível no momento. O endpoint neste caso não funciona mais, ou está em manutenção.	
+*/
+
+Do 'GetContaBancaria'
+
+//Define valores padrões
+&DataHora			= ServerNow()
+&Mensagem.SetEmpty()
+&ErrorDescription.SetEmpty()
+&Password	= '1234'
+&ExecuteUrl	= IIf(&CbrCtaBanPixApi = 'P', 'https://api-pix.sicredi.com.br/oauth/token', 'https://api-pix-h.sicredi.com.br/oauth/token')
+
+//Adiciona em uma variavel o body da requisição
+//em formato x-ww-form-urlencoded
+&xwwformurlencoded	= 'grant_type=client_credentials'
+&xwwformurlencoded += '&scope=' + &scope
+
+csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+
+//Configura os Headers e adiciona o body
+&HttpClient.AddHeader('Accept-Encoding', 'gzip, deflate, br')
+&HttpClient.AddHeader('Connection', 'keep-alive')
+&HttpClient.AddHeader('Content-Type', 'application/x-www-form-urlencoded')
+&HttpClient.AddAuthentication(HttpAuthenticationType.Basic, '', &client_id, &client_secret)
+&HttpClient.AddString(&xwwformurlencoded)
+
+PadraoUsuarioHora.Call('G', 'SICREDI_TOKENOAUTH_HTTPCLIENTantes', &PesCod, &EmpCod, &HttpClient.ToString(), &PadDtaMod,ServerNow(),'T')
+
+//Carrega o Certificado ao Handler
+CSHARP try
+CSHARP { [!&HttpClient!].AddCertificate([!&PathCert!],[!&Password!]); }
+CSHARP catch (Exception ex)
+CSHARP { [!&ErrorDescription!] = ex.ToString();
+CSHARP }
+
+PadraoUsuarioHora.Call('G', 'SICREDI_TOKENOAUTH_HTTPCLIENT', &PesCod, &EmpCod, &BasicAuthorization, &PadDtaMod,ServerNow(),'T')
+
+//Executa o post para adquirir o token de acesso.
+&HttpClient.Execute('POST', &ExecuteUrl)
+PadraoUsuarioHora.Call('G', 'SICREDI_TOKENOAUTH_HTTPCLIENTdepois', &PesCod, &EmpCod, &HttpClient.ToString(), &PadDtaMod,ServerNow(),'T')
+PadraoUsuarioHora.Call('G', 'SICREDI_TOKENOAUTH_HTTPRequest', &PesCod, &EmpCod, &httpRequest.ToString(), &PadDtaMod,ServerNow(),'T')
+
+If &HttpClient.StatusCode	= 200
+	
+	PadraoUsuarioHora.Call('G', 'SICREDI_TOKENOAUTH_SS', &PesCod, &EmpCod, 'SS', &PadDtaMod,ServerNow(),'T')
+	
+	&sdtOAuthPix_Sicredi.FromJson(&HttpClient.ToString())
+	If Not &sdtOAuthPix_Sicredi.access_token.IsEmpty()
+		Do 'GravaAutenticacaoLocalCobranca'
+	EndIf
+	
+Else
+	
+	&PixResponseErro.FromJson(&HttpClient.ToString())
+	&Mensagem	= IIf(&ErrorDescription.IsEmpty(), '', 'Erro CSHARP:' + &ErrorDescription.Trim())	
+	if &Mensagem.IsEmpty() 
+		&Mensagem = 'ERRO Autenticação ' + trim(str(&HttpClient.StatusCode)) + ' - ' + &PixResponseErro.detail
+	Endif
+	PadraoUsuarioHora.Call('G', 'SICREDI_TOKENOAUTH_ERRO', &PesCod, &EmpCod, &Mensagem, &PadDtaMod,ServerNow(),'T')
+
+EndIf
+
+Sub 'GravaAutenticacaoLocalCobranca'
+	
+	For Each Order EmpCod, CbrCod, CbrTipImp
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		&CbrChaTra		= &sdtOAuthPix_Sicredi.access_token.Trim()
+		CbrChaTra		= &sdtOAuthPix_Sicredi.access_token.Trim()
+		CbrChaTraVct	= &DataHora.AddSeconds(&sdtOAuthPix_Sicredi.expires_in)
+		
+		Exit
+	EndFor
+	Commit
+	
+EndSub
+
+Sub 'GetContaBancaria'
+	
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		&CbrCtaBanPixApi = CbrCtaBanPixApi
+		
+		&client_id		= CtaBanPixCliId
+		&client_secret	= CtaBanPixCliSec
+		&BasicAuthorization	= &Base64Encoder.ToBase64(&client_id.Trim()+':'+&client_secret.Trim())
+		&scope			= CtaBanPixEsc
+		
+		//Faz o genexus criar um arquivo temporario do certificado
+		//Pega o caminho da web dele
+		&Path			= PathToUrl(CtaBanPixCer)
+		&InicioPath		= StrSearch(&Path, 'PublicTempStorage', 1)
+		&Path			= SubStr(&Path, &InicioPath, &Path.Length())
+		
+		//Pesquisa o caminho fisico temporario do certificado
+		&File.Source	= &Path
+		&PathCert		= &File.GetAbsoluteName() // GetPath() + !"\" + &Path
+		&PathCert		= StrReplace(&PathCert, '/', '\')
+		&File.Close()		
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod, in:&PesCod, In:&CbrCod, Out:&CbrChaTra, Out:&Mensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xwwformurlencoded">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xwwformurlencoded</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrDescription">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrDescription</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrCode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrCode</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Password">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Password</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrorDescription">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrorDescription</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PathCert">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PathCert</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PathKey">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PathKey</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="client_id">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>client_id</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="client_secret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>client_secret</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="scope">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>scope</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ApplicationData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ApplicationData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataHora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Errors">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Errors</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:GAMError, GeneXusSecurity</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação | token Beaber</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="violacoes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>violacoes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtErroAPI_Inter.violacoesItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InicioPath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InicioPath</Value></Property></Properties>
+        </Variable>
+        <Variable Name="httpRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>httpRequest</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BasicAuthorization">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BasicAuthorization</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Base64Encoder">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Base64Encoder</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:Base64Encoder, SecurityAPICommons</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PathPass">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PathPass</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtOAuthPix_Sicredi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtOAuthPix_Sicredi</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtOAuthPix_Sicredi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanPixApi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanPixApi</Value></Property><Property><Name>Description</Name><Value>Cbr Cta Ban Pix Api</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanPixApi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PixResponseErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PixResponseErro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:PIXResponseERRO</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcOAuth_SicrediPIX</Value></Property><Property><Name>Description</Name><Value>prc OAuth_Sicredi PIX</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="ad780d2e-16ba-4f54-9783-9b9195269cfd" user="WINJEAN\jeanfae" versionDate="2025-10-31T19:35:53.0000000Z" lastUpdate="2025-10-31T13:52:15.0000000Z" checksum="a570489bc2a332b7a2f47aa4dccb023a" fullyQualifiedName="prcEnviarNotaML" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="f5cf6e73-8f48-4393-9270-6978e9386522" name="prcEnviarNotaML" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Enviar Nota ML" parent="apisMercadoLivre" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+//pedido
+For Each Order EmpCod, MrkCod, MrkPedSku
+	Where EmpCod = &EmpCod
+	Where MrkCod = &MrkCod
+	Where MrkPedSku = &MrkPedSku
+	&MrkPedShipSku = MrkPedShipSku
+	&MrkPedNfDtaHor = MrkPedNfDtaHor
+	exit
+EndFor
+
+For Each ORder EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &Nfecod
+	
+	&sdtConfiguracoesPasta = RetornaConfiguracoesPastas.Udp(EmpCod, FilCod)
+	&NfeArqXml = NfeArqXml
+	
+	
+	&AnoMes = str(year(NfeDtaEms),4,0)+padl(trim(str(month(NfeDtaEms),2,0)),2,'0')
+	&PastaAutorizadas = &sdtConfiguracoesPasta.PastaNFenviado.Trim() + "Autorizados\" + &AnoMes.trim() + "\" + NfeChv.Trim() + '-procNFe.xml'
+	&PastaBancoDados =  &sdtConfiguracoesPasta.PastaNFenviado.Trim() + "BancoDeDados\" + NfeChv.Trim() + '-jaspi.xml'
+	
+	//XML
+	&File.Source = &PastaAutorizadas
+	If &File.Exists()
+		&IsTemXml = true
+	Else
+		GravaXmldoBancoDados.Call(EmpCod, FilCod, NfeCod, 0, &sdtConfiguracoesPasta)
+		&File.Source = &PastaBancoDados
+		If &File.Exists()
+			&IsTemXml = true		
+		EndIF
+	endif
+	
+EndFor
+
+prcMercadolivreRefreshToken.Call(&EmpCod, &MrkCod, &MrkSession, &IsSucesso)
+
+if &IsTemXml = true
+	
+	if &IsSucesso = true 
+		&HttpClient.AddHeader('Content-Type', 'application/xml')
+		&httpClient.AddHeader(!"Authorization", !"Bearer " + &MrkSession.Trim())
+		
+		//XML
+
+&HttpClient.AddString(&NfeArqXml)
+		
+		if not &MrkPedNfDtaHor.IsEmpty()
+			&HttpClient.Execute('PUT', 'https://api.mercadolibre.com/shipments/'+&MrkPedShipSku+'/invoice_data/?siteId=MLB')
+		Else
+			&HttpClient.Execute('POST', 'https://api.mercadolibre.com/shipments/'+&MrkPedShipSku+'/invoice_data/?siteId=MLB')
+		Endif
+	
+		&LongVarchar = "Status: " + &HttpClient.StatusCode.ToString()+' GUID:' +&MrkGuid
+		&LongVarchar += "Erro: " + &HttpClient.ErrDescription
+		&LongVarchar += "Retorno: " + &HttpClient.ToString()
+		&LongVarchar += &HttpClient.ToString()
+		padraoUsuario.Call('G', 'TESTEfiscaldocuments'+&MrkPedShipSku, 1, 1,&LongVarchar, &PAdDtaMod)
+		
+		//JDF fiscal_documents
+//		&HttpClient.AddHeader('Content-Type', 'multipart/form-data')
+//		&httpClient.AddHeader(!"Authorization", !"Bearer " + &MrkSession.Trim())
+		
+//		//XML
+//		&File.Source = &PastaAutorizadas
+//		If &File.Exists()
+//			&HttpClient.AddFile(&PastaAutorizadas, 'fiscal_document')
+//		Else
+//			&HttpClient.AddFile(&PastaBancoDados, 'fiscal_document')
+//		endif
+//		
+//		&HttpClient.Execute('POST', 'https://api.mercadolibre.com/packs/'+&MrkPedSku+'/fiscal_documents')
+//		
+//		&LongVarchar = "Status: " + &HttpClient.StatusCode.ToString()+' GUID:' +&MrkGuid
+//		&LongVarchar += "Erro: " + &HttpClient.ErrDescription
+//		&LongVarchar += "Retorno: " + &HttpClient.ToString()
+//		&LongVarchar += &HttpClient.ToString()
+//		padraoUsuario.Call('G', 'TESTEfiscaldocuments', 1, 1,&LongVarchar, &PAdDtaMod)
+		
+		
+		If &HttpClient.StatusCode = 200 or &HttpClient.StatusCode = 201
+			&sdtNotaEnviada.FromJson(&HttpClient.ToString())
+			
+			if not &sdtNotaEnviada.fiscal_key.isempty()
+				For Each ORder EmpCod, MrkCod, MrkPedSku
+					Where EmpCod = &EmpCod
+					Where MrkCod = &MrkCod
+					Where MrkPedSku = &MrkPedSku
+					
+					MrkPedNfDtaHor = serverNow()
+					Exit
+				EndFor
+				
+				Commit
+				prcAtualizaStatusInterno.Call(&EmpCod, &MrkCod, &MrkPedSku)
+			Endif
+		Else
+			msg('Falha catastrófica! ' + &HttpClient.StatusCode.ToString() + ' ' +&HttpClient.ToString())
+		Endif
+		
+	Else
+		msg('Falha catastrófica Session! ' + &HttpClient.StatusCode.ToString())
+	Endif
+	
+Else
+	msg('Falha catastrófica Xml! ' + &HttpClient.StatusCode.ToString())
+Endif
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&MrkCod, in:&FilCod, in:&NfeCod, in:&MrkPedSku);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="MrkPedSku">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MrkPedSku</Value></Property><Property><Name>Description</Name><Value>Pedido do ML</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MrkPedSku</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MrkCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MrkCod</Value></Property><Property><Name>Description</Name><Value>ID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MrkCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MrkSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MrkSession</Value></Property><Property><Name>Description</Name><Value>Mrk Session</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MrkSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSucesso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeArqXml</Value></Property><Property><Name>Description</Name><Value>Arq.Xml</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nfecod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nfecod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MrkGuid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MrkGuid</Value></Property><Property><Name>Description</Name><Value>GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MrkGuid</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PAdDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PAdDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="varNfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>varNfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoMes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaBancoDados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaBancoDados</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaAutorizadas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTemXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTemXml</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MrkPedShipSku">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MrkPedShipSku</Value></Property><Property><Name>Description</Name><Value>Mrk Ped Ship Sku</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MrkPedShipSku</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MrkPedNfDtaHor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MrkPedNfDtaHor</Value></Property><Property><Name>Description</Name><Value>Envio Nota</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MrkPedNfDtaHor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtNotaEnviada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtNotaEnviada</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtNotaEnviada</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcEnviarNotaML</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

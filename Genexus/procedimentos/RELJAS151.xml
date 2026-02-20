@@ -1,0 +1,1412 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="SRVORDIG\Administrador" versionDate="2025-10-16T21:52:50.0000000Z" lastUpdate="2025-10-10T11:53:11.0000000Z" checksum="c10159764f40969f3894fcd1bf4e4d76" fullyQualifiedName="RELJAS151" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="524afcda-0d0b-4a22-8871-fa17a531f39c" name="RELJAS151" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Duplicatas Pagas" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[Do 'InicializaVariaveis'
+
+MB 4
+MT 2
+
+Header
+	print Cabecalho
+	If &IsSintetico = true
+		Print MenuSintetico
+	Else
+		Print MenuAnalitico
+	EndIf
+End
+
+if &isSintetico = true
+	Do 'ImprimeDuplicatasSintetico'
+	Do 'ImprimeClienteSinteticoTotalGeral'
+else
+	Do 'ImprimeDuplicatasAnalitico'
+	Do 'ImprimeClienteAnaliticoTotalGeral'
+endif
+
+Do 'ImprimeLocalDeCobrancaMenu'
+Do 'ImprimePlanoDeContas'
+
+Footer
+	print Rodape
+End
+
+// InicializaVariaveis
+Sub 'InicializaVariaveis'
+	loadWWPContext.Call(&Context)
+	If &Context.PesCod = 0
+		Return
+	EndIf
+	
+	RetornaConfSistema.Call(&Context.EmpCod, &Context.FilCod, domConfSistema.TCon077_ExibeStatusDebitoCliente, &TCon077_ExibeStatusDebitoCliente)
+	
+	&PesRaz = &Context.PesRaz
+	
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &Context.EmpCod
+		Where FilCod = &Context.FilCod
+		&FilFan = FilFan
+		Exit
+	EndFor
+	
+	if not &CreFrpPgtoCod.IsEmpty()
+		getConfigFormaPagamentoReceber.call(&EmpCod, &FilCod, &Context.PesCod, &CreFrpPgtoCod, &CreFrpPgtoTip, &FrpPgtoDest, &sdtFormaPagamentoContas, &sdtFormaPagamentoLocalCobranca, &sdtFormaPagamentoBandeira)
+	Endif
+	
+	If &isReceber = 'R'
+		&titulo = 'DUPLICATAS PAGAS [CONTAS A RECEBER] '
+	Else
+		&titulo = 'DUPLICATAS PAGAS [CONTAS A PAGAR] '
+	Endif
+	
+	Do Case
+		case &CreFrpPgtoTip = TipoDuplicata.CARTAOC
+			&titulo += 'TIPO CARTÃO CRÉDITO'
+		case &CreFrpPgtoTip = TipoDuplicata.CARTAOD
+			&titulo += 'TIPO CARTÃO DÉBITO'
+		case &CreFrpPgtoTip = TipoDuplicata.CHEQUEP
+			&titulo += 'TIPO CHEQUE PRÓPRIO'
+		case &CreFrpPgtoTip = TipoDuplicata.CHEQUET
+			&titulo += 'TIPO CHEQUE TERCEIROS'
+		case &CreFrpPgtoTip = TipoDuplicata.DINHEIRO
+			&titulo += 'TIPO DINHEIRO'
+		case &CreFrpPgtoTip = TipoDuplicata.DUPLICATA
+			&titulo += 'TIPO DUPLICATA'
+		case &CreFrpPgtoTip = TipoDuplicata.PIX
+			&titulo += 'TIPO PIX'
+		OtherWise
+			&titulo += 'TODOS TIPOS'
+	EndCase
+	
+	&index           = 0
+	&TotalGeralPago  = 0
+	&TotalGeralDsc   = 0
+	&TotalGeralJuros = 0
+	&CrePagTotItm    = 0
+	&auxCreCliCod    = 0
+	&AuxPlanCod      = 0
+	&AuxPlanMoeda    = 0
+	&CrePagTotItm    = 0
+	&VetCreCbrCod()  = 0
+	&VetCreCbrNom()  = ''
+	&VetCreVlrSdo()  = 0
+	&VetCreVlrJur()  = 0
+	&VetCreVlrDsc()  = 0
+	&x               = 1
+EndSub
+
+// ImprimeDuplicatasSintetico
+Sub 'ImprimeDuplicatasSintetico'
+	For Each
+		Order EmpCod,FilCod, CreCliRaz when &Ordem = 'C'
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where CreRecPag = &isReceber
+		Where CreFrpPgtoCod = &CreFrpPgtoCod when not &CreFrpPgtoCod.IsEmpty()
+		Where CreFrpPgtoTip <> TipoDuplicata.CARTAOC and CreFrpPgtoTip <> TipoDuplicata.CARTAOD when &CreFrpPgtoCod.IsEmpty()
+		Where CreCliCod = &CreCliCod when not &CreCliCod.IsEmpty()
+		Where CrePagDta >= &CrePagDtaInicial when not &CrePagDtaInicial.IsEmpty()
+		where CrePagDta <= &CrePagDtaFinal when not &CrePagDtaFinal.IsEmpty()
+		Where CreVenCod = &PesCod When not &PesCod.IsEmpty()
+		Where CreCliCobCidCod = &CidCod when not &CidCod.IsEmpty()
+		Where CreCliCobUfeCod = &UfeCod when not &UfeCod.IsEmpty()
+		Where CreVenAreCod = &AreCod when not &AreCod.IsEmpty()
+		Where CreCbrCod = &CreCbrCod when not &CreCbrCod.IsEmpty()
+		Where CreVlrSdo <> CreVlrDup //when &Status = 'P'
+		Where not CrePedCod.IsEmpty() when &IsPedido = True
+		Where CrePagSts <> Status_Caixa.Cancelado or CrePagSts.IsEmpty() or CrePagSts.IsNull()
+		Where CreFilPgt = &CreFilPgt when not &CreFilPgt.IsEmpty()
+		
+		if &index = 2 and (&Ordem = 'C' or &Ordem = 'D')
+			If CreCliCod <> &auxCreCliCod
+				Print ClienteSintetico
+				NoSkip
+				Print ClienteSinteticoItem
+				&TotalPago     = 0
+				&TotalJuros    = 0
+				&TotalDesconto = 0
+			EndIf
+		endif
+		
+		If &AuxPlanCod <> CrePlanCod and not &AuxPlanCod.IsEmpty()
+			do 'AddSDTPlanContas'
+		Endif
+		&AuxPlanCod = CrePlanCod
+		&AuxPlanMoeda += CrePagTotItm
+		
+//		print printBlock1
+		
+		&index = 2
+		&AuxCreCliCod = CreCliCod
+		&AuxCreCbrCod = CreCbrCod
+		if &AuxCreCbrCod.IsEmpty()
+			&AuxCreCbrCod = 1
+		EndiF
+		
+		//############################ Atribuições da Tela ####################################
+		&CrePagDta        = CrePagDta
+		&CreDupNro        = CreDupNro
+		&CreCliRaz        = substr(CreCliCodRaz,1,30)
+		&CreCliCobCidNom  = substr(trim(CreCliCobCidNom),1,15)+'/'+CreCliCobUfeCod
+		&CreVenCod        = CreVenCod
+		RetornaPrimeiroTelefone.Call(EmpCod,CreCliCod,&PesFonNum)
+		
+		// VALORES POR LINHA
+		&TotalPago     += CrePagTotItm
+		&TotalJuros    += CrePagVlrJur
+		&TotalDesconto += CrePagVlrDsc
+		
+		// SOMA TOTAL AO FINAL DE TODOS OS RESULTADOS
+		&TotalGeralPago  += CrePagTotItm
+		&TotalGeralJuros += CrePagVlrJur
+		&TotalGeralDsc   += CrePagVlrDsc
+		
+		//#####################################################################################
+		
+		//################## Contabiliza Total por Local de Cobrança ########################## 
+		&VetCreCbrCod(&AuxCreCbrCod) = &AuxCreCbrCod
+		&VetCreCbrNom(&AuxCreCbrCod) = CreCbrNom
+		&VetCreVlrSdo(&AuxCreCbrCod) += CrePagTotItm
+		&VetCreVlrJur(&AuxCreCbrCod) += CrePagVlrJur
+		&VetCreVlrDsc(&AuxCreCbrCod) += CrePagVlrDsc
+		//#####################################################################################
+	endfor
+	
+	If &AuxPlanMoeda <> 0
+		do 'AddSDTPlanContas'
+	Endif
+	
+	if &index = 2 and (&Ordem = 'C' or &Ordem = 'D')
+		Print ClienteSintetico
+		NoSkip
+		Print ClienteSinteticoItem
+		&CrePagTotItm = 0
+	endif
+EndSub
+
+//ImprimeTotalGeralAnalitico
+Sub 'ImprimeClienteSinteticoTotalGeral'
+	print ClienteSinteticoTotalGeral
+EndSub
+
+//ImprimeTotalGeral
+Sub 'ImprimeClienteAnaliticoTotalGeral'
+	print ClienteAnaliticoTotalGeral
+EndSub
+
+//ImprimeLocalDeCobrancaMenu
+Sub 'ImprimeLocalDeCobrancaMenu'
+	print CobrancaMenu
+	&Var = 1	
+	Do while &Var <= rows(&VetCreCbrCod())
+	    if &VetCreCbrCod(&Var) <> nullvalue(&VetCreCbrCod(&Var))
+			
+	        &LayCreCbrCod = &VetCreCbrCod(&Var)
+	        &LayCreCbrNom = &VetCreCbrNom(&Var)
+	        &LayCreVlrSdo = &VetCreVlrSdo(&Var)
+			&LayCreVlrJur = &VetCreVlrJur(&Var)
+			&LayCreVlrDsc = &VetCreVlrDsc(&Var)
+	        print CobrancaDetalhe
+	    endif
+       &Var += 1
+	EndDo
+EndSub
+
+//ImprimePlanoDeContas
+Sub 'ImprimePlanoDeContas'
+	Print PlanoDeContasMenu
+	&SdtTotalPlanoContas.Sort('PlanHiePadL')
+	For &SdtTotalPlanoContasItem in &SdtTotalPlanoContas
+		&PlanCodNOm = &SdtTotalPlanoContasItem.PlanCodNom
+		&PlanMoeda = &SdtTotalPlanoContasItem.PlanMoeda
+		print PlanoDeContasItem
+	EndFor
+EndSub
+
+// AddSDTPlanContas
+Sub 'AddSDTPlanContas'
+	&IsAchou = false
+	For &SdtTotalPlanoContasItem in &SdtTotalPlanoContas
+		If &SdtTotalPlanoContasItem.planCod = &AuxPlanCod
+			&SdtTotalPlanoContasItem.PlanMoeda += &AuxPlanMoeda
+			&IsAchou = true
+			exit
+		EndIf
+	EndFor
+	
+	if &IsAchou = false
+		For Each Order EmpCod, PlanCod
+			Where EmpCod = &EmpCod
+			Where PlanCod = &AuxPlanCod
+			
+			&SdtTotalPlanoContasItem = new()
+			&SdtTotalPlanoContasItem.PlanCod 	 = PlanCod
+			&SdtTotalPlanoContasItem.PlanCodNom  = PlanCodNom
+			&SdtTotalPlanoContasItem.PlanHie 	 = PlanHie
+			&SdtTotalPlanoContasItem.PlanHiePadL = PlanHiePadL
+			&SdtTotalPlanoContasItem.PlanMoeda   = &AuxPlanMoeda
+			&SdtTotalPlanoContas.Add(&SdtTotalPlanoContasItem)
+//			print printBlock4
+			Exit
+		EndFor
+	EndIf
+
+	&AuxPlanMoeda = 0
+	
+EndSub
+
+// ImprimeDuplicatasAnalitico
+Sub 'ImprimeDuplicatasAnalitico'
+	
+	For Each
+		Order EmpCod,FilCod, CreCliRaz, (CrePagDta) when &Ordem = 'C'
+		Order EmpCod,FilCod, CrePagDta, CreCliRaz when &Ordem = 'D'
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where CreRecPag = &isReceber
+		Where CreFrpPgtoCod = &CreFrpPgtoCod when not &CreFrpPgtoCod.IsEmpty()
+		Where CreFrpPgtoTip <> TipoDuplicata.CARTAOC and CreFrpPgtoTip <> TipoDuplicata.CARTAOD when &CreFrpPgtoCod.IsEmpty()
+		Where CreCliCod = &CreCliCod when not &CreCliCod.IsEmpty()
+		Where CrePagDta >= &CrePagDtaInicial when not &CrePagDtaInicial.IsEmpty()
+		where CrePagDta <= &CrePagDtaFinal when not &CrePagDtaFinal.IsEmpty()
+		Where CreVenCod = &PesCod When not &PesCod.IsEmpty()
+		Where CreCliCobCidCod = &CidCod when not &CidCod.IsEmpty()
+		Where CreCliCobUfeCod = &UfeCod when not &UfeCod.IsEmpty()
+		Where CreVenAreCod = &AreCod when not &AreCod.IsEmpty()
+		Where CreCbrCod = &CreCbrCod when not &CreCbrCod.IsEmpty()
+		Where CreVlrSdo <> CreVlrDup //when &Status = 'P'
+		Where not CrePedCod.IsEmpty() when &IsPedido = True
+		Where CrePagSts <> Status_Caixa.Cancelado or CrePagSts.IsEmpty() or CrePagSts.IsNull()
+		Where CreFilPgt = &CreFilPgt when not &CreFilPgt.IsEmpty()
+		
+		//######################### ADICIONA AO PLANO DE CONTAS ############################### 
+		If &AuxPlanCod <> CrePlanCod and not &AuxPlanCod.IsEmpty()
+			do 'AddSDTPlanContas'
+		Endif
+		&AuxPlanCod = CrePlanCod
+		&AuxPlanMoeda += CrePagTotItm
+		//#####################################################################################
+		
+		
+		If &index = 2 and (&Ordem = 'D' or &Ordem = 'C')
+			If CreCliCod <> &AuxCreCliCod
+				Print ClienteAnaliticoTotal
+				&x = 1
+				&TotalPago     = 0
+				&TotalJuros    = 0
+				&TotalDesconto = 0
+			EndIf
+		EndIf
+		
+		&index = 2
+		&AuxCreCliCod = CreCliCod
+		&AuxCreVenCod = CreVenCod
+		&AuxCreCbrCod = CreCbrCod
+		If &AuxCreCbrCod.IsEmpty()
+			&AuxCreCbrCod = 1
+		EndIf
+		
+		//############################ Atribuições da Tela ####################################
+		&CrePedCod        = CrePedCod
+		&CreCliRaz        = substr(CreCliCodRaz,1,30)
+		&CreCliCobCidNom  = substr(trim(CreCliCobCidNom),1,15)+'/'+CreCliCobUfeCod
+		&CrePagDta        = CrePagDta
+		RetornaPrimeiroTelefone.Call(EmpCod,CreCliCod,&PesFonNum)
+		
+		// VALORES POR LINHA
+		&CrePagTotItm = CrePagTotItm
+		&CrePagVlrJur = CrePagVlrJur
+		&CrePagVlrDsc = CrePagVlrDsc
+		
+		// VALORES POR LINHA SOMA
+		&TotalPago     += CrePagTotItm
+		&TotalJuros    += CrePagVlrJur
+		&TotalDesconto += CrePagVlrDsc
+		
+		// SOMA TOTAL AO FINAL DE TODOS OS RESULTADOS
+		&TotalGeralPago  += CrePagTotItm
+		&TotalGeralJuros += CrePagVlrJur
+		&TotalGeralDsc   += CrePagVlrDsc
+		
+		//#####################################################################################
+		
+		//################## Contabiliza Total por Local de Cobrança ########################## 
+		&VetCreCbrCod(&AuxCreCbrCod) = &AuxCreCbrCod
+		&VetCreCbrNom(&AuxCreCbrCod) = CreCbrNom
+		&VetCreVlrSdo(&AuxCreCbrCod) += CrePagTotItm
+		&VetCreVlrJur(&AuxCreCbrCod) += CrePagVlrJur
+		&VetCreVlrDsc(&AuxCreCbrCod) += CrePagVlrDsc
+		//#####################################################################################
+		
+		//################################ CASE IMPRESSÃO ##############################################
+		Do Case
+			Case (&x = 1 and (&Ordem = 'D' Or &Ordem = 'C'))
+				Print ClienteAnalitico
+				Noskip
+				Print ClienteAnaliticoItem
+				&x = 2
+			Case (&x = 2 and (&Ordem = 'D' Or &Ordem = 'C'))
+				Print ClienteAnaliticoItem
+		EndCase
+		
+		//################################## IMPRESSÃO DAS OBSERVAÇÕES E COBRANÇAS ######################	
+		If &IsMostrarObs = true
+			
+			&Intobs = 1
+			For Each Order CreCobCod
+				&CreMetNom = ''
+				&CreResNom = ''
+				If &Intobs = 1
+					Print Observacao
+					&Intobs = 2
+				EndIf
+				&CreMetNom = substr(CreMetNom,1,40)
+				&CreResNom = substr(CreResNom,1,40)
+				&CreCobObs = SubStr(CreCobObs,1,72)
+				&CreCobObs2 = SubStr(CreCobObs,71,200)
+				Print ObservacaoDesc
+				If not &CreCobObs2.Trim().IsEmpty()
+					Print ObservacaoDesc2
+				EndIf
+			EndFor
+		Endif
+		
+		If &IsDetalhaPedido = true // Vai Mostrar o Pedido e os Produtos Daquele Pedido.
+			if not CrePedCod.IsEmpty()
+				&CrePedCod = CrePedCod
+				
+				Do 'GetPedido'
+			Else
+				&CrePedCod = 0
+			EndIf
+		EndIf
+		
+		//################################################################################################
+	EndFor
+	
+	If &AuxPlanMoeda <> 0
+		do 'AddSDTPlanContas'
+	Endif
+	
+	// ######################################### TOTAIS  APOS SAIR DO FOR / SERVE PARA O UVarLTIMO REGISTRO
+	Print ClienteAnaliticoTotal
+EndSub
+
+Sub 'GetPedido'
+	For Each Order EmpCod,FilCod,PedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PedCod = &CrePedCod
+		Print DetPedido
+		
+		For each Order PedItmCod
+			&ProCod = ProCod
+			&ProNom = ProNom
+			&PedQtd = PedQtd
+			&PedVlrUnt = PedVlrUnt
+			&PedVlritmComDsc = PedVlrItmComDsc
+			Print DetPedidoProduto
+		EndFor
+		Print DetPedidoLine
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Layout>
+          <Bands>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute1</Value></Property><Property><Name>RPT_ID</Name><Value>2</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;FilFan</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Pgmname</Value></Property><Property><Name>RPT_ID</Name><Value>4</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Pgmname</Value></Property><Property><Name>RPT_X</Name><Value>664</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle1</Value></Property><Property><Name>RPT_ID</Name><Value>7</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>29</Value></Property><Property><Name>RPT_WIDTH</Name><Value>774</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>4</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>57, 179, 215</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>57, 179, 215</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute6</Value></Property><Property><Name>RPT_ID</Name><Value>237</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;titulo</Value></Property><Property><Name>RPT_X</Name><Value>207</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel3</Value></Property><Property><Name>RPT_ID</Name><Value>240</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Período:</Value></Property><Property><Name>RPT_X</Name><Value>663</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel4</Value></Property><Property><Name>RPT_ID</Name><Value>241</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>a</Value></Property><Property><Name>RPT_X</Name><Value>743</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute7</Value></Property><Property><Name>RPT_ID</Name><Value>438</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePagDtaInicial</Value></Property><Property><Name>RPT_X</Name><Value>700</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute8</Value></Property><Property><Name>RPT_ID</Name><Value>439</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePagDtaFinal</Value></Property><Property><Name>RPT_X</Name><Value>750</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Cabecalho</Value></Property><Property><Name>RPT_ID</Name><Value>1</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>34</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine36</Value></Property><Property><Name>RPT_ID</Name><Value>345</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>347</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>75</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine37</Value></Property><Property><Name>RPT_ID</Name><Value>346</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>247</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>95</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel39</Value></Property><Property><Name>RPT_ID</Name><Value>355</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Telefone</Value></Property><Property><Name>RPT_X</Name><Value>364</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel40</Value></Property><Property><Name>RPT_ID</Name><Value>356</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Cidade/UF</Value></Property><Property><Name>RPT_X</Name><Value>271</Value></Property><Property><Name>RPT_Y</Name><Value>2</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel41</Value></Property><Property><Name>RPT_ID</Name><Value>357</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Cliente/Fornecedor</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine34</Value></Property><Property><Name>RPT_ID</Name><Value>423</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>45</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel37</Value></Property><Property><Name>RPT_ID</Name><Value>424</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Duplicata</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine38</Value></Property><Property><Name>RPT_ID</Name><Value>426</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>175</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine34</Value></Property><Property><Name>RPT_ID</Name><Value>431</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>425</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel36</Value></Property><Property><Name>RPT_ID</Name><Value>432</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Pago</Value></Property><Property><Name>RPT_X</Name><Value>429</Value></Property><Property><Name>RPT_Y</Name><Value>2</Value></Property><Property><Name>RPT_WIDTH</Name><Value>47</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine59</Value></Property><Property><Name>RPT_ID</Name><Value>544</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>484</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel5</Value></Property><Property><Name>RPT_ID</Name><Value>556</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Desconto</Value></Property><Property><Name>RPT_X</Name><Value>545</Value></Property><Property><Name>RPT_Y</Name><Value>2</Value></Property><Property><Name>RPT_WIDTH</Name><Value>47</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine2</Value></Property><Property><Name>RPT_ID</Name><Value>557</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>542</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel73</Value></Property><Property><Name>RPT_ID</Name><Value>543</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Juros</Value></Property><Property><Name>RPT_X</Name><Value>488</Value></Property><Property><Name>RPT_Y</Name><Value>2</Value></Property><Property><Name>RPT_WIDTH</Name><Value>47</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>MenuSintetico</Value></Property><Property><Name>RPT_ID</Name><Value>337</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle7</Value></Property><Property><Name>RPT_ID</Name><Value>554</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>408</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>230, 237, 240</Value></Property><Property><Name>RPT_BORDERWIDTH</Name><Value>0</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>0, 0, 0, 0</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute34</Value></Property><Property><Name>RPT_ID</Name><Value>364</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PesFonNum</Value></Property><Property><Name>RPT_X</Name><Value>347</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>76</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute35</Value></Property><Property><Name>RPT_ID</Name><Value>366</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreCliCobCidNom</Value></Property><Property><Name>RPT_X</Name><Value>252</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute37</Value></Property><Property><Name>RPT_ID</Name><Value>367</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreCliRaz</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>174</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute49</Value></Property><Property><Name>RPT_ID</Name><Value>425</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>CreDupNro</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>42</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine45</Value></Property><Property><Name>RPT_ID</Name><Value>427</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>19</Value></Property><Property><Name>RPT_Y</Name><Value>12</Value></Property><Property><Name>RPT_WIDTH</Name><Value>769</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>DimGray</Value></Property><Property><Name>RPT_LINEWIDTH</Name><Value>1</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dotted</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteSintetico</Value></Property><Property><Name>RPT_ID</Name><Value>363</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle8</Value></Property><Property><Name>RPT_ID</Name><Value>555</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>425</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>362</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>230, 237, 240</Value></Property><Property><Name>RPT_BORDERWIDTH</Name><Value>0</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>0, 0, 0, 0</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute22</Value></Property><Property><Name>RPT_ID</Name><Value>571</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalJuros</Value></Property><Property><Name>RPT_X</Name><Value>483</Value></Property><Property><Name>RPT_WIDTH</Name><Value>52</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute23</Value></Property><Property><Name>RPT_ID</Name><Value>572</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalDesconto</Value></Property><Property><Name>RPT_X</Name><Value>542</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute9</Value></Property><Property><Name>RPT_ID</Name><Value>570</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalPago</Value></Property><Property><Name>RPT_X</Name><Value>425</Value></Property><Property><Name>RPT_WIDTH</Name><Value>51</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine7</Value></Property><Property><Name>RPT_ID</Name><Value>584</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>769</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>DimGray</Value></Property><Property><Name>RPT_LINEWIDTH</Name><Value>1</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dotted</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteSinteticoItem</Value></Property><Property><Name>RPT_ID</Name><Value>463</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>15</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel8</Value></Property><Property><Name>RPT_ID</Name><Value>579</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total:</Value></Property><Property><Name>RPT_X</Name><Value>250</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine6</Value></Property><Property><Name>RPT_ID</Name><Value>580</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>250</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>342</Value></Property></Properties>
+                </ReportLine>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute24</Value></Property><Property><Name>RPT_ID</Name><Value>581</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalGeralJuros</Value></Property><Property><Name>RPT_X</Name><Value>477</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute25</Value></Property><Property><Name>RPT_ID</Name><Value>582</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalGeralDsc</Value></Property><Property><Name>RPT_X</Name><Value>538</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute26</Value></Property><Property><Name>RPT_ID</Name><Value>583</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalGeralPago</Value></Property><Property><Name>RPT_X</Name><Value>368</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>108</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteSinteticoTotalGeral</Value></Property><Property><Name>RPT_ID</Name><Value>575</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>35</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel63</Value></Property><Property><Name>RPT_ID</Name><Value>497</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Pago</Value></Property><Property><Name>RPT_X</Name><Value>617</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>33</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine33</Value></Property><Property><Name>RPT_ID</Name><Value>498</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>608</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine49</Value></Property><Property><Name>RPT_ID</Name><Value>499</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel64</Value></Property><Property><Name>RPT_ID</Name><Value>500</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Vendedor</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>47</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine50</Value></Property><Property><Name>RPT_ID</Name><Value>501</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>175</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel65</Value></Property><Property><Name>RPT_ID</Name><Value>502</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Duplicata</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine51</Value></Property><Property><Name>RPT_ID</Name><Value>503</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>45</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel66</Value></Property><Property><Name>RPT_ID</Name><Value>504</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Cliente/Fornecedor</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel67</Value></Property><Property><Name>RPT_ID</Name><Value>505</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Cidade/UF</Value></Property><Property><Name>RPT_X</Name><Value>275</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel68</Value></Property><Property><Name>RPT_ID</Name><Value>506</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Telefone</Value></Property><Property><Name>RPT_X</Name><Value>375</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine52</Value></Property><Property><Name>RPT_ID</Name><Value>507</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>258</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>95</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine53</Value></Property><Property><Name>RPT_ID</Name><Value>508</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>358</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>75</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine54</Value></Property><Property><Name>RPT_ID</Name><Value>515</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>549</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel69</Value></Property><Property><Name>RPT_ID</Name><Value>516</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Dta. Pgto.</Value></Property><Property><Name>RPT_X</Name><Value>551</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>47</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine60</Value></Property><Property><Name>RPT_ID</Name><Value>546</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>667</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel74</Value></Property><Property><Name>RPT_ID</Name><Value>547</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Juros</Value></Property><Property><Name>RPT_X</Name><Value>675</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>33</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel72</Value></Property><Property><Name>RPT_ID</Name><Value>541</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Pedido</Value></Property><Property><Name>RPT_X</Name><Value>500</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>33</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine57</Value></Property><Property><Name>RPT_ID</Name><Value>540</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>491</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine3</Value></Property><Property><Name>RPT_ID</Name><Value>559</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>729</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel6</Value></Property><Property><Name>RPT_ID</Name><Value>560</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Desconto</Value></Property><Property><Name>RPT_X</Name><Value>732</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>47</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>MenuAnalitico</Value></Property><Property><Name>RPT_ID</Name><Value>496</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>18</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle6</Value></Property><Property><Name>RPT_ID</Name><Value>553</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>410</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>230, 237, 240</Value></Property><Property><Name>RPT_BORDERWIDTH</Name><Value>0</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>0, 0, 0, 0</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute70</Value></Property><Property><Name>RPT_ID</Name><Value>511</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>CreDupNro</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>42</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute71</Value></Property><Property><Name>RPT_ID</Name><Value>512</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreCliRaz</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>174</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute72</Value></Property><Property><Name>RPT_ID</Name><Value>513</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreCliCobCidNom</Value></Property><Property><Name>RPT_X</Name><Value>258</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute73</Value></Property><Property><Name>RPT_ID</Name><Value>514</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PesFonNum</Value></Property><Property><Name>RPT_X</Name><Value>358</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>76</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine55</Value></Property><Property><Name>RPT_ID</Name><Value>518</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>25</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>763</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dotted</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteAnalitico</Value></Property><Property><Name>RPT_ID</Name><Value>509</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>17</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle5</Value></Property><Property><Name>RPT_ID</Name><Value>552</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>355</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>230, 237, 240</Value></Property><Property><Name>RPT_BORDERWIDTH</Name><Value>0</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>0, 0, 0, 0</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine56</Value></Property><Property><Name>RPT_ID</Name><Value>528</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>355</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dotted</Value></Property></Properties>
+                </ReportLine>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute79</Value></Property><Property><Name>RPT_ID</Name><Value>529</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePagDta</Value></Property><Property><Name>RPT_X</Name><Value>550</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>52</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute80</Value></Property><Property><Name>RPT_ID</Name><Value>530</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>CreVenCod</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>48</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute69</Value></Property><Property><Name>RPT_ID</Name><Value>536</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePagTotItm</Value></Property><Property><Name>RPT_X</Name><Value>612</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute61</Value></Property><Property><Name>RPT_ID</Name><Value>542</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePedCod</Value></Property><Property><Name>RPT_X</Name><Value>492</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute74</Value></Property><Property><Name>RPT_ID</Name><Value>548</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePagVlrJur</Value></Property><Property><Name>RPT_X</Name><Value>667</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute10</Value></Property><Property><Name>RPT_ID</Name><Value>569</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePagVlrDsc</Value></Property><Property><Name>RPT_X</Name><Value>729</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteAnaliticoItem</Value></Property><Property><Name>RPT_ID</Name><Value>520</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>16</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine58</Value></Property><Property><Name>RPT_ID</Name><Value>533</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>355</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel70</Value></Property><Property><Name>RPT_ID</Name><Value>534</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total:</Value></Property><Property><Name>RPT_X</Name><Value>433</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute81</Value></Property><Property><Name>RPT_ID</Name><Value>535</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalPago</Value></Property><Property><Name>RPT_X</Name><Value>570</Value></Property><Property><Name>RPT_WIDTH</Name><Value>92</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute13</Value></Property><Property><Name>RPT_ID</Name><Value>573</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalDesconto</Value></Property><Property><Name>RPT_X</Name><Value>725</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute18</Value></Property><Property><Name>RPT_ID</Name><Value>574</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalJuros</Value></Property><Property><Name>RPT_X</Name><Value>667</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteAnaliticoTotal</Value></Property><Property><Name>RPT_ID</Name><Value>531</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>33</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel16</Value></Property><Property><Name>RPT_ID</Name><Value>470</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total Geral:</Value></Property><Property><Name>RPT_X</Name><Value>367</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>50</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine14</Value></Property><Property><Name>RPT_ID</Name><Value>471</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>367</Value></Property><Property><Name>RPT_Y</Name><Value>12</Value></Property><Property><Name>RPT_WIDTH</Name><Value>422</Value></Property></Properties>
+                </ReportLine>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute19</Value></Property><Property><Name>RPT_ID</Name><Value>472</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalGeralPago</Value></Property><Property><Name>RPT_X</Name><Value>554</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>108</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute11</Value></Property><Property><Name>RPT_ID</Name><Value>562</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalGeralDsc</Value></Property><Property><Name>RPT_X</Name><Value>733</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>54</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute12</Value></Property><Property><Name>RPT_ID</Name><Value>563</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;TotalGeralJuros</Value></Property><Property><Name>RPT_X</Name><Value>667</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ClienteAnaliticoTotalGeral</Value></Property><Property><Name>RPT_ID</Name><Value>468</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>22</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute36</Value></Property><Property><Name>RPT_ID</Name><Value>362</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreVlrSdo</Value></Property><Property><Name>RPT_X</Name><Value>532</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>SaldoSintetico</Value></Property><Property><Name>RPT_ID</Name><Value>358</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle3</Value></Property><Property><Name>RPT_ID</Name><Value>447</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>33</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>757</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>Gainsboro</Value></Property><Property><Name>RPT_BORDERWIDTH</Name><Value>0</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>0, 0, 0, 0</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute52</Value></Property><Property><Name>RPT_ID</Name><Value>436</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CrePedCod</Value></Property><Property><Name>RPT_X</Name><Value>130</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel53</Value></Property><Property><Name>RPT_ID</Name><Value>444</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Nome</Value></Property><Property><Name>RPT_X</Name><Value>225</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel54</Value></Property><Property><Name>RPT_ID</Name><Value>445</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Produto</Value></Property><Property><Name>RPT_X</Name><Value>183</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel57</Value></Property><Property><Name>RPT_ID</Name><Value>449</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Valor Uni</Value></Property><Property><Name>RPT_X</Name><Value>617</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel59</Value></Property><Property><Name>RPT_ID</Name><Value>450</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Qtde</Value></Property><Property><Name>RPT_X</Name><Value>550</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel56</Value></Property><Property><Name>RPT_ID</Name><Value>448</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Valor Total</Value></Property><Property><Name>RPT_X</Name><Value>683</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel55</Value></Property><Property><Name>RPT_ID</Name><Value>446</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Detalhamento do Pedido </Value></Property><Property><Name>RPT_X</Name><Value>39</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>103</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>DetPedido</Value></Property><Property><Name>RPT_ID</Name><Value>440</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>17</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle4</Value></Property><Property><Name>RPT_ID</Name><Value>551</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>158</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>632</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>WhiteSmoke</Value></Property><Property><Name>RPT_BORDERWIDTH</Name><Value>0</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>0, 0, 0, 0</Value></Property></Properties>
+                </ReportRectangle>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute54</Value></Property><Property><Name>RPT_ID</Name><Value>454</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PedQtd</Value></Property><Property><Name>RPT_X</Name><Value>533</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>37</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute55</Value></Property><Property><Name>RPT_ID</Name><Value>455</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PedVlrUnt</Value></Property><Property><Name>RPT_X</Name><Value>600</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>60</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute56</Value></Property><Property><Name>RPT_ID</Name><Value>456</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PedVlritmComDsc</Value></Property><Property><Name>RPT_X</Name><Value>675</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute57</Value></Property><Property><Name>RPT_ID</Name><Value>457</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;ProNom</Value></Property><Property><Name>RPT_X</Name><Value>225</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>292</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute58</Value></Property><Property><Name>RPT_ID</Name><Value>458</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;ProCod</Value></Property><Property><Name>RPT_X</Name><Value>175</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine47</Value></Property><Property><Name>RPT_ID</Name><Value>459</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>158</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>575</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dotted</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>DetPedidoProduto</Value></Property><Property><Name>RPT_ID</Name><Value>453</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>17</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine48</Value></Property><Property><Name>RPT_ID</Name><Value>461</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>158</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>631</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>DimGray</Value></Property><Property><Name>RPT_LINEWIDTH</Name><Value>2</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>DetPedidoLine</Value></Property><Property><Name>RPT_ID</Name><Value>460</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>8</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel22</Value></Property><Property><Name>RPT_ID</Name><Value>291</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Método</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel23</Value></Property><Property><Name>RPT_ID</Name><Value>292</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Resultado</Value></Property><Property><Name>RPT_X</Name><Value>183</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel25</Value></Property><Property><Name>RPT_ID</Name><Value>294</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Prometeu</Value></Property><Property><Name>RPT_X</Name><Value>366</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel26</Value></Property><Property><Name>RPT_ID</Name><Value>295</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Obs</Value></Property><Property><Name>RPT_X</Name><Value>475</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>33</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel24</Value></Property><Property><Name>RPT_ID</Name><Value>293</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Data Registro</Value></Property><Property><Name>RPT_X</Name><Value>295</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Observacao</Value></Property><Property><Name>RPT_ID</Name><Value>289</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>14</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute14</Value></Property><Property><Name>RPT_ID</Name><Value>297</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreMetNom</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_WIDTH</Name><Value>100</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute15</Value></Property><Property><Name>RPT_ID</Name><Value>298</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreResNom</Value></Property><Property><Name>RPT_X</Name><Value>183</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>109</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute16</Value></Property><Property><Name>RPT_ID</Name><Value>299</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>CrePrmPag</Value></Property><Property><Name>RPT_X</Name><Value>367</Value></Property><Property><Name>RPT_WIDTH</Name><Value>49</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute17</Value></Property><Property><Name>RPT_ID</Name><Value>300</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>CreDtaLig</Value></Property><Property><Name>RPT_X</Name><Value>295</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute28</Value></Property><Property><Name>RPT_ID</Name><Value>301</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreCobObs</Value></Property><Property><Name>RPT_X</Name><Value>475</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>308</Value></Property><Property><Name>RPT_WORDWRAP</Name><Value>True</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute38</Value></Property><Property><Name>RPT_ID</Name><Value>368</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>CrePrmPagHor</Value></Property><Property><Name>RPT_X</Name><Value>417</Value></Property><Property><Name>RPT_WIDTH</Name><Value>58</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine4</Value></Property><Property><Name>RPT_ID</Name><Value>290</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>710</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ObservacaoDesc</Value></Property><Property><Name>RPT_ID</Name><Value>296</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>22</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute29</Value></Property><Property><Name>RPT_ID</Name><Value>303</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;CreCobObs2</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>710</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine61</Value></Property><Property><Name>RPT_ID</Name><Value>550</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>75</Value></Property><Property><Name>RPT_Y</Name><Value>14</Value></Property><Property><Name>RPT_WIDTH</Name><Value>710</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>ObservacaoDesc2</Value></Property><Property><Name>RPT_ID</Name><Value>302</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>22</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel27</Value></Property><Property><Name>RPT_ID</Name><Value>64</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Total agrupado por local de cobrança</Value></Property><Property><Name>RPT_X</Name><Value>317</Value></Property><Property><Name>RPT_Y</Name><Value>18</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopCenter</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine24</Value></Property><Property><Name>RPT_ID</Name><Value>65</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>50</Value></Property><Property><Name>RPT_WIDTH</Name><Value>225</Value></Property><Property><Name>RPT_LINEDIRECTION</Name><Value>Horizontal</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel28</Value></Property><Property><Name>RPT_ID</Name><Value>63</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Valor</Value></Property><Property><Name>RPT_X</Name><Value>367</Value></Property><Property><Name>RPT_Y</Name><Value>38</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel30</Value></Property><Property><Name>RPT_ID</Name><Value>61</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Código</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>38</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel29</Value></Property><Property><Name>RPT_ID</Name><Value>62</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Nome</Value></Property><Property><Name>RPT_X</Name><Value>67</Value></Property><Property><Name>RPT_Y</Name><Value>38</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel31</Value></Property><Property><Name>RPT_ID</Name><Value>328</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Juros</Value></Property><Property><Name>RPT_X</Name><Value>494</Value></Property><Property><Name>RPT_Y</Name><Value>38</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine25</Value></Property><Property><Name>RPT_ID</Name><Value>329</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>333</Value></Property><Property><Name>RPT_Y</Name><Value>50</Value></Property><Property><Name>RPT_WIDTH</Name><Value>100</Value></Property><Property><Name>RPT_LINEDIRECTION</Name><Value>Horizontal</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine26</Value></Property><Property><Name>RPT_ID</Name><Value>330</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>450</Value></Property><Property><Name>RPT_Y</Name><Value>50</Value></Property><Property><Name>RPT_WIDTH</Name><Value>113</Value></Property><Property><Name>RPT_LINEDIRECTION</Name><Value>Horizontal</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine27</Value></Property><Property><Name>RPT_ID</Name><Value>331</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>50</Value></Property><Property><Name>RPT_WIDTH</Name><Value>33</Value></Property><Property><Name>RPT_LINEDIRECTION</Name><Value>Horizontal</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine28</Value></Property><Property><Name>RPT_ID</Name><Value>332</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property><Property><Name>RPT_WIDTH</Name><Value>774</Value></Property></Properties>
+                </ReportLine>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine5</Value></Property><Property><Name>RPT_ID</Name><Value>567</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>583</Value></Property><Property><Name>RPT_Y</Name><Value>50</Value></Property><Property><Name>RPT_WIDTH</Name><Value>113</Value></Property><Property><Name>RPT_LINEDIRECTION</Name><Value>Horizontal</Value></Property></Properties>
+                </ReportLine>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel7</Value></Property><Property><Name>RPT_ID</Name><Value>568</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Descontos</Value></Property><Property><Name>RPT_X</Name><Value>617</Value></Property><Property><Name>RPT_Y</Name><Value>38</Value></Property></Properties>
+                </ReportLabel>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>CobrancaMenu</Value></Property><Property><Name>RPT_ID</Name><Value>326</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>52</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute21</Value></Property><Property><Name>RPT_ID</Name><Value>566</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCreVlrDsc</Value></Property><Property><Name>RPT_X</Name><Value>583</Value></Property><Property><Name>RPT_WIDTH</Name><Value>112</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute30</Value></Property><Property><Name>RPT_ID</Name><Value>333</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCreCbrCod</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_WIDTH</Name><Value>34</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute31</Value></Property><Property><Name>RPT_ID</Name><Value>334</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCreCbrNom</Value></Property><Property><Name>RPT_X</Name><Value>66</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute32</Value></Property><Property><Name>RPT_ID</Name><Value>335</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCreVlrSdo</Value></Property><Property><Name>RPT_X</Name><Value>333</Value></Property><Property><Name>RPT_WIDTH</Name><Value>100</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute33</Value></Property><Property><Name>RPT_ID</Name><Value>336</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;LayCreVlrJur</Value></Property><Property><Name>RPT_X</Name><Value>450</Value></Property><Property><Name>RPT_WIDTH</Name><Value>114</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine29</Value></Property><Property><Name>RPT_ID</Name><Value>495</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>13</Value></Property><Property><Name>RPT_WIDTH</Name><Value>678</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>DimGray</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dashed</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>CobrancaDetalhe</Value></Property><Property><Name>RPT_ID</Name><Value>327</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>15</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel17</Value></Property><Property><Name>RPT_ID</Name><Value>474</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>TOTALIZADO POR PLANO CONTAS</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>17</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine13</Value></Property><Property><Name>RPT_ID</Name><Value>475</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>33</Value></Property><Property><Name>RPT_WIDTH</Name><Value>772</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>PlanoDeContasMenu</Value></Property><Property><Name>RPT_ID</Name><Value>473</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>35</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute20</Value></Property><Property><Name>RPT_ID</Name><Value>477</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PlanCodNom</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>299</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute48</Value></Property><Property><Name>RPT_ID</Name><Value>478</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PlanMoeda</Value></Property><Property><Name>RPT_X</Name><Value>325</Value></Property><Property><Name>RPT_WIDTH</Name><Value>108</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLine>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLine15</Value></Property><Property><Name>RPT_ID</Name><Value>494</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>17</Value></Property><Property><Name>RPT_Y</Name><Value>15</Value></Property><Property><Name>RPT_WIDTH</Name><Value>416</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>DimGray</Value></Property><Property><Name>RPT_STYLE_LINE</Name><Value>Dashed</Value></Property></Properties>
+                </ReportLine>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>PlanoDeContasItem</Value></Property><Property><Name>RPT_ID</Name><Value>476</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>21</Value></Property></Properties>
+            </PrintBlock>
+            <PrintBlock>
+              <Controls>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute2</Value></Property><Property><Name>RPT_ID</Name><Value>236</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;PesRaz</Value></Property><Property><Name>RPT_X</Name><Value>116</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel1</Value></Property><Property><Name>RPT_ID</Name><Value>214</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Respeite o meio ambiente. Evite a impressão deste documento!</Value></Property><Property><Name>RPT_X</Name><Value>502</Value></Property><Property><Name>RPT_Y</Name><Value>18</Value></Property><Property><Name>RPT_FORECOLOR</Name><Value>Green</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property><Property><Name>RPT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold, Italic</Value></Property></Properties>
+                </ReportLabel>
+                <ReportLabel>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportLabel2</Value></Property><Property><Name>RPT_ID</Name><Value>155</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_TEXT</Name><Value>Desenvolvido por JASPI - http://www.jaspi.com.br - Página:</Value></Property><Property><Name>RPT_X</Name><Value>505</Value></Property><Property><Name>RPT_Y</Name><Value>5</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopRight</Value></Property></Properties>
+                </ReportLabel>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute3</Value></Property><Property><Name>RPT_ID</Name><Value>8</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Page</Value></Property><Property><Name>RPT_X</Name><Value>754</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property><Property><Name>RPT_WIDTH</Name><Value>36</Value></Property><Property><Name>RPT_ALIGNMENT</Name><Value>TopLeft</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute4</Value></Property><Property><Name>RPT_ID</Name><Value>6</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Today</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportAttribute>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportAttribute5</Value></Property><Property><Name>RPT_ID</Name><Value>5</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>AttID</Name><Value>&amp;Time</Value></Property><Property><Name>RPT_X</Name><Value>57</Value></Property><Property><Name>RPT_Y</Name><Value>4</Value></Property><Property><Name>RPT_WIDTH</Name><Value>60</Value></Property></Properties>
+                </ReportAttribute>
+                <ReportRectangle>
+                  <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>gxReportRectangle2</Value></Property><Property><Name>RPT_ID</Name><Value>26</Value></Property><Property><Name>RPT_VISIBLE</Name><Value>True</Value></Property><Property><Name>RPT_X</Name><Value>16</Value></Property><Property><Name>RPT_Y</Name><Value>0</Value></Property><Property><Name>RPT_WIDTH</Name><Value>774</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>4</Value></Property><Property><Name>RPT_BACKCOLOR</Name><Value>57, 179, 215</Value></Property><Property><Name>RPT_BORDERCOLOR</Name><Value>57, 179, 215</Value></Property></Properties>
+                </ReportRectangle>
+              </Controls>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>Rodape</Value></Property><Property><Name>RPT_ID</Name><Value>12</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>31</Value></Property></Properties>
+            </PrintBlock>
+          </Bands>
+          <Properties><Property><Name>RPT_PAPER_SIZE</Name><Value>A4</Value></Property><Property><Name>RPT_RIGHT_MARGIN</Name><Value>36</Value></Property><Property><Name>RPT_ATT_FONT</Name><Value>Times New Roman, 6.75pt</Value></Property><Property><Name>RPT_TXT_FONT</Name><Value>Times New Roman, 6.75pt, style=Bold</Value></Property></Properties>
+        </Layout>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(
+	in:&EmpCod,
+	in:&FilCod,
+	in:&Ordem,
+	in:&AreCod,
+	in:&CidCod,
+	in:&UfeCod,
+  	in:&CreFrpPgtoCod,
+	in:&CreCliCod,
+	in:&CrePagDtaInicial,
+	in:&CrePagDtaFinal,
+	in:&PesCod,
+	in:&CreCbrCod,
+	in:&isReceber,
+	in:&IsSintetico,
+	in:&IsMostrarObs,
+	IN:&IsPedido,
+	IN:&IsDetalhaPedido,
+	in:&CreFilPgt
+);
+output_file(&Pgmname, 'PDF');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AuxPlanMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPlanMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliRaz</Value></Property><Property><Name>Description</Name><Value>Cliente Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFrpPgtoTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFrpPgtoTip</Value></Property><Property><Name>Description</Name><Value>Cre Frp Pgto Tip</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreFrpPgtoTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FrpPgtoDest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FrpPgtoDest</Value></Property><Property><Name>Description</Name><Value>Enviar Lancamento Para</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FrpPgtoDest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtFormaPagamentoBandeira">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtFormaPagamentoBandeira</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFormaPagamentoBandeira</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtFormaPagamentoContas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtFormaPagamentoContas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFormaPagamentoContas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtFormaPagamentoLocalCobranca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtFormaPagamentoLocalCobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFormaPagamentoLocalCobranca</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtTotalPlanoContas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtTotalPlanoContas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtTotalPlanoContas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtTotalPlanoContasItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtTotalPlanoContasItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtTotalPlanoContas.sdtTotalPlanoContasItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:UfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AreCod</Value></Property><Property><Name>Description</Name><Value>Área</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreCbrNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreCbrNom</Value></Property><Property><Name>Description</Name><Value>Cobranca Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CarPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CarPro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CliTotCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CliTotCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ComCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ComCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCobCidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCobCidNom</Value></Property><Property><Name>Description</Name><Value>Cliente Cidade Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>20</Value></Property><Property><Name>AttMaxLen</Name><Value>20</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCobObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCobObs</Value></Property><Property><Name>Description</Name><Value>Cobrança Obs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCobObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCobObs2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCobObs2</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCobObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaEmsFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaEmsFin</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaEmsIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaEmsIni</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVctFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVctFin</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVctFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVctFinal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVctIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVctIni</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVctInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVctInicial</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDupNro</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDupPrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDupPrt</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFrpPgtoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFrpPgtoCod</Value></Property><Property><Name>Description</Name><Value>Cre Frp Pgto Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreFrpPgtoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreMetNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreMetNom</Value></Property><Property><Name>Description</Name><Value>Método Nome</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagDta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagDtaFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagDtaFinal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagDtaInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagDtaInicial</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagTotItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagTotItm</Value></Property><Property><Name>Description</Name><Value>Total Liquido da Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagTotItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrDscTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrDscTot</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrJurTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrJurTot</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreRecPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreRecPag</Value></Property><Property><Name>Description</Name><Value>Duplicata Receber/Pagar</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreRecPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreResNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreResNom</Value></Property><Property><Name>Description</Name><Value>Resultado Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrJur</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataPagamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataPagamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFan</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FiltroDtaFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FiltroDtaFin</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FiltroDtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FiltroDtaIni</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Intobs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Intobs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDetalhaPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDetalhaPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJuros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJuros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsMostrarObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsMostrarObs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isReceber">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isReceber</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSintetico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSintetico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCreCbrNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCreCbrNom</Value></Property><Property><Name>Description</Name><Value>Cobranca Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCreVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCreVlrDsc</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCreVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCreVlrJur</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LayCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LayCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ordem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ordem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlritmComDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlritmComDsc</Value></Property><Property><Name>Description</Name><Value>Total com Descontos (LIQUIDO)</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrItmComDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUnt</Value></Property><Property><Name>Description</Name><Value>Produto Valor Unitário Bruto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCodNom</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanValor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanValor</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProNom</Value></Property><Property><Name>Description</Name><Value>Produto Descrição</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon077_ExibeStatusDebitoCliente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon077_ExibeStatusDebitoCliente</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="titulo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>titulo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDesconto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDesconto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalGeralDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalGeralDsc</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalGeralJuros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalGeralJuros</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalGeralPago">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalGeralPago</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalJuros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalJuros</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalPago">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalPago</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotComCreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotComCreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VetCreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VetCreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VetCreCbrNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VetCreCbrNom</Value></Property><Property><Name>Description</Name><Value>Cobranca Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrNom</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VetCreVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VetCreVlrDsc</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VetCreVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VetCreVlrJur</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VetCreVlrSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VetCreVlrSdo</Value></Property><Property><Name>Description</Name><Value>Duplicata Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrSdo</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AttNumDim</Name><Value>1</Value></Property><Property><Name>AttRows</Name><Value>999</Value></Property></Properties>
+        </Variable>
+        <Variable Name="x">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>x</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Var">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Var</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFilPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFilPgt</Value></Property><Property><Name>Description</Name><Value>Filial de Pagamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreFilPgt</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RELJAS151</Value></Property><Property><Name>Description</Name><Value>Duplicatas Pagas</Value></Property><Property><Name>CALL_PROTOCOL</Name><Value>HTTP</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

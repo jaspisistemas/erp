@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="4f204da9-5690-4def-a131-3a0b13679565" user="LUIZ\LuiZ Henrique" versionDate="2023-06-09T17:19:12.0000000Z" lastUpdate="2023-06-05T11:43:19.0000000Z" checksum="f2cb99a94563eacde0caaaaae532c4cb" fullyQualifiedName="EFrete_Veiculo" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="539eca65-89b4-4038-b2bd-5caadf3de86e" name="EFrete_Veiculo" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="EFrete Veiculo" parent="FreteVeiculo" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&Mensg = ''
+&Erro = 0
+LoadWWPContext.Call(&Context)
+
+	//###############################################################   Parametros Para Gravar
+	
+	//Parametros Para Gravar
+	&VeiculosServiceGravarRequest.Integrador = Trim(&FilFrtHash)
+	&VeiculosServiceGravarRequest.Token = trim(&Token)
+	&VeiculosServiceGravarRequest.Versao = 1
+	Do 'GetVeiculo'
+	//#######################################################################################
+	IF &IsHomologado = True
+		Do 'GravarVeiculo'
+	Else
+		&Erro = 1
+		&Mensg += 'Proprietério do Veículo não homologado, não é possível cadastrar veículo antes de homologar Proprietário'
+	EndIf
+
+Sub 'GravarVeiculo' 
+	csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+//	HostWebServiceEfrete.Call(&EmpWebHost, &EmpWebBaseUrl, &EmpWebPor, &IsSecure)
+	&Location = GetLocation('VeiculosService') //objeto externo onde foi importado o WSDL no GX XEV1 
+	&Location.Host = &EmpWebHost 	     //servidor 
+	&Location.Port = &EmpWebPor 	//porta  
+	&Location.BaseUrl = &EmpWebBaseUrl //diretório virtual do serviço 
+	
+	If &IsSecure = true
+		&Location.Secure = 1
+	ELSE
+		&Location.Secure = 0 //false 
+	EndIf		       //false 
+	&Location.CancelOnError = 2 	   //tratar exceção do WS 	
+	
+	&VeiculosServiceGravarResponse = &VeiculosService.Gravar(&VeiculosServiceGravarRequest)
+	
+	padraoUsuario.Call('G', '#EFRETEVEICULO', &Context.PesCod, &Context.EmpCod, &VeiculosServiceGravarRequest.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+	padraoUsuario.Call('G', '#EFRETEVEICULORESPOSTA', &Context.PesCod, &Context.EmpCod, &VeiculosServiceGravarResponse.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+		
+	If GetSOAPErr() = 0 // Resposta do Obter Veiculo
+		If &VeiculosServiceGravarResponse.Sucesso = True
+			&Mensg = 'Gravado com Sucesso '+ &VeiculosServiceGravarResponse.Excecao.Mensagem
+			do 'AtualizaVeiculo'
+		Else
+			&Mensg = &VeiculosServiceGravarResponse.Excecao.Mensagem
+		EndIf
+	Else 
+		&Erro = val(str(GetSOAPErr()))
+		&Mensg += 'DESC. ERRO:'+GetSOAPErrMsg() 
+	EndIf
+EndSub
+
+Sub 'GetVeiculo'
+	For Each Order EmpCod, VeiCod
+		Where EmpCod = &EmpCod
+		Where VeiCod = &VeiCod
+		
+		&VeiculosServiceGravarRequest.Veiculo.Placa   = substr(VeiPla,1,3)+substr(VeiPla,5,4)
+		&VeiculosServiceGravarRequest.Veiculo.RNTRC   = val(VeiProRNTRC)
+		&VeiculosServiceGravarRequest.Veiculo.AnoFabricacao = VeiAnoFab
+		&VeiculosServiceGravarRequest.Veiculo.AnoModelo     = VeiAnoMod
+		&VeiculosServiceGravarRequest.Veiculo.CapacidadeKg  = VeiCap
+		&VeiculosServiceGravarRequest.Veiculo.CapacidadeM3  = VeiCapM3
+		&VeiculosServiceGravarRequest.Veiculo.Chassi = VeiCha
+		&VeiculosServiceGravarRequest.Veiculo.CodigoMunicipio =  VeiCidIbge
+		&VeiculosServiceGravarRequest.Veiculo.Cor   = CorNom		
+		&VeiculosServiceGravarRequest.Veiculo.Marca = VeiMarNom
+		&VeiculosServiceGravarRequest.Veiculo.modelo = VeiMod
+		&VeiculosServiceGravarRequest.Veiculo.NumeroDeEixos = VeiNroEixo		
+		&VeiculosServiceGravarRequest.Veiculo.Renavam = val(Retornasonumeros.Udp(VeiRen))
+		&VeiculosServiceGravarRequest.Veiculo.Tara    = VeiTar	
+		Do case
+			Case VeiTipCarr = VeiculoTipoCarroceria.Aberta
+			 &VeiculosServiceGravarRequest.Veiculo.TipoCarroceria = VeiculosServiceTipoCarroceria.Aberta
+			 Case VeiTipCarr = VeiculoTipoCarroceria.FechadaBau
+			 &VeiculosServiceGravarRequest.Veiculo.TipoCarroceria = VeiculosServiceTipoCarroceria.FechadaOuBau
+				
+			Case VeiTipCarr = VeiculoTipoCarroceria.Graneleira
+			 &VeiculosServiceGravarRequest.Veiculo.TipoCarroceria = VeiculosServiceTipoCarroceria.Granelera
+				
+			Case VeiTipCarr = VeiculoTipoCarroceria.NaoAplicavel
+			 &VeiculosServiceGravarRequest.Veiculo.TipoCarroceria = VeiculosServiceTipoCarroceria.NaoAplicavel
+				
+			Case VeiTipCarr = VeiculoTipoCarroceria.PortaConteiner
+			 &VeiculosServiceGravarRequest.Veiculo.TipoCarroceria = VeiculosServiceTipoCarroceria.PortaContainer
+			Case VeiTipCarr = VeiculoTipoCarroceria.Sider
+			 &VeiculosServiceGravarRequest.Veiculo.TipoCarroceria = VeiculosServiceTipoCarroceria.Sider
+		EndCase
+		
+		
+		//################################################################################################
+		&VeiPesCod  = VeiProCod
+		Do 'GetProprietario'
+		exit
+	EndFor
+EndSub
+
+Sub 'GetProprietario'
+	For Each Order EmpCod, PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &VeiPesCod
+		
+		If PesStsEfr = Status_EFrete.Homologado
+			&IsHomologado = True
+		Else
+			&IsHomologado = FALSE
+		EndIF
+		Exit
+	When none
+		&IsHomologado = FALSE
+	EndFor
+EndSub
+
+Sub 'AtualizaVeiculo'
+	For each Order EmpCod,VeiCod
+		Where EmpCod = &EmpCod
+		Where VeiCod = &VeiCod
+		VeiStsEfr = Status_EFrete.Homologado
+	Endfor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&VeiCod,in:&VeiPla,in:&VeirNTRC,&Token,in:&FilFrtHash,out:&Mensg,out:&Erro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtHash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtHash</Value></Property><Property><Name>Description</Name><Value>Hash</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtHash</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Location">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Location</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Location</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensg</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosServiceGravarRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosServiceGravarRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:VeiculosServiceGravarRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeVeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeVeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeVeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosService">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosService</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:VeiculosService</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosServiceObterPorPlacaResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosServiceObterPorPlacaResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:VeiculosServiceObterPorPlacaResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosServiceGravarResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosServiceGravarResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:VeiculosServiceGravarResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GetMDFeVeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GetMDFeVeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeVeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceObterRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceObterRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceObterRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceGravarRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceGravarRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceGravarRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiPesCod</Value></Property><Property><Name>Description</Name><Value>Proprietário</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceObterResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceObterResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceObterResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProprietariosServiceGravarResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProprietariosServiceGravarResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ProprietariosServiceGravarResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Fazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Fazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiculosServiceObterPorPlacaRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiculosServiceObterPorPlacaRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:VeiculosServiceObterPorPlacaRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeirNTRC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeirNTRC</Value></Property><Property><Name>Description</Name><Value>RNTRC</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiProRNTRC</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiMarNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiMarNom</Value></Property><Property><Name>Description</Name><Value>Marca</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiMarNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiMarCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiMarCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiMarCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiCidIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiCidIbge</Value></Property><Property><Name>Description</Name><Value>Vei Cid Ibge</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiCidIbge</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiCidCod</Value></Property><Property><Name>Description</Name><Value>Vei Cid Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CorNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CorNom</Value></Property><Property><Name>Description</Name><Value>Descricao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CorNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CorCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CorCod</Value></Property><Property><Name>Description</Name><Value>Cor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CorCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsHomologado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsHomologado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlWriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlWriter</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VeiUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VeiUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:VeiUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSecure">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSecure</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LOadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EFrete_Veiculo</Value></Property><Property><Name>Description</Name><Value>EFrete Veiculo</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

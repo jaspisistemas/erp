@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="SRVORDIG\Administrador" versionDate="2026-01-16T14:33:42.0000000Z" lastUpdate="2026-01-16T14:28:44.0000000Z" checksum="2f18f8f3db14c764c0e93df96a21202b" fullyQualifiedName="CopiaXmlAutorizadosNfse" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="a48d9aea-644f-4261-9f59-ccb4ececa910" name="CopiaXmlAutorizadosNfse" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Copia Xml Autorizados Nfse" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&CountNfse = 0
+For each Order EmpCod,NfsCliCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod	
+	Where NfsCliCod in &ColPesCod when TRIM(&DeondeVem) = 'EMAILAGRUPADO'
+	Where NfsDtaEms >= &IniNfeDtaEms and NfsDtaEms <= &FinNfeDtaEms
+	Where NfsProTer = &NfsProTer when not &NfsProTer.IsEmpty()
+	Where NfsSts = Status_NFe.Autorizada when &SomenteNotasAutorizadas = Status_SimNao.Sim
+	&CountNfse += 1
+	Msg('Copiando xml das notas de serviço.',status)
+	
+	&ZipXMLS = trim(str(month(NfsDtaEms))) + trim(str(year(NfsDtaEms))) + '_NFS-E' //nome do arquivo zip
+	
+	//BUSCAR NOTA AUTORIZADA
+	&AnoMesEnviado = PadL(LTrim(str(Year(NfsDtaEms))), 4, '0') + PadL(LTrim(str(Month(NfsDtaEms))), 2, '0')+"\"
+	&PastaAutorizada = &sdtConfiguracoesPasta.PastaNFSenviado.Trim() + "autorizados\" + &AnoMesEnviado
+	
+	&Directory.Source = &PastaAutorizada //Verifica se existe se noa cria.
+	if not &Directory.Exists()
+		&Directory.Create()
+	EndIf
+	
+	//CRIA DIRETORIO TEMPORARIO
+	&PastaTemporaria  = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() + 'xmlNotasServico-'+ trim(&ZipXMLS)
+	
+	&Directory.Source = &PastaTemporaria //Verifica se existe se noa cria.
+	if not &Directory.Exists()
+		&Directory.Create()
+	Else
+		If &CountNfse = 1// primeira nota do envio , mas caso a pasa exist de envios anteriores exclui e cria novamente
+			&Directory.Delete()
+			&Directory.Create()
+		EndIf
+	endif
+	
+	&IsExistDiretorio = true
+	
+	&ArquivoXML =  trim(&PastaAutorizada) + NfsChv.Trim() + '.xml'
+	&ArquivoDestino = &PastaTemporaria +'/'+ NfsChv.Trim() + '.xml'
+	
+	&File.Source = &ArquivoXML.Trim()		
+	if &File.Exists()
+		//COPIA PASTA TEMPORARIA
+		&File.Copy(&ArquivoDestino)
+	else
+		&XmlWriter.Open(&ArquivoDestino)
+		&XmlWriter.WriteRawText(NfsArqXml)
+		&XmlWriter.Close()
+	endif
+	&File.Close()
+	
+	
+	If &EnviaPdfNota = Status_SimNao.Sim /// envia os pdf
+		&ArquivoPdf =  &PastaTemporaria+"\"+ NfsChv.Trim() + '.pdf'
+		&File.Source = &ArquivoPdf
+		If &File.Exists()
+			&File.Delete()
+		EndIf
+		
+		if NfsTipNF = 'S' //Naciona		
+			RELJAS148_NAC.Call(EmpCod, NfsCod, &ArquivoPdf)
+		Else
+			RELJAS148.Call(EmpCod, NfsCod, &ArquivoPdf)
+		Endif
+		
+		&File.Close()
+	EndIf
+	
+Endfor
+	
+if &IsExistDiretorio = true
+	&inputFolderPath =  &PastaTemporaria.Trim()
+	&destinoPasta = &PastaTemporaria + ".zip"
+	&File.Source = &destinoPasta
+	if &File.Exists()
+		&File.Delete()
+	EndIf
+	&File.Close()
+	
+	//Compacta
+	&ZipUtil.ZipFiles(&inputFolderPath, &destinoPasta, &password)
+EndIF
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(IN:&DeondeVem,in:&EmpCod, in:&FilCod, in:&iniNfeDtaEms, in:&finNfeDtaEms, in:&SomenteAutorizadas, in:&sdtConfiguracoesPasta, inout:&destinoPasta,in:&EnviaPdfNota,in:&ColPesCod,out:&CountNfse);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Directory">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Directory</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Directory</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoMesEnviado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoMesEnviado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaAutorizada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaAutorizada</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>400</Value></Property><Property><Name>AttMaxLen</Name><Value>400</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoXML">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoXML</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaTemporaria">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaTemporaria</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlWriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlWriter</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZipUtil">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZipUtil</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:ZipUtil</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inputFolderPath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inputFolderPath</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="destinoPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>destinoPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="password">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>password</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Character</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExistDiretorio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExistDiretorio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoDestino">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoDestino</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>400</Value></Property><Property><Name>AttMaxLen</Name><Value>400</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SomenteAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SomenteAutorizadas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaPdfNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaPdfNota</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsProTer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsProTer</Value></Property><Property><Name>Description</Name><Value>Propria Terceiros</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsProTer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZipXMLS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZipXMLS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SomenteNotasAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SomenteNotasAutorizadas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="URLFisico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>URLFisico</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPdf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPdf</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountNfse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountNfse</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DeondeVem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DeondeVem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UrlVirtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UrlVirtual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCod</Value></Property><Property><Name>Description</Name><Value>Sequencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>CopiaXmlAutorizadosNfse</Value></Property><Property><Name>Description</Name><Value>Copia Xml Autorizados Nfse</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="96583c95-433d-4da9-b43f-19944cdeaaa0" user="LUIZ\LuiZ Henrique" versionDate="2024-10-09T12:31:13.0000000Z" lastUpdate="2024-10-09T11:42:57.0000000Z" checksum="4c5b93eddcdacca1ee988b5c32297c40" fullyQualifiedName="PIXEmitirCob" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="7f2a77f6-a272-47f6-ae60-719e69a66d84" name="PIXEmitirCob" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Emitir cobrança imediata" parent="API_PIX_PRC" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*
+ENDPOINT para criar uma cobrança imediata, neste caso, o txid deve ser definido pelo PSP;
+	PSP: participante do PIX no qual o usuário recebedor possui uma conta transacional que 
+	será usada para recebimentos de PIX.
+
+Neste ENDPOINT o sistema vai definir a senha '1234' para os certificados que irão no header
+da requisição. Posteriormente, será montado o header para a criação. Alguns bancos possuem 
+header's especificos, portanto é necessário algumas validações. Posteriormente, irá adicionar
+o certificado ao header e executará um POST na url referente ao banco e o ambiente trabalhado
+para então ser criado a cobrança.
+
+Responses:
+	Sucesso:
+		Code 201 = Cobrança imediata criada.
+	
+	Erros:
+		Code 400 = Requisição com formato inválido, por exemplo erro de semântica.
+		Code 403 = Requisição de participante autenticado que viola alguma regra de autorização. Verifique com o suporte do banco.
+		Code 503 = Serviço não disponível no momento. O endpoint neste caso não funciona mais, ou está em manutenção.
+*/
+
+&Mensagem	= ''
+Do 'GetContaBancaria'
+
+&Password	= '1234'
+&LongVarChar	= &PixRequest.ToJson()
+
+&HttpClient.AddHeader('Content-Type', 'application/json')
+&HttpClient.AddHeader('Accept-Encoding', 'gzip, deflate, br')
+&HttpClient.AddHeader('Connection', 'keep-alive')
+&HTTPClient.AddHeader('Authorization', 'Bearer ' + &CbrChaTra.Trim())
+&HttpClient.AddString(&LongVarChar)
+
+CSHARP try
+CSHARP { [!&HttpClient!].AddCertificate([!&PathCert!],[!&Password!]); }
+CSHARP catch (Exception ex)
+CSHARP { [!&ErrorDescription!] = ex.ToString();
+CSHARP }
+
+&HttpClient.Execute('POST', &Execute)
+If &HttpClient.StatusCode = 200 Or &HttpClient.StatusCode = 201
+	&PixResponse.FromJson(&HttpClient.ToString())
+	PadraoUsuario.Call('G', 'COBRANCAIMEDIATAJSON_' + Time(), &PesCod, &EmpCod, &HttpClient.ToString(), ServerDate())
+Else
+	&PixResponseErro.FromJson(&HttpClient.ToString())
+	If &Mensagem.IsEmpty()
+		&Mensagem	= IIf(&PixResponseErro.detail.IsEmpty(), 'ERRO Emissão ' + Trim(Str(&HttpClient.StatusCode)) + ' - ' + &HttpClient.ToString(), 'ERRO Emissão ' + Trim(Str(&HttpClient.StatusCode)) + ' - ' + &PixResponseErro.detail)
+		&Mensagem	+= IIf(&ErrorDescription.IsEmpty(), '', ' - Erro CSHARP:' + &ErrorDescription.Trim())
+	EndIf
+	padraoUsuario.Call('G', 'COBRANCAIMEDIATAERRO_' + Time(), &PesCod, &EmpCod, &Mensagem, ServerDate())
+EndIf
+
+Sub 'GetContaBancaria'
+	
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		&Path			= PathToUrl(CtaBanPixCer)
+		&InicioPath		= StrSearch(&Path, 'PublicTempStorage', 1)
+		&Path			= SubStr(&Path, &InicioPath, &Path.Length())
+		&File.Source	= &Path
+		&PathCert		= &File.GetAbsoluteName()
+		&PathCert		= StrReplace(&PathCert, '/', '\')
+		&File.Close()		
+		
+		Do Case
+			Case CbrCtaBanBanCod = '748'
+				prcOAuth_SicrediPIX.Call(&EmpCod, &PesCod, CbrCod, &CbrChaTra, &Mensagem)
+				&Execute	= IIf(CbrCtaBanPixApi = 'P', 'https://api-pix.sicredi.com.br/api/v2/cob', 'https://api-pix-h.sicredi.com.br/api/v2/cob')
+			Case CbrCtaBanBanCod = '756'
+				&Execute	= IIf(CbrCtaBanPixApi = 'P', 'https://api.sicoob.com.br/pix/api/v2/cob', 'https://api.sicoob-h.com.br/pix/api/v2/cob')
+				&HttpClient.addHeader('client_id', CtaBanPixCliId)
+			Case CbrCtaBanBanCod = '077'
+				prcOAuth_Inter.Call(&EmpCod, 0, &PesCod, CbrCod, &CbrChaTra, &Mensagem)			
+				&Execute	= IIf(CbrCtaBanPixApi = 'P', 'https://cdpj.partners.bancointer.com.br/pix/v2/cob', 'https://cdpj-sandbox.partners.uatinter.co/pix/v2/cob')
+				&HttpClient.AddHeader('x-conta-corrente', CbrNroCon.Trim() + CbrNroConDig.Trim())
+		EndCase
+	
+		Exit
+	EndFor
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&EmpCod, In:&PesCod, In:&CbrCod, In:&PixRequest, Out:&PixResponse, Out:&Mensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Password">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Password</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PixRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PixRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:PIXRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PathCert">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PathCert</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrorDescription">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrorDescription</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="banco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>banco</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PixResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PixResponse</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:PIXResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PixResponseErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PixResponseErro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:PIXResponseERRO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InicioPath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InicioPath</Value></Property></Properties>
+        </Variable>
+        <Variable Name="host">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>host</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Host</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação | token Beaber</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Execute">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Execute</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="contaCorrente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>contaCorrente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>PIXEmitirCob</Value></Property><Property><Name>Description</Name><Value>Emitir cobrança imediata</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

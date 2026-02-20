@@ -1,0 +1,721 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="158bb27d-b52d-4656-a839-e4d9301c724f" user="WINJEAN\jeanfae" versionDate="2025-10-23T18:06:20.0000000Z" lastUpdate="2025-10-21T20:53:27.0000000Z" checksum="f2bf63d4956b022594229d3f1b091d08" fullyQualifiedName="ExportarTabelaImpostoConfiguracoes" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="342fd201-f46f-49c5-9b8f-c0abbb0096bc" name="ExportarTabelaImpostoConfiguracoes" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Exportar Tabela Imposto Configuracoes" parent="ContPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &SdtConfiguracoespasta)
+
+prcAtualizaCategoriaImposto.Call(&EmpCod, 0) //Atualiza Categorias
+
+&DataHora =  ServerNow() //Arquivo onde Salvar
+&Varchar = trim(toformattedString(&DataHora))
+&Varchar = &ImpUfeCod.Trim() + '_TABIMPOSTO_'
+
+Do CAse
+	CAse not &parmPedCod.IsEmpty()
+		&Varchar += 'PEDIDO' + trim(str(&parmPedCod))+ '_'
+	CAse not &parmImpCatCod.IsEmpty()
+		&Varchar += 'CATEGORIA' + trim(str(&parmImpCatCod))+ '_'
+EndCAse
+&Varchar +=  RetornaSoNumeros.Udp(&Varchar)+'.xlsx'
+
+&CaminhoFisico = &SdtConfiguracoespasta.PastaDiretorioTempFis + &Varchar.Trim()
+&CaminhoVirtual = &SdtConfiguracoespasta.PastaDiretorioTempVir + &Varchar.Trim()
+
+&QtdColunasDiferente = 33
+
+&File.Source = &CaminhoFisico //apaga arquivo gerado com mesmo nome.
+if &File.Exists()
+	&File.Delete()
+Endif
+&File.Close()
+
+
+//CategoriasPedido
+if not &parmPedCod.IsEmpty()
+	For Each Order EmpCod, PedCod, ProCatCod
+		Where EmpCod = &EmpCod
+		Where PedCod = &parmPedCod
+		
+		if ProCatCod <> &oldProCatCod //ADICIONAR OS DIFERENTES.
+			&oldProCatCod = ProCatCod
+			&collProCatCod.Add(ProCatCod)
+		Endif	
+	Endfor
+Endif
+
+
+//Capta onde o template esta
+&File.Source = 'Template_TabelaImposto_xltx'
+&CaminhoTemplate = &File.GetPath() + '\bin\app\Template_TabelaImposto.xltx'
+&File.Close()
+
+&File.Source = &CaminhoTemplate //Verifica template existe
+if &File.Exists()
+	&ExcelDocument.Template = &CaminhoTemplate
+Endif
+&File.Close()
+
+&ExcelDocument.Open(&CaminhoFisico)
+
+//GravaCampos superiores //FILIAL
+For each Order EmpCod, TbImpFilCod
+	Where EmpCod = &EmpCod
+	Where TbImpFilCod = &ImpFilCod
+	&ExcelDocument.Cells(1, 3).Text = 'FILIAL: ' + trim(TbImpFilCodNom)
+	&CImpOriUfeCod = TbImpUfeCod
+	Exit
+EndFor
+
+
+
+//LANCAMENTO
+For Each Order EmpCod, LctCod
+	Where EmpCod = &EmpCod
+	Where LctCod = &ImpLctCod
+	&ExcelDocument.Cells(1, 9).Text = 'LCTO: ' + trim(LctCodNom)
+	Exit
+EndFor
+
+//UF
+&ExcelDocument.Cells(1, 20).Text = 'UF: ' + trim(&ImpUfeCod)
+
+//PESSOA
+For Each Order EmpCod, GruImpCod
+	Where EmpCod = &EmpCod
+	Where GruImpCod = &ImpGruImpCod
+	&ExcelDocument.Cells(1, 26).Text = 'PESSOA: ' + trim(GruImpCodNom)
+	Exit
+EndFor
+
+//Navega entre as Categorias dos Produtos
+&linha = 6
+For Each order EmpCod, CatCodImp
+	Where EmpCod = &EmpCod
+	Where CatCod = &parmImpCatCod when not &parmImpCatCod.IsEmpty()
+	Where CatCod in &collProCatCod when &parmImpCatCod.IsEmpty() and not &parmPedCod.IsEmpty()
+	Where CatSts = Status_AtivoInativo.ATIVO or CatSts.IsNull() or CatSts.IsEmpty()
+	
+	if CatSts.IsNull() or CatSts.IsEmpty() or CatCodImp.IsEmpty() or CatCodImp.IsNull()
+		prcAtualizaCategoriaImposto.Call(EmpCod, CatCod)
+	Endif
+
+	&ImpCatCod = CatCod
+	&ImpCatCodNom = CatCodImp //CatCodNom
+	Do 'TabelaImposto'	
+EndFor
+
+
+&linha = 46
+For Each order EmpCod, CatCodImp
+	Where EmpCod = &EmpCod
+	where CatCod = &parmImpCatCod when not &parmImpCatCod.IsEmpty()
+	Where CatCod in &collProCatCod when &parmImpCatCod.IsEmpty() and not &parmPedCod.IsEmpty()
+	Where CatSts = Status_AtivoInativo.ATIVO
+	&ImpCatCod = CatCod
+	&ImpCatCodNom = CatCodImp
+	Do 'TabelaImpostoObservacao'
+	
+	&linha += 1
+EndFor
+
+&ExcelDocument.Save() //Salva e fecha
+&ExcelDocument.Close()
+
+
+sub 'TabelaImpostoObservacao'
+	
+	&Count = 0
+	For Each Order EmpCod, CImpLctCod, CImpTbFilCod, CImpOriUfeCod, CImpDstUfeCod, CImpGruImpCod, CImpCatCod, ObsCod
+		Where EmpCod = &EmpCod
+		Where CImpLctCod = &ImpLctCod
+		Where CImpTbFilCod = &ImpFilCod
+		Where CImpOriUfeCod =  &CImpOriUfeCod
+		Where CImpDstUfeCod = &ImpUfeCod
+		Where CImpGruImpCod = &ImpGruImpCod
+		Where CImpCatCod = &ImpCatCod
+		
+		&Coluna = 1
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)		
+		
+		&Coluna = 3
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(ObsNom)
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(ObsNom)
+		&Count += 1
+		&linha += 1
+	When none
+		
+		&Coluna = 1
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		
+		&Coluna = 3
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Count += 1
+		&linha += 1
+	EndFor
+	
+	
+	if &Count < 4
+		fOR &Aux = &Count to 4
+			&Coluna = 1
+			&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+			&Coluna = 3
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			&linha += 1
+		Endfor
+	Endif
+EndSub
+
+		
+sub 'TabelaImposto'
+	For Each Order EmpCod, CImpLctCod, CImpTbFilCod, CImpOriUfeCod, CImpDstUfeCod, CImpGruImpCod, CImpCatCod
+		Where EmpCod = &EmpCod
+		Where CImpLctCod = &ImpLctCod
+		Where CImpTbFilCod = &ImpFilCod
+		Where CImpOriUfeCod =  &CImpOriUfeCod
+		Where CImpDstUfeCod = &ImpUfeCod
+		Where CImpGruImpCod = &ImpGruImpCod
+		Where CImpCatCod = &ImpCatCod
+		
+		//Preenche campos do xlsx
+		//Produto
+		&Coluna = 1
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		
+		//Cfop
+		&Coluna = 3
+		&ExcelDocument.Cells(&linha, &Coluna).Number = val(trim(RetornaSoNumeros.Udp(CImpCfoCod)))
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = val(trim(RetornaSoNumeros.Udp(CImpCfoCod)))
+		
+		//CSOSN / CST
+		&Coluna = 4		
+		&ExcelDocument.Cells(&linha, &Coluna).Text = CImpCstCod.ToString()
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = CImpCstCod.ToString()
+	
+		//ALIQ. ICMS
+		&Coluna = 6
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmInt
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmInt
+		
+		//REDUCAO ICMS
+		&Coluna = 7
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpRedAlqIcmInt
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpRedAlqIcmInt
+		
+		//DIFERIMENTO ICMS
+		&Coluna = 8
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpDif
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpDif
+		
+		//DIFAL ICMS
+		&Coluna = 9
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmUFDest
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmUFDest
+		
+		//COD. CBENEF 
+		&Coluna = 10
+		&ExcelDocument.Cells(&linha, &Coluna).Text = CImpCBenef
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = CImpCBenef
+		
+		//COD DESONERACAO
+		&Coluna = 11
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(CImpIcmsMotDes)
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(CImpIcmsMotDes)
+
+		//DESTACAR ICMS RETIDO
+		&Coluna = 12
+		Do Case
+			case CImpIcmsRet = 'S'
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'SIM'
+				&Coluna += &QtdColunasDiferente
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'SIM'
+			case CImpIcmsRet = 'N'
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'NAO'
+				&Coluna += &QtdColunasDiferente
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'NAO'
+			otherwise
+				&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+				&Coluna += &QtdColunasDiferente
+				&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		EndCAse
+		
+		//EXCLUIR DA BASE
+		&Coluna = 13
+		If CImpExcPisCofins = 'S' // 'SIM'
+			&ExcelDocument.Cells(&linha, &Coluna).Text = 'SIM'
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text ='SIM'
+		Else
+			&ExcelDocument.Cells(&linha, &Coluna).Text = 'NAO'
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text ='NAO'
+		Endif
+	
+	
+		//ALIQ ICMS ST
+		&Coluna = 15
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmExt
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmExt
+		
+		//MVA ICMS ST
+		&Coluna = 16
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqMVA
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqMVA
+		
+		//REDUCAO ICMS ST
+		&Coluna = 17
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpRedAlqIcmExt
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpRedAlqIcmExt
+		
+		//FECOP ICMS ST
+		&Coluna = 18
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpTaxFecop
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpTaxFecop
+		
+		//DIFAL S.T
+		&Coluna = 19
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmStUF
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpAlqIcmStUF
+		
+		
+		//ALIQ IPI
+		&Coluna = 21
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpIpi
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpIpi
+		
+		//CST IPI
+		&Coluna = 22
+		if not CImpCstIpi.IsNull() and not CImpCstIpi.IsEmpty()
+			&ExcelDocument.Cells(&linha, &Coluna).Text = trim(CImpCstIpi.ToString())
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = trim(CImpCstIpi.ToString())
+		Else
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		Endif
+	
+		//INCLUIR NA BASE
+		&Coluna = 23
+		Do Case
+			case CImpIncIPI = 'S'
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'ICMS ST'
+				&Coluna += &QtdColunasDiferente
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'ICMS ST'
+			case CImpIncIPI = 'I'
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'ICMS'
+				&Coluna += &QtdColunasDiferente
+				&ExcelDocument.Cells(&linha, &Coluna).Text = 'ICMS'
+			Otherwise
+				&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+				&Coluna += &QtdColunasDiferente
+				&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		EndCAse
+		
+		//COD ENQUADR
+		&Coluna = 24
+		if not CImpIpiEnq.IsEmpty() and not CImpIpiEnq.IsNull()
+			&ExcelDocument.Cells(&linha, &Coluna).Number = CImpIpiEnq
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Number = CImpIpiEnq
+		Else
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		Endif
+	
+		//ALIQ PIS
+		&Coluna = 26
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpPis
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpPis
+		
+		//REDUCAO PIS
+		&Coluna = 27
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpPisRed
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpPisRed
+		
+		//CST PIS
+		&Coluna = 28
+		if not CImpCstPisCofins.IsEmpty() and not CImpCstPisCofins.IsNull()
+			&ExcelDocument.Cells(&linha, &Coluna).Text = trim(CImpCstPisCofins.ToString())
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = trim(CImpCstPisCofins.ToString())
+		Else
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		Endif
+	
+		//ALIQ COFINS
+		&Coluna = 30
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpCofins
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpCofins
+		
+		//REDUCAO COFINS
+		&Coluna = 31
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpCofinsRed
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Number = CImpCofinsRed
+		
+		//CST COFINS
+		&Coluna = 32
+		&Varchar = CImpCstPisCofins.ToString()
+		if not &Varchar.IsEmpty() 
+			&ExcelDocument.Cells(&linha, &Coluna).Text = &Varchar
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = &Varchar
+		Else
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			&Coluna += &QtdColunasDiferente
+			&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		Endif
+	
+		
+		Exit
+	When none
+				
+		//Preenche campos do xlsx
+		//Produto		
+		&Coluna = 1
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = trim(&ImpCatCodNom)
+		
+		//Cfop
+		&Coluna = 3
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//CSOSN / CST
+		&Coluna = 4
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//ALIQ. ICMS
+		&Coluna = 6
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//REDUCAO ICMS
+		&Coluna = 7
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//DIFERIMENTO ICMS
+		&Coluna = 8
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//DIFAL ICMS
+		&Coluna = 9
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//COD. CBENEF 
+		&Coluna = 10
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//COD DESEONERACAO
+		&Coluna = 11
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+
+		//DESTACAR ICMS RETIDO
+		&Coluna = 12
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+			
+		//EXCLUIR DA BASE
+		&Coluna = 13
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+	
+	
+		//ALIQ ICMS ST
+		&Coluna = 15
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//MVA ICMS ST
+		&Coluna = 16
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//REDUCAO ICMS ST
+		&Coluna = 17
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//FECOP ICMS ST
+		&Coluna = 18
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//DIFAL S.T
+		&Coluna = 19
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		
+		//ALIQ IPI
+		&Coluna = 21
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//CST IPI
+		&Coluna = 22
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+	
+		//INCLUIR NA BASE
+		&Coluna = 23
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//COD ENQUADR
+		&Coluna = 24
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''	
+	
+	
+		//ALIQ PIS
+		&Coluna = 26
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//REDUCAO PIS
+		&Coluna = 27
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//CST PIS
+		&Coluna = 28
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+	
+		//ALIQ COFINS
+		&Coluna = 30
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//REDUCAO COFINS
+		&Coluna = 31
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+		//CST COFINS
+		&Coluna = 32
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		&Coluna += &QtdColunasDiferente
+		&ExcelDocument.Cells(&linha, &Coluna).Text = ''
+		
+	EndFor
+
+	&linha += 1
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod,
+in:&FilCod, 
+in:&ImpLctCod,
+in:&ImpFilCod,
+in:&ImpUfeCod,
+in:&ImpGruImpCod,
+in:&parmImpCatCod,
+in:&parmPedCod,
+out:&CaminhoVirtual);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExcelDocument">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExcelDocument</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:ExcelDocument</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpLctCod</Value></Property><Property><Name>Description</Name><Value>Codigo Lancamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpLctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpFilCod</Value></Property><Property><Name>Description</Name><Value>Grupo Filial Imposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpGruImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpGruImpCod</Value></Property><Property><Name>Description</Name><Value>Imp Gru Imp Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpGruImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpCatCod</Value></Property><Property><Name>Description</Name><Value>categoria Imposto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="linha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>linha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpCatCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpCatCodNom</Value></Property><Property><Name>Description</Name><Value>Imp Cat Cod Nom</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCatCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaminhoVirtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoVirtual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoespasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoespasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>250</Value></Property><Property><Name>AttMaxLen</Name><Value>250</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaminhoFisico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoFisico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CaminhoTemplate">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoTemplate</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataHora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Coluna">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Coluna</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdColunasDiferente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdColunasDiferente</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Numeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Numeric</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmImpCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmImpCatCod</Value></Property><Property><Name>Description</Name><Value>categoria Imposto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Aux">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Aux</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="oldProCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>oldProCatCod</Value></Property><Property><Name>Description</Name><Value>Categoria Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="collProCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>collProCatCod</Value></Property><Property><Name>Description</Name><Value>Categoria Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCatCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CImpOriUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CImpOriUfeCod</Value></Property><Property><Name>Description</Name><Value>Origem UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CImpOriUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpCstCofins">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpCstCofins</Value></Property><Property><Name>Description</Name><Value>Cst Cofins</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpCstCofins</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ExportarTabelaImpostoConfiguracoes</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

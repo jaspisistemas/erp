@@ -1,0 +1,515 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06acaad3-3dbb-4c3d-9822-e27e37423136" user="SRVORDIG\Administrador" versionDate="2023-09-06T00:16:53.0000000Z" lastUpdate="2023-09-05T23:47:46.0000000Z" checksum="8417bd6179641646759c0b5d21d38d2e" fullyQualifiedName="GeraArquivoSiagro" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="8d268663-7040-49bf-9536-40faaac58dc2" name="GeraArquivoSiagro" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Arquivo Siagro" parent="Procedimentos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+RetornaConfiguracoesPastas.Call(&Context.EmpCod,&FilCod,&SdtConfiguracoesPasta)
+
+/*=====Monta Nome do Arquivo=====
+O nome irá conter:
+1º Caminho (pasta a ser gravado)
+2º Nome do Arquivo  Exemplo: receita.csv "Nome padrão para importar no siagro"
+3º Extensão (.csv)
+*/
+
+If &Tipo = 'R' //tipo do arqiovo Receita
+	&ArquivoReceita = &SdtConfiguracoesPasta.PastaDiretorioTempFis+'receita.csv'
+	&link = &SdtConfiguracoesPasta.PastaDiretorioTempVir+ 'receita.csv'
+	
+	
+	//########################################################################################################
+	/*=====Cria arquivo Receita=====*/
+	Do 'CriaDocumentoReceita'
+	
+	/*===== Montar Arquivo Receita =====*/
+	If &retorno = 0 //arquivo criado com Sucesso
+		
+		For &SdtReceituarioItem in &SdtReceituario
+			&EmpCod = &SdtReceituarioItem.EmpCod
+			&RctCod = &SdtReceituarioItem.RctCod
+			do 'Escreverdados'
+		EndFor
+		&retorno = dfwclose() // Fechaa rquivo depois de escrever todos
+		
+		link(&link) //Abre arquivo Receita
+	Else
+		&ErrorMessage = 'Não foi possível montar o arquivo receita!'
+		&HttpResponse.AddString(&ErrorMessage)
+	EndIf
+	
+Else
+	
+	//############################################### VENDA ########################################################
+	
+	
+	&ArquivoVenda = &SdtConfiguracoesPasta.PastaDiretorioTempFis+'venda.csv'
+	&link2 = &SdtConfiguracoesPasta.PastaDiretorioTempVir+ 'venda.csv'
+	
+	
+	/*=====Cria arquivo Venda=====*/
+	Do 'CriaDocumentoVenda'
+	
+	/*===== Montar Arquivo Venda =====*/
+	If &venda = 0 //arquivo criado com Sucesso
+		For &SdtReceituarioItem in &SdtReceituario
+			&EmpCod = &SdtReceituarioItem.EmpCod
+			&RctCod = &SdtReceituarioItem.RctCod
+			do 'EscreverdadosVenda'
+		EndFor
+		&venda = dfwclose() // Fecha arquivo depois que gerou todos	
+		link(&link2) //Abre arquivo Receita
+	Else
+		&ErrorMessage = 'Não foi possível montar o arquivo de venda!'
+		&HttpResponse.AddString(&ErrorMessage)
+	EndIf
+EndIf
+
+Sub 'CriaDocumentoReceita'	
+	&File.Source = &ArquivoReceita 
+	If &File.Exists()
+		&File.Delete()
+	EndIf
+	&File.Close()
+	
+	&retorno = dfwOpen(&ArquivoReceita,";",'',0,'ISO-8859-1')
+	//&ResultadoAbertura = DfwOpen(&NomArq,'','', 0, 'ISO-8859-1') 
+	
+EndSub
+
+Sub 'CriaDocumentoVenda'	
+	&File.Source = &ArquivoVenda 
+	If &File.Exists()
+		&File.Delete()
+	EndIf
+	&File.Close()
+	
+	&venda = dfwOpen(&ArquivoVenda,";",'',0,'ISO-8859-1')
+	
+EndSub
+
+Sub 'Escreverdados'
+	&IndexLinha = 0
+	For each order EmpCod,RctCod 
+		Where EmpCod = &EmpCod
+		Where RctCod = &RctCod 
+		
+		If RctTotPro > 1
+			&IndexLinha += 1  //pode ate 5 Produtos Por receita.
+		EndIf
+	
+		&retorno = dfwPTxt('R')             // Tipo do Registro "R" ou "r"
+		If RctTotPro <= 1 //so tem 1 produto na Receita
+			&retorno = dfwPTxt(trim(Str(RctNum)))     // Número do Receituario
+		Else
+			Do Case
+				Case &IndexLinha = 1
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#A')
+				Case &IndexLinha = 2
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#B')
+				Case &IndexLinha = 3
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#C')
+				Case &IndexLinha = 4
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#D')
+				Case &IndexLinha = 5
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#E')
+			EndCase	
+		EndIf
+	
+		
+		&RctFunCod = RctFunCod
+		do 'BuscaProfissional'
+		&retorno = dfwPTxt(trim(retornaSoNumeros.Udp(&PesCpf)))    // CPF DO Profissional Emissor do Receituario
+		&retorno = dfwPTxt(trim(&PesArtNro)) // Nro  ART Profissional
+		&RctOciCliCod = RctOciCliCod
+		do 'BuscaCliente'
+		&retorno = dfwPTxt(substr(trim(&RctCliRaz),1,50)) // Nome Usuario Agrotóxico
+		&retorno = dfwPTxt(Trim(retornaSoNumeros.Udp(&RctCliCpf))) // CPF do Usuario do Agrotóxico
+		&retorno = dfwPTxt('')               // Nome da propriedade
+		&retorno = dfwPNum(RctPrpTotAgr,0)     // Tamanho da area de aplicacao
+		&RctPrpCod = RctPrpCod
+		Do 'Propriedade'
+		&retorno = dfwPTxt(substr(trim(&PrpEnd),1,100)) //localização propriedade
+		&retorno = dfwPNum(&PrpEndCidIBGE,0)  //Municipo de Aplicação
+		&retorno = dfwPTxt('') //Codigo microbacia 
+		&RctPrpTalcod = RctPrpTalCod
+		Do 'Talhao'
+		&retorno = dfwPTxt(trim(&Latitude))  // Latitude
+		&retorno = dfwPTxt(trim(&Longitude))  // Longitude
+		If RctProTlvAtv = 1 //todas as culturas
+			&retorno = dfwPTxt('674')  // Código Cultura
+		Else
+			&retorno = dfwPNum(RctProTlvSiaCod,0)  // Código Cultura
+		EndIf
+
+		&retorno = dfwPNum(RctProInfSiaCod,0)             // Código Infestacao
+		&retorno = dfwPTxt(substr(RctProRcmDia,1,100))    // Diagnostico
+		&retorno = dfwPDate(RctDta,'dmy','/')             // Emissão
+		&retorno = dfwPTxt(strreplace(substr(Trim(RetiraCaracteresEspeciais.Udp(RctProRcmModApl)),1,550),',',' ')) // Modalidade e epoca
+		&retorno = dfwPTxt(strreplace(substr(RetiraCaracteresEspeciais.Udp(RctProRcmIntSeg),1,80),',',' '))  // Intervalo seg.
+		&retorno = dfwPTxt(strreplace(SubStr(RetiraCaracteresEspeciais.Udp(RctProRcmPreUso),1,550),',',' ')) // precaucao de uso
+		&retorno = dfwPTxt(strreplace(SubStr(RetiraCaracteresEspeciais.Udp(RctProRcmOriMan),1,160),',',' ')) // Orientacao de manejo
+		&retorno = dfwPTxt(strreplace(SubStr(RetiraCaracteresEspeciais.Udp(RctProRcmEpi),1,100),',',' '))    // EPI
+		&retorno = dfwPTxt(strreplace(SubStr(RetiraCaracteresEspeciais.Udp(RctProRcmOutInf),1,550),',',' ')) // Outras Inf
+		&retorno = dfwPNum(RctProNroApl,0)                // Nro Aplicacao
+		&retorno = dfwPTxt('')                            // Codigo HASH
+		&retorno = dfwPTxt('')                            // Repositorio publico
+		&retorno = dfwPTxt('M')                           // Assinatura Manual
+		&retorno = dfwPTxt('')// vazio pra prencher mais um;
+		&retorno = dfwnext()  // escreve Linha
+		
+		
+		//######################################### PRODUTOS ####################################
+		&retorno = dfwPTxt('P')             // Tipo do Registro "p" ou "P"
+		If RctTotPro <= 1 //so tem 1 produto na Receita
+			&retorno = dfwPTxt(trim(Str(RctNum)))     // Número do Receituario
+		Else
+			Do Case
+				Case &IndexLinha = 1
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#A')
+				Case &IndexLinha = 2
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#B')
+				Case &IndexLinha = 3
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#C')
+				Case &IndexLinha = 4
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#D')
+				Case &IndexLinha = 5
+					&retorno = dfwPTxt(trim(Str(RctNum))+'#E')
+			EndCase	
+		EndIf
+		&retorno = dfwPTxt(trim(retornaSoNumeros.Udp(&PesCpf))) // CPF DO Profissional Emissor do Receituario
+		&RctProCod = RctProCod
+		&RctProGraCod = RctProGraCod
+		&RctProGraRef = RctProGraRef
+		do 'BuscaProduto'
+		&retorno = dfwPNum(&ProCodSia,0)   // Codigo Produto
+		&retorno = dfwPNum(RctProQtdAdq,0) // Quantidade adiquirir
+		&retorno = dfwPNum(RctProDos,3)    // Dose de uso
+		&retorno = dfwPNum(RctProUniUsoCod,0)    // Unidade Não sei o que é 
+		&retorno = dfwPTxt('')// vazio pra prencher mais um ;
+		
+		&retorno = dfwnext()  // Escreve Linha		
+		
+	Endfor
+EndSub
+
+Sub 'EscreverdadosVenda'
+	&IndexLinha = 0
+	For each order EmpCod,RctCod 
+		Where EmpCod = &EmpCod
+		Where RctCod = &RctCod 
+		
+		If RctTotPro > 1
+			&IndexLinha += 1  //pode ate 5 Produtos Por receita.
+		EndIf
+	
+		&venda = dfwPTxt('V')             // Tipo do Registro "v" ou "V"
+		
+		If RctTotPro <= 1 //so tem 1 produto na Receita
+			&venda = dfwPTxt(trim(Str(RctNum)))     // Número do Receituario
+		Else
+			Do Case
+				Case &IndexLinha = 1
+					&venda = dfwPTxt(trim(Str(RctNum))+'#A')
+				Case &IndexLinha = 2
+					&venda = dfwPTxt(trim(Str(RctNum))+'#B')
+				Case &IndexLinha = 3
+					&venda = dfwPTxt(trim(Str(RctNum))+'#C')
+				Case &IndexLinha = 4
+					&venda = dfwPTxt(trim(Str(RctNum))+'#D')
+				Case &IndexLinha = 5
+					&venda = dfwPTxt(trim(Str(RctNum))+'#E')
+			EndCase	
+		EndIf
+	
+		&RctFunCod = RctFunCod
+		do 'BuscaProfissional'
+		&venda = dfwPTxt(trim(retornaSoNumeros.Udp(&PesCpf))) // CPF PROFISSIONAL
+		&venda = dfwPTxt(trim(Str(RctNfeNum)))
+		&venda = dfwPTxt(trim(RctNfeSer))
+		&venda = dfwPTxt('PR')
+		&RctNfeCod = RctNfeCod
+		Do 'BuscaDataNfe'
+		&venda = dfwPDate(&NfeDtaEms,'dmy','/')             // Emissão
+		&venda = dfwPTxt(trim(retornaSoNumeros.Udp(&FilCpj)))
+		&venda = dfwPNum(RctProQtd,3)
+		&venda = dfwPTxt('')// vazio pra prencher mais um ;
+		
+		&venda = dfwnext()  // Escreve Linha		
+	
+	EndFor
+	
+EndSub
+
+Sub 'BuscaDataNfe'
+	For each Order EmpCod,NfeCod
+		Where EmpCod = &EmpCod
+		Where NfeCod = &RctNfeCod
+		&NfeDtaEms =  NfeDtaEms
+		&FilCpj = FilCpj
+		
+		Exit
+	EndFor
+EndSub
+
+Sub 'BuscaProduto'
+	For each Order EmpCod,ProCod
+		Where EmpCod = &EmpCod 
+		Where ProCod = &RctProCod
+		&ProCodSia = ProCodSia
+		
+		Exit
+	EndFor
+EndSub
+
+
+Sub 'Propriedade'
+	For each Order EmpCod,PrpCod
+		Where EmpCod = &EmpCod 
+		Where PrpCod = &RctPrpCod
+		&PrpNom = PrpNom
+		&PrpEnd = trim(PrpEnd)+','+trim(PrpEndNro)
+		&PrpEndDen = PrpEndDen
+		&PrpIns = PrpIns
+		&PrpEndCidIBGE = PrpEndCidIBGE
+		
+	EndFor	
+EndSub
+
+Sub 'Talhao'
+	For each Order EmpCod,PrpCod
+		Where EmpCod = &EmpCod 
+		Where PrpCod = &RctPrpCod
+		Where PrpTalCod = &RctPrpTalcod
+		&PrpTalGeo = PrpTalGeo
+		CalculaLocalizacaoEmGraus.Call(PrpTalGeo,&Latitude,&Longitude)
+		exit
+	EndFor
+EndSub
+
+Sub 'BuscaProfissional'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod 
+		Where PesCod = &RctFunCod
+		&PesRaz = PesRaz
+		&PesCpf = PesCpf
+		&PesArtNro = PesArtNro
+		Exit
+	EndFor
+EndSub
+
+Sub 'BuscaCliente'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod 
+		Where PesCod = &RctOciCliCod
+		&RctCliRaz = PesRaz
+		&RctCliCpf = PesCpf
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&Tipo,in:&SdtReceituario);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LoadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctFunCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctFunCod</Value></Property><Property><Name>Description</Name><Value>Profissional</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctFunCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpResponse</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtReceituario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtReceituario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SDTReceituario</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtReceituarioItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtReceituarioItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SDTReceituario.SDTReceituarioItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoReceita">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoReceita</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2500</Value></Property><Property><Name>AttMaxLen</Name><Value>2500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2500</Value></Property><Property><Name>AttMaxLen</Name><Value>2500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrorMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrorMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesArtNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesArtNro</Value></Property><Property><Name>Description</Name><Value>ART Nro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesArtNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCpf</Value></Property><Property><Name>Description</Name><Value>Pessoa Cpf</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctOciCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctOciCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente Ordem Carregamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctOciCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctCliRaz</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctCliCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctCliCpf</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrpNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrpNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrpNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrpEnd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrpEnd</Value></Property><Property><Name>Description</Name><Value>Endereço</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrpEnd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrpIns">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrpIns</Value></Property><Property><Name>Description</Name><Value>Insc. Estadual CAD-PRO</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrpIns</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrpEndCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrpEndCidIBGE</Value></Property><Property><Name>Description</Name><Value>IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrpEndCidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctPrpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctPrpCod</Value></Property><Property><Name>Description</Name><Value>Propriedade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctPrpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrpEndDen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrpEndDen</Value></Property><Property><Name>Description</Name><Value>Denominação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrpEndDen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="link">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>link</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctProGraRef</Value></Property><Property><Name>Description</Name><Value>Pro Ref.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCodSia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCodSia</Value></Property><Property><Name>Description</Name><Value>Código Siagro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCodSia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="link2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>link2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2000</Value></Property><Property><Name>AttMaxLen</Name><Value>2000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="venda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>venda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctNfeCod</Value></Property><Property><Name>Description</Name><Value>NF-e Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="filCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>filCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tipo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RctPrpTalcod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RctPrpTalcod</Value></Property><Property><Name>Description</Name><Value>Talhão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RctPrpTalCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrpTalGeo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrpTalGeo</Value></Property><Property><Name>Description</Name><Value>Localização do Talhão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrpTalGeo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Latitude">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Latitude</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Longitude">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Longitude</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalIndex">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalIndex</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IndexLinha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IndexLinha</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraArquivoSiagro</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

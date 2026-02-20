@@ -1,0 +1,516 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="fbc34e58-1276-4cb9-a50e-d8cfe570b204" user="WINJEAN\jeanfae" versionDate="2025-05-23T11:08:18.0000000Z" lastUpdate="2025-05-14T19:02:31.0000000Z" checksum="484471acc7c4a3dd31dc23c1393d2b2b" fullyQualifiedName="prcFilaEnvioWhats_AddBoletoProximoVencimento" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="e2531a8c-ae20-4333-9961-65b2d8f22b1b" name="prcFilaEnvioWhats_AddBoletoProximoVencimento" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Adiciona Boletos Próximo do vencimento à Fila de Envio Whats" parent="FilaEnvioWhatsBoleto" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[/*
+	O agendador irá rodar todos os dias no horário programado e injetará aqui o template para envio dos boletos
+*/
+&LogGUID = GUID.NewGuid()
+&EmptyGUID = GUID.Empty()
+&IsPodeEnviar = true
+	
+&WaDtaEms = serverdate()
+&Ano = year(&WaDtaEms)
+&Mes = month(&WaDtaEms)
+&WaAnoMes = trim(str(&Ano)) + padL(trim(str(&mes)),2,'0')
+
+&sdtAgeFiltros.FromXml(&AgdFiltro)
+For &sdtAgeFiltrosItem in &sdtAgeFiltros
+	Do Case
+		Case &sdtAgeFiltrosItem.AgdFiltro = 'whatsNumDias'
+			&Dias = val(&sdtAgeFiltrosItem.AgdValue)
+			
+		Case &sdtAgeFiltrosItem.AgdFiltro = 'whatsDiaDoVenc'
+			&IsEnviarDiaVencimento.FromString(&sdtAgeFiltrosItem.AgdValue)
+			
+		Case &sdtAgeFiltrosItem.AgdFiltro = 'whatsPesCod'
+			&RespPesCod.FromString(&sdtAgeFiltrosItem.AgdValue)
+			BuscaPessoaPorCod(EmpCod,&RespPesCod,&RespPesRaz)
+	EndCase
+EndFor
+
+if &RespPesCod <> 0
+	&DataLimite = &Today.AddDays(&Dias)
+	
+	
+	// Pesquisa boletos próximo ao vencimento ainda não enviados, ou marcados como pendente
+	For Each Order EmpCod, CreRecPag, CreVlrDup, FilCod, CreCliCod
+		Where EmpCod = &EmpCod
+		Where CreFrpPgtoTip = TipoDuplicata.DUPLICATA
+		Where CreDtaVct >= &Today and CreDtaVct <= &DataLimite
+		Where CreRecPag = ReceberPagar.Receber
+		Where CreSts <> Status_Duplicata.CANCELADA
+		Where CreCbrAvsVct.IsEmpty() or CreCbrAvsVct.IsNull() or CreCbrAvsVct = Status_SimNao_PS.SIM
+		Where (CreCbrImp = TipoImpressao.GerarBoleto) or (CreCbrImp = TipoImpressao.ImprimirBoleto and CreBloNro <> '')
+		Where CreVlrDup = CreVlrSdo
+		where (CreStsFilaEnv.IsEmpty() or CreStsFilaEnv.IsNull() or  CreStsFilaEnv = Status_FilaWhats.PENDENTE) or ((CreStsFilaEnvHoj.IsEmpty() or CreStsFilaEnvHoj.IsNull() or CreStsFilaEnvHoj = Status_FilaWhats.PENDENTE) and (CreDtaVct = &Today and &IsEnviarDiaVencimento = true))
+		
+		if &FilCod <> FilCod 
+			&FilCod = FilCod
+			&FilArt = FilArt
+			&EmpRaz = EmpRaz
+			
+			&RespPesFonNum = FilFonNum.Trim()
+			&FilRaz = RetornaNomeCadFilial.Udp(EmpCod, FilCod)
+			&RespPesRaz = RetornaNomeCadFilial.Udp(EmpCod, FilCod)
+			
+			do 'Init'			
+		Endif
+	
+		&CreCods = trim(str(CreCod))
+		msg('Duplicata ' + &CreCods + ': PENDENTE para envio', status)
+		
+		CreStsFilaEnv = Status_FilaWhats.ENVIADO //JDF ASSUMO A CULPA
+		if CreDtaVct = &Today
+			CreStsFilaEnvHoj = Status_FilaWhats.ENVIADO //JDF ASSUMO A CULPA
+		Endif
+	
+//		For Each order EmpCod,FilaWhatsGUID
+//			where FilaWhatsFilCod = FilCod
+//			where FilaWhatsMsgCreCod = CreCod
+//			where FilaWhatsSts = Status_FilaWhats.PENDENTE or FilaWhatsSts = Status_FilaWhats.FALHOU or FilaWhatsSts = Status_FilaWhats.ENVIADO
+//			msg('Duplicata ' + &CreCods + ': já adicionada na fila', status)
+//			exit
+//		when none
+			msg('Duplicata ' + &CreCods + ': criando arquivo', status)
+			criarquivoBoletoWhats(&LogGUID,EmpCod,FilCod,CreCod,CreDupNro,&ArqNom,&CreCodBar,&DirFis,&DirFisVir)
+			
+			if not &DirFisVir.IsEmpty()
+				msg('Duplicata ' + &CreCods + ': arquivo criado com sucesso', status)
+				&sdtMensalAtrasoItem                          = new()
+				&sdtMensalAtrasoItem.FilaWhatsFilCod          = FilCod
+				&sdtMensalAtrasoItem.FilRaz                   = RetornaNomeCadFilial.Udp(EmpCod, FilCod)
+				&sdtMensalAtrasoItem.FilaWhatsMsgCreCod       = CreCod
+				&sdtMensalAtrasoItem.CreDupNro                = CreDupNro
+				&sdtMensalAtrasoItem.CreVlrDup                = CreVlrDup
+				&sdtMensalAtrasoItem.CreCodBar                = CreCodBar
+				&sdtMensalAtrasoItem.FilaWhatsDtaLim          = CreDtaVct
+				&sdtMensalAtrasoItem.FilaWhatsDestPesCod      = CreCliCod
+				&sdtMensalAtrasoItem.CreCodBar                = &CreCodBar
+				&sdtMensalAtrasoItem.FilaWhatsMsgArqNom       = &ArqNom
+				&sdtMensalAtrasoItem.FilaWhatsMsgarqDirFis    = &DirFis
+				&sdtMensalAtrasoItem.FilaWhatsMsgArqDirFisVir = &DirFisVir
+				
+				do 'Match'
+				msg('Duplicata ' + &CreCods + ': feito!', status)
+			endif
+//		EndFor
+		
+		commit
+		
+		if &IsPodeEnviar = false
+			return
+		Endif
+		
+	when none
+		
+	EndFor
+endif
+
+Sub 'Init'
+	
+	RetornaTemplatePadraoWhatsPorTipo(&EmpCod,TipoTemplateWhatsapp.BOLETO_AVISO_VENCIMENTO,&tempateBoleto)
+	RetornaTemplatePadraoWhatsPorTipo(&EmpCod,TipoTemplateWhatsapp.BOLETO_VENCE_HOJE,&tempateBoletoHoje)
+	
+	if not &tempateBoleto.IsEmpty() or not &tempateBoletoHoje.IsEmpty()
+		do 'BuscaInformacoesResponsavel'		
+	else
+		msg('Nenhum template do whatsapp foi encontrado. Encerrando por aqui', status)
+	endif
+EndSub
+
+// Match!
+Sub 'Match'
+	// tudo certo para continuar			
+	do 'BuscaInformacoesDestinatario'
+			
+	if &SdtTelefones.Count > 0
+		if not &tempateBoleto.IsEmpty()
+			&txtFomatado = &tempateBoleto
+			do 'Mustache'
+			do 'New'
+		endif
+		
+		if &IsEnviarDiaVencimento
+			if &sdtMensalAtrasoItem.FilaWhatsDtaLim.ToDate() = &Today
+				if not &tempateBoletoHoje.IsEmpty()
+					&txtFomatado = &tempateBoletoHoje
+					do 'Mustache'
+					do 'New'
+				endif 
+			endif 
+		endif
+	Endif
+
+EndSub
+
+Sub 'BuscaInformacoesResponsavel'
+	// NOME E TELEFONE
+	For each Order EmpCod,PesCod
+		where EmpCod = &EmpCod
+		where PesCod = &RespPesCod
+		
+		&RespPesRaz = PesRaz
+		
+		if &RespPesFonNum.IsEmpty()
+			For Each Order EmpCod, PesCod, PesFonCod
+				&RespPesFonNum = PesFonNum
+				exit
+			EndFor
+		EndIf
+		
+		exit		
+	EndFor
+
+EndSub
+
+Sub 'BuscaInformacoesDestinatario'
+	// NOME E TELEFONE
+	&SdtTelefones.Clear()
+	For each Order EmpCod,PesCod
+		where EmpCod = &EmpCod
+		where PesCod = &sdtMensalAtrasoItem.FilaWhatsDestPesCod
+		
+//		&DestPesRaz = PesRaz
+		
+		For each Order EmpCod,PesCod,PesFonCod
+			//where PesFonTpo = TipoTelefone.CELULAR_WHATS
+			where PesFonWhatsBol = true
+			
+			&SdtTelefonesItem = new()
+			&SdtTelefonesItem.Num = PesFonNum
+			&SdtTelefonesItem.Cod = PesFonCod
+			&SdtTelefones.Add(&SdtTelefonesItem)
+			
+		EndFor
+	EndFor
+EndSub
+
+
+Sub 'Mustache'
+	msg('Duplicata ' + &CreCods + ': fazendo match!', status)
+	mustache(&txtFomatado,'Artigo',&FilArt,&txtFomatado)
+	mustache(&txtFomatado,'NomeFilial',&FilRaz,&txtFomatado)
+	mustache(&txtFomatado,'NumeroBoleto',&sdtMensalAtrasoItem.CreDupNro,&txtFomatado)
+	mustache(&txtFomatado,'ValorBoleto',&sdtMensalAtrasoItem.CreVlrDup.ToString().Trim(),&txtFomatado)
+	mustache(&txtFomatado,'DataVencimento',&sdtMensalAtrasoItem.FilaWhatsDtaLim.ToDate().ToString().Trim(),&txtFomatado)
+	mustache(&txtFomatado,'NomeContato',&RespPesRaz.Trim(),&txtFomatado)
+	mustache(&txtFomatado,'FoneContato',&RespPesFonNum.Trim(),&txtFomatado)
+	mustache(&txtFomatado,'EmailResponsavel',&RespPesEml,&txtFomatado)
+EndSub
+
+Sub 'New'
+	msg('Duplicata ' + &CreCods + ': gravando', status)
+	For &SdtTelefonesItem in &SdtTelefones
+		
+		&IsPodeEnviar = false
+		&IsJaEnviado = false
+		&IsPrimeiraVez = false
+		//Verificar se o numero ja foi enviado hoje
+		prcWhatsApp_VerificaJaEnviado.Call(&EmpCod, &WaAnoMes, &WaDtaEms, &SdtTelefonesItem.Num, &IsJaEnviado)
+		If &IsJaEnviado = false
+			//se nao foi enviado verificar se pode enviar
+			
+			prcWhatsApp_verificaQtdEnviadaAnoMes.Call(&EmpCod, &WaAnoMes, &WaAnoMesQtd, &EmpQtdWhatsMsg)
+			if &EmpQtdWhatsMsg > &WaAnoMesQtd
+				&IsPodeEnviar = true
+				&IsPrimeiraVez = true
+			Endif
+			
+		Else
+			&IsPodeEnviar = true
+		Endif
+		
+		if &IsPodeEnviar = true
+			
+			&WaMensagem = 'Aviso Vencimento Boleto: ' + trim(Str(&sdtMensalAtrasoItem.FilaWhatsMsgCreCod)) //PREENCHER MENSAGEM
+			prcWhatsApp_GravaEnvio.Call(&EmpCod, &WaAnoMes, &WaDtaEms, &SdtTelefonesItem.Num, &IsPrimeiraVez, &WaMensagem, 0, &FilCod, 0, &sdtMensalAtrasoItem.FilaWhatsMsgCreCod, &RespPesCod, &WaGUID)
+		
+			&FilaWhatsMsgOrd = 0
+			New
+				EmpCod                 = &EmpCod
+				FilaWhatsGUID          = GUID.NewGuid()
+				FilaWhatsFilCod        = &sdtMensalAtrasoItem.FilaWhatsFilCod
+				FilaWhatsRespPesCod    = &RespPesCod
+				FilaWhatsDestPesCod    = &sdtMensalAtrasoItem.FilaWhatsDestPesCod
+				FilaWhatsDestPesFonCod = &SdtTelefonesItem.Cod
+				FilaWhatsDtaEms        = now()
+				FilaWhatsDtaLim        = &sdtMensalAtrasoItem.FilaWhatsDtaLim
+				FilaWhatsSts           = Status_FilaWhats.PENDENTE
+				FilaWhatsTip           = TipoFilaEnvioWhats.BOLETOAVISO
+				FilaWaGuid			   = &WaGUID
+				
+				if Substr(&SdtTelefonesItem.Num,1,1) <> '+'
+					FilaWhatsDestPesFonNum = '55' + retornasoNumeros.Udp(&SdtTelefonesItem.Num)
+				Else	
+					FilaWhatsDestPesFonNum = retornasoNumeros.Udp(&SdtTelefonesItem.Num)
+				Endif
+				
+				// TEXTO DO TEMPLATE
+				&FilaWhatsMsgOrd        += 1
+				New
+					FilaWhatsMsgGUID         = GUID.NewGuid()
+					FilaWhatsMsgTxt          = &txtFomatado
+					FilaWhatsMsgOrd          = &FilaWhatsMsgOrd
+					FilaWhatsMsgTip          = TipoMensagemWhats.Texto
+					FilaWhatsMsgSts          = Status_FilaWhats.PENDENTE
+				EndNew
+				
+				// CÓDIGO DE BARRAS
+				&FilaWhatsMsgOrd        += 1
+				New
+					FilaWhatsMsgGUID         = GUID.NewGuid()
+					FilaWhatsMsgTxt          = retornaSoNumeros.Udp(&sdtMensalAtrasoItem.CreCodBar.Trim())
+					FilaWhatsMsgOrd          = &FilaWhatsMsgOrd
+					FilaWhatsMsgTip          = TipoMensagemWhats.Texto
+					FilaWhatsMsgSts          = Status_FilaWhats.PENDENTE
+				EndNew
+				
+				// PDF DO BOLETO
+				&FilaWhatsMsgOrd        += 1
+				New
+					FilaWhatsMsgGUID         = GUID.NewGuid()
+					FilaWhatsMsgCreCod       = &sdtMensalAtrasoItem.FilaWhatsMsgCreCod
+					FilaWhatsMsgArqNom       = &sdtMensalAtrasoItem.FilaWhatsMsgArqNom
+					FilaWhatsMsgTxt          = &sdtMensalAtrasoItem.FilaWhatsMsgTxt
+					FilaWhatsMsgTip          = TipoMensagemWhats.Documento
+					FilaWhatsMsgarqDirFis    = &sdtMensalAtrasoItem.FilaWhatsMsgArqDirFis
+					FilaWhatsMsgArqDirFisVir = &sdtMensalAtrasoItem.FilaWhatsMsgArqDirFisVir
+					FilaWhatsMsgOrd          = &FilaWhatsMsgOrd
+					FilaWhatsMsgSts          = Status_FilaWhats.PENDENTE
+				EndNew
+				
+			EndNew
+		Else
+			Exit
+		Endif
+	EndFor
+EndSub
+
+Sub 'subException_handler'
+	
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'subException_handler','subException_handler')
+	
+EndSub
+
+Sub 'subError_handler'
+	
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'subError_handler','subError_handler')
+	
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&AgdFiltro);
+
+Exception_handler('subException_handler');
+
+Error_handler('subError_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AgdFiltro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdFiltro</Value></Property><Property><Name>Description</Name><Value>Filtro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdFiltro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArqNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArqNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ArqNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCodBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCodBar</Value></Property><Property><Name>Description</Name><Value>Duplicata Codigo de barras</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCodBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCods">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCods</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataLimite">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataLimite</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestPesFonCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestPesFonCod</Value></Property><Property><Name>Description</Name><Value>Fone</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestPesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestPesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DirFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DirFis</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DirFis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DirFisVir">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DirFisVir</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DirFisVir</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpRaz</Value></Property><Property><Name>Description</Name><Value>Empresa Razão Social Matriz</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmptyGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmptyGUID</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilaWhatsMsgOrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilaWhatsMsgOrd</Value></Property><Property><Name>Description</Name><Value>Fila Whats Msg Ord</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilaWhatsMsgOrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEnviarDiaVencimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEnviarDiaVencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isValid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isValid</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespPesEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespPesEml</Value></Property><Property><Name>Description</Name><Value>Pessoa Email</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespPesFonCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespPesFonCod</Value></Property><Property><Name>Description</Name><Value>Fone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespPesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespPesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RespPesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RespPesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgeFiltros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgeFiltros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorFiltros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtAgeFiltrosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtAgeFiltrosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtAgendadorFiltros.sdtAgendadorFiltrosItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensalAtraso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensalAtraso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFilaWhatsBoleto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensalAtrasoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensalAtrasoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFilaWhatsBoleto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tempateBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tempateBoleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TplwTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tempateBoletoHoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tempateBoletoHoje</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TplwTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="txtFomatado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>txtFomatado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2000</Value></Property><Property><Name>AttMaxLen</Name><Value>2000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtTelefones">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtTelefones</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFones, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtTelefonesItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtTelefonesItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFones.sdtFonesItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPodeEnviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPodeEnviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJaEnviado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJaEnviado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPrimeiraVez">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPrimeiraVez</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaAnoMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaAnoMes</Value></Property><Property><Name>Description</Name><Value>Ano Mess</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaAnoMes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaDtaEms</Value></Property><Property><Name>Description</Name><Value>Wa Dta Ems</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpQtdWhatsMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpQtdWhatsMsg</Value></Property><Property><Name>Description</Name><Value>Qtd Max. Msg WhatsApp no Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpQtdWhatsMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaAnoMesQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaAnoMesQtd</Value></Property><Property><Name>Description</Name><Value>Qtd Envia Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaAnoMesQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaMensagem</Value></Property><Property><Name>Description</Name><Value>Wa Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaMensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WaGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WaGUID</Value></Property><Property><Name>Description</Name><Value>Wa Guid</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WaGuid</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilArt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilArt</Value></Property><Property><Name>Description</Name><Value>Fil Art</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilArt</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcFilaEnvioWhats_AddBoletoProximoVencimento</Value></Property><Property><Name>Description</Name><Value>Adiciona Boletos Próximo do vencimento à Fila de Envio Whats</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,543 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9ce80e22-bc71-45b5-9700-e3f9cead4c4e" user="WINJEAN\jeanfae" versionDate="2025-02-17T11:51:51.0000000Z" lastUpdate="2025-02-14T12:21:21.0000000Z" checksum="9b955ee97017c215c420b94d48ff7ef4" fullyQualifiedName="api_erp.set_imagemproduto" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="65a7bdd5-ec15-4a9e-b3fe-7976f6e77dcb" name="set_imagemproduto" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_imagemproduto" parent="api_erp.Produto" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+&LogGUID = GUID.NewGuid()
+
+if &IsAcessoConcedido = true //Acesso concedido
+	
+	//PARAMETROS
+	&ManterImagemOriginal = true //solicitar por parametro
+	&addProImgPri = true //solicitar por parametro
+	&ProImgTip = TipoImagemProduto.IMAGEM_VENDA //Solicitar por parametro 
+	
+	For Each Order EmpCod, ProCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where ProCod = &ProCod
+
+		&addProImgNom = GxGetMLi(trim(ProNom), 1, 40)
+		Exit
+	EndFor
+
+	&Extensao = &parExtensao.trim()	
+	&Extensao = &Extensao.Replace('.','')
+	
+	RetornaConfiguracoesPastas.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &sdtConfiguracoesPasta)
+	&DiretorioImagem1024 = &sdtConfiguracoesPasta.PastaDiretorioImagensProduto + '1024_1024/'
+	&DiretorioImagem325  = &sdtConfiguracoesPasta.PastaDiretorioImagensProduto + '325_325/'
+	&DiretorioImagem180  = &sdtConfiguracoesPasta.PastaDiretorioImagensProduto + '180_180/'
+	&DiretorioTemp = &sdtConfiguracoesPasta.PastaDiretorioImagensProduto + 'tmp/'
+	
+	//SALVAR A IMAGEM EM BASE64 FISICAMENTE
+	&ArquivoTemporario = &DiretorioTemp+trim(&LogGUID.ToString()) +'.'+ &Extensao.Trim()
+	
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'ArquivoTemporario',&ArquivoTemporario)
+		
+	&file.Source = &ArquivoTemporario
+	&file.FromBase64String(&base64)
+	&File.Close()
+			
+	do 'UploadImagem'
+	
+Endif
+
+
+
+Sub 'UploadImagem'
+	
+	&GUID = GUID.NewGuid()
+	&nomeImagemFinal = trim(str(&ProCod)) + '_' + trim(&GUID.ToString())
+	
+	&Directory.Source = &DiretorioImagem1024
+	if not &Directory.Exists()
+		&Directory.Create()
+	EndIf
+	
+	&Directory.Source = &DiretorioImagem325
+	if not &Directory.Exists()
+		&Directory.Create()
+	EndIf
+	
+	&Directory.Source = &DiretorioImagem180
+	if not &Directory.Exists()
+		&Directory.Create()
+	EndIf
+	
+	&Directory.Source = &DiretorioTemp
+	if not &Directory.Exists()
+		&Directory.Create()
+	EndIf	
+	
+	If not &ArquivoTemporario.IsEmpty()
+		&ArquivoFile.Source = &ArquivoTemporario.Trim()
+		If &ArquivoFile.Exists()
+			
+			&Largura1024 = 1024
+			&Altura1024 = 1024
+			
+			&Altura325 = 325
+			&Largura325 = 325
+			
+			&Altura180 = 180
+			&Largura180 = 180
+			
+			//CARREGA A IMAGEM TEMPORARIA
+			&IgImageEditor.Open(&ArquivoTemporario)	
+			
+			//Pega o tamanho da imagem para verificar Retrato ou paisagem
+			&width  = &IgImageEditor.GetWidth
+			&Height = &IgImageEditor.GetHeight
+			
+			//Pega a extensao da imagem
+			&Extensao = &IgImageEditor.GetFormat
+			
+			If &Extensao <> 'JPG' //CONVERTE PARA JPG			
+				&NovaTempImagem = &DiretorioTemp + trim(&nomeImagemFinal) + 'temp.jpg'
+				&ArquivoFile.Source = &NovaTempImagem
+				If &ArquivoFile.Exists()
+					&ArquivoFile.Delete()
+				EndIF
+				
+				&IgImageEditor.Format('JPG', 90, &NovaTempImagem)
+			Else
+				&NovaTempImagem = &ArquivoTemporario
+			EndIF
+			&IgImageEditor.Close()
+			
+			//Imagem produtos/temp
+			&IgImageEditor.Open(&NovaTempImagem)
+			
+			&ImagemTemp1024 = &DiretorioTemp + trim(&nomeImagemFinal) + 'temp1.jpg'
+			&ArquivoFile.Source = &ImagemTemp1024
+			If &ArquivoFile.Exists()
+				&ArquivoFile.Delete()
+			EndIF
+			
+			//resize  Imagem 1024
+			If &Height > &width //RETRATO 
+				If &Height > &Altura1024 and &ManterImagemOriginal = false
+					&NovoHeight = &Altura1024
+					&multiplicador = &NovoHeight / &Height
+					&NovoWidth = round(&width * &multiplicador, 0)
+					
+					&IgImageEditor.Resize(&NovoHeight, &NovoWidth, &ImagemTemp1024)
+					&IgImageEditor.Close()
+				Else
+					&IgImageEditor.Close()
+					
+					&ArquivoFile.Source = &NovaTempImagem
+					&ArquivoFile.Copy(&ImagemTemp1024)
+				EndIF
+				
+			Else //PAISAGEM
+				If &width > &Largura1024 and &ManterImagemOriginal = false
+					&NovoWidth = &Largura1024
+					&multiplicador = &NovoWidth / &width
+					&NovoHeight = round(&Height * &multiplicador, 0)
+					
+					&IgImageEditor.Resize(&NovoHeight, &NovoWidth, &ImagemTemp1024)
+					&IgImageEditor.Close()
+				Else
+					&IgImageEditor.Close()
+					
+					&ArquivoFile.Source = &NovaTempImagem
+					&ArquivoFile.Copy(&ImagemTemp1024)
+				EndIF
+			EndIf
+			
+			//Formatada imagem e grava pasta correta
+			&color = RGB(255,255,255)
+			
+			&Final1024 = &DiretorioImagem1024.Trim() + trim(&nomeImagemFinal) + '.jpg'
+			&ArquivoFile.Source = &Final1024
+			If &ArquivoFile.Exists()
+				&ArquivoFile.Delete()
+			EndIF
+			
+			if &ManterImagemOriginal = false
+				&tmpBlob = loadBitmap(&ImagemTemp1024)
+				&FinalBlob = LoadBitmap(&Final1024)
+				&ImageTools.GenerateThumbnail(&tmpBlob, &FinalBlob, &Altura1024, &Largura1024, &Color)
+				&tmpBlob.SetEmpty()
+				&FinalBlob.SetEmpty()
+			else
+				&ArquivoFile.Source = &ImagemTemp1024
+				&ArquivoFile.Copy(&Final1024)
+			Endif
+			
+			//Resize 325.325
+			&Final325 = &DiretorioImagem325.Trim() + trim(&nomeImagemFinal) + '.jpg'
+			&ArquivoFile.Source = &Final325
+			If &ArquivoFile.Exists()
+				&ArquivoFile.Delete()
+			EndIF
+			
+			if &ManterImagemOriginal = false
+				&IgImageEditor.Open(&Final1024)
+				&IgImageEditor.Resize(&Altura325, &Largura325, &Final325)
+				&IgImageEditor.Close()
+			else
+				&ArquivoFile.Source = &Final1024
+				&ArquivoFile.Copy(&Final325)
+			EndIf
+			
+			//Resize 180.180
+			&Final180 = &DiretorioImagem180.Trim() + trim(&nomeImagemFinal) + '.jpg'
+			&ArquivoFile.Source = &Final180
+			If &ArquivoFile.Exists()
+				&ArquivoFile.Delete()
+			EndIF
+			
+			if &ManterImagemOriginal = false
+				&IgImageEditor.Open(&Final1024)
+				&IgImageEditor.Resize(&Altura180, &Largura180, &Final180)
+				&IgImageEditor.Close()
+			else
+				&ArquivoFile.Source = &Final1024
+				&ArquivoFile.Copy(&Final180)
+			Endif
+			
+			&ProImgNomFis = trim(&nomeImagemFinal) + '.jpg'
+			&NomeVirtual = &sdtConfiguracoesPasta.PastaDiretorioImgProdutoVir.Trim() + '180_180/' + &ProImgNomFis.Trim()
+			&ProImg.FromURL(&NomeVirtual)
+			
+			&NomeVirtual = &sdtConfiguracoesPasta.PastaDiretorioImgProdutoVir.Trim() + '325_325/' + &ProImgNomFis.Trim()
+			&ProImg325.FromURL(&NomeVirtual)
+			
+			&NomeVirtual = &sdtConfiguracoesPasta.PastaDiretorioImgProdutoVir.Trim() + '1024_1024/' + &ProImgNomFis.Trim()
+			&ProImg1024.FromURL(&NomeVirtual)
+			
+			&NomeVirtual = &ArquivoTemporario
+			&ProImgOriginal.FromURL(&NomeVirtual)
+			
+			if &ProImgCod = 0
+				For Each Order EmpCod, ProCod, (ProImgCod)
+					Where EmpCod = &wwpContext.EmpCod
+					Where ProCod = &ProCod
+					&ProImgCod = ProImgCod
+					Exit
+				EndFor
+				&ProImgCod += 1
+			EndIF
+	
+			GravaDadosImagemProduto.Call(&wwpContext.EmpCod, &ProCod, &ProImgCod, &addProImgNom, &ProImgTip, &ProImgNomFis, &addProImgPri, &ProImg, &ProImg325, &ProImg1024, &ProImgOriginal)
+			
+			&sdtRetornoWbsEtc.sts = 'J200'
+			&sdtRetornoWbsEtc.obs = 'Imagem salva com sucesso!'
+			
+		Else
+			&sdtRetornoWbsEtc.sts = 'E999'
+			&sdtRetornoWbsEtc.obs = 'Nenhuma imagem selecionada, ou inválida!'
+			Return
+		EndIF
+	EndIF
+	
+EndSub
+
+
+Sub 'Exception_handler'
+	&sdtRetornowbsEtc.Sts = 'E999'
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+//	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subError_handler',&sdtProduto.ToJson())
+Endsub
+
+Sub 'Error_handler'
+	&sdtRetornowbsEtc.Sts = 'E998'
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&parExtensao, in:&procod, in:&base64, out:&sdtRetornoWbsEtc);
+
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="addProImgNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>addProImgNom</Value></Property><Property><Name>Description</Name><Value>Nome Imagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImgNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="addProImgPri">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>addProImgPri</Value></Property><Property><Name>Description</Name><Value>Imagem principal</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImgPri</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Altura1024">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Altura1024</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Altura180">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Altura180</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Altura325">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Altura325</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoFile">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoFile</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoTemporario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoTemporario</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="base64">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>base64</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="color">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>color</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Directory">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Directory</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Directory</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiretorioImagem1024">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiretorioImagem1024</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiretorioImagem180">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiretorioImagem180</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiretorioImagem325">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiretorioImagem325</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiretorioTemp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiretorioTemp</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Extensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Extensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="file">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>file</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Final1024">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Final1024</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Final180">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Final180</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Final325">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Final325</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinalBlob">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinalBlob</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Height">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Height</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IgImageEditor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IgImageEditor</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:IgImageEditor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImagemTemp1024">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImagemTemp1024</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImageTools">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImageTools</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:ImageTools</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Largura1024">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Largura1024</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Largura180">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Largura180</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Largura325">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Largura325</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManterImagemOriginal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManterImagemOriginal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="multiplicador">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>multiplicador</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>8</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nomeImagemFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nomeImagemFinal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeVirtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeVirtual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovaTempImagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovaTempImagem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovoHeight">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovoHeight</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NovoWidth">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NovoWidth</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parExtensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parExtensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="procod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>procod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImg</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Image</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImg1024">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImg1024</Value></Property><Property><Name>Description</Name><Value>Pro Img1024</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImg1024</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImg325">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImg325</Value></Property><Property><Name>Description</Name><Value>Pro Img325</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImg325</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImgCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImgCod</Value></Property><Property><Name>Description</Name><Value>Cod. Imagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImgCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImgNomFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImgNomFis</Value></Property><Property><Name>Description</Name><Value>Nome Imagem Fisica</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImgOriginal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImgOriginal</Value></Property><Property><Name>Description</Name><Value>Pro Img Original</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImgOriginal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImgTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImgTip</Value></Property><Property><Name>Description</Name><Value>TipoImagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProImgTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRetornoWbsEtc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRetornoWbsEtc</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRetornoWbsEtc, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="tmpBlob">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>tmpBlob</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property></Properties>
+        </Variable>
+        <Variable Name="width">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>width</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_imagemproduto</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

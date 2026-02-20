@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2f23ad88-d42d-4f68-a343-9e01b846cd1b" user="WIN-JEAN\jean.fae" versionDate="2024-07-02T19:30:48.0000000Z" lastUpdate="2024-06-28T18:09:00.0000000Z" checksum="209b4745bb0fff566fc389a1d161fa0e" fullyQualifiedName="prcCriaWebhook_Inter" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="f1232b80-6cd2-48cf-845f-deb075431170" name="prcCriaWebhook_Inter" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Cria Webhook_Inter" parent="API_CobrancaBoletoPix_Prc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[LoadWWPContext.Call(&WWpContext)
+&VerificaMensagemScopo	= 0
+&VerificaMensagemToken	= 0
+&IsWebhookCadastrado	= False
+&Password				= '1234'
+&Mensagem.SetEmpty()
+Do 'GetContaBancaria'
+
+If &IsChaveTransacao = True
+	
+	&LongVarChar	= '{   "webhookUrl": "https://adm.jaspi.com.br/webhookinterrecebimento.aspx"}'
+	
+	&HttpClient.AddHeader('x-conta-corrente', &contaCorrente)
+	&HttpClient.AddHeader('Content-Type', 'application/json')
+	&HttpClient.AddHeader('Accept-Encoding', 'gzip, deflate, br')
+	&HttpClient.AddHeader('Connection', 'keep-alive')
+	&HTTPClient.AddHeader('Authorization', 'Bearer ' + &CbrChaTra.Trim())
+	&HttpClient.AddString(&LongVarChar)
+	
+	//Carrega o Certificado ao Handler
+	CSHARP try
+	CSHARP { [!&HttpClient!].AddCertificate([!&PathCert!],[!&Password!]); }
+	CSHARP catch (Exception ex)
+	CSHARP { [!&ErrorDescription!] = ex.ToString();
+	CSHARP }
+	
+	csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+	
+	&HttpClient.Execute('PUT', 'https://cdpj.partners.bancointer.com.br/cobranca/v3/cobrancas/webhook') 
+	If &HttpClient.StatusCode	= 200 Or &HttpClient.StatusCode	= 204
+		&IsWebhookCadastrado	= True
+		Do 'AtualizaWebhook'
+	Else
+		&SdtErroAPI_Inter.FromJson(&HttpClient.ToString())
+		&Mensagem				= &SdtErroAPI_Inter.title + ' ' + &SdtErroAPI_Inter.detail
+		If &SdtErroAPI_Inter.violacoes.Count >= 1
+			For &violacoes In &SdtErroAPI_Inter.violacoes
+				&Mensagem  += ' ' + &violacoes.razao.Trim() + ' Propriedade: ' + &violacoes.propriedade.Trim()
+			EndFor
+		EndIf
+		
+		&Mensagem	   += IIf(&ErrorDescription.IsEmpty(), '', ' - Erro CSHARP:' + &ErrorDescription.Trim())
+		
+		//Verifica se é erro de Token
+		If &Mensagem.IsEmpty()
+			&Mensagem				= &HttpClient.ToString()
+			&VerificaMensagemToken	= StrSearch(&Mensagem, 'Token inválido.', 1)
+		EndIf
+		
+		//Se for erro de token, realiza a autenticação automaticamente
+		If &VerificaMensagemToken > 0
+			prcOAuth_Inter.Call(&EmpCod, &FiLCod, &PesCod, &CbrCod, &CbrChaTra, &Mensagem)
+			If &Mensagem.IsEmpty()
+				prcCriaWebhook_Inter.Call(&EmpCod, &FilCod, &PesCod, &CbrCod, &contaCorrente, &IsWebhookCadastrado, &Mensagem)
+			Else
+				msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro!", &Mensagem, DVMessageType.error, "", DVMessageBoolean.True, ""))
+			EndIf
+		Else
+			//Se for erro de escopo, sinaliza o escopo
+			&VerificaMensagemScopo	= StrSearch(&Mensagem, 'escopos', 1)
+			If &VerificaMensagemScopo > 0
+				&Mensagem			= 'Faltando escopos necessários. Verifique na Conta Bancária se há os seguintes escopos: boleto-cobranca.write boleto-cobranca.read'
+			EndIf
+			PadraoUsuario.Call('G', 'INTER_CADASTRARWEBHOOK_ERRO', &PesCod, &EmpCod, &Mensagem, &PadDtaMod)
+			msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro!", &Mensagem, DVMessageType.error, "", DVMessageBoolean.True, ""))
+		EndIf	
+	EndIf
+Else
+	msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro!", &Mensagem, DVMessageType.error, "", DVMessageBoolean.True, ""))
+EndIf
+
+Sub 'AtualizaWebhook'
+	
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+		
+		
+		CbrWebhook		= !"https://adm.jaspi.com.br/webhookinterrecebimento.aspx"
+		
+		Exit
+	EndFor
+	Commit
+		
+EndSub
+
+Sub 'GetContaBancaria'
+	
+	&IsChaveTransacao	= False
+	For Each Order EmpCod, CbrCod
+		Where EmpCod	= &EmpCod
+		Where CbrCod	= &CbrCod
+				
+		//Faz o genexus criar um arquivo temporario do certificado
+		//Pega o caminho da web dele
+		&Path			= PathToUrl(CtaBanPixCer)
+		&InicioPath		= StrSearch(&Path, 'PublicTempStorage', 1)
+		&Path			= SubStr(&Path, &InicioPath, &Path.Length())
+		
+		//Pesquisa o caminho fisico temporario do certificado
+		&File.Source	= CtaBanPixCerNom
+		&PathCert		= &File.GetPath() + !"\" + &Path
+		&PathCert		= StrReplace(&PathCert, '/', '\')
+		&File.Close()			
+		
+		If not CbrChaTra.Trim().IsEmpty() and not CbrChaTraVct.IsEmpty() and  CbrChaTraVct > ServerNow() //chave de Transação esta Vencida?
+			&CbrChaTra 			= CbrChaTra
+			&IsChaveTransacao 	= True 
+		Else
+			prcOAuth_Inter.Call(&EmpCod, &FilCod, &PesCod, CbrCod, &CbrChaTra, &Mensagem)
+			If &Mensagem.IsEmpty()
+				&IsChaveTransacao	= True
+			EndIf
+		EndIf
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod, in:&FilCod, in:&PesCod, In:&CbrCod, In:&contaCorrente, Out:&IsWebhookCadastrado, Out:&Mensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsChaveTransacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsChaveTransacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsWebhookCadastrado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsWebhookCadastrado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação | token Beaber</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="contaCorrente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>contaCorrente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErrorDescription">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErrorDescription</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InicioPath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InicioPath</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Password">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Password</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PathCert">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PathCert</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtErroAPI_Inter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtErroAPI_Inter</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtErroAPI_Inter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="violacoes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>violacoes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtErroAPI_Inter.violacoesItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VerificaMensagemToken">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VerificaMensagemToken</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VerificaMensagemScopo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VerificaMensagemScopo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FiLCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FiLCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcCriaWebhook_Inter</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

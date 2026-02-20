@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="a3be529e-3058-45c0-82b5-ecf9e218a1af" user="WINJEAN\jeanfae" versionDate="2025-09-02T12:19:28.0000000Z" lastUpdate="2025-09-02T10:58:44.0000000Z" checksum="252cebf8891e2225b1cc1a24fbe9cc4e" fullyQualifiedName="AtualizaTotaisPedidoPDV" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="cfca58e7-8dc0-4cb7-b70c-2b514e470e3c" name="AtualizaTotaisPedidoPDV" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Atualiza Totais Pedido PDV" parent="PedPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//ATUALIZA TOTAIS DOS ITENS
+For Each Order EmpCod, FilCod, PedCod, PedItmCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	Where (PedItmCod = &PedItmCod) or (&CapaItem = 'C')	
+	
+	&PedVlrUntDsc 	= PedVlrUntDsc_FORMULA
+	PedVlrUntDsc    = &PedVlrUntDsc
+	PedVlrUntComDsc = &PedVlrUntDsc
+	PedVlrItm 		= PedVlrItm_FORMULA
+	
+	&IsAtualizaCusto = false
+	If LctAtuSal = Status_EntradaSaida.Saida
+		RetornaPrecoUnitarioTipo.call(EmpCod, TabPrmCod, ProCod, ProGraCod, TabColCod, PedDtaEms, PedItmDsc, &PedItmPrm)
+		
+		//JDF Fazer calcular a comissao so quando for tirar um relatorio de comissao.
+		//Melhora performance de uma informacao que nao precisa ter agora.		
+		//If PedItmVenCod > 0
+		//	retornaComissaoVendedor.call(EmpCod, PedItmVenCod, LctPagCom, LctCod, GrupCom, &PedItmPrm, &TotalFaturadoMoeda, &PedItmCom)
+		//Else
+		//	retornaComissaoVendedor.call(EmpCod, PedVenCod, LctPagCom, LctCod, GrupCom, &PedItmPrm, &TotalFaturadoMoeda, &PedItmCom)
+		//EndIF		
+		//If PedRspCod > 0 //Feito por TTS 06/09/18
+		//	retornaComissaoVendedor.call(EmpCod, PedRspCod, LctPagCom, LctCod, GrupCom, &PedItmPrm, &TotalFaturadoMoeda, PedItmComRsp)
+		//EndIf
+		//PedItmCom = &PedItmCom
+		
+		//Atualiza Desconto total Item.
+		&PedItmDsc = 0
+		&TotalDescontos = 0
+		IF (PedVlrUnt <> PedVlrTab) AND (PedVlrUnt > 0) AND (PedVlrTab > 0)
+			&PedItmDsc = (100 - ((PedVlrUnt / PedVlrTab) * 100))
+		EndIF
+		
+		&PedItmDsc += PedItmDsc
+		
+		if &PedItmDsc >= 0
+			verificaDescontoMaximoPedidoItem_percentual.Call(EmpCod, FilCod, PedCod, &VazioWwpContext, PedItmCod, PedItmPrm, PedVlrItm, &PedItmDsc, PedVlrUnt, &TotalDescontos)
+		Else
+			&TotalDescontos = &PedItmDsc
+		Endif
+		PedItmDscTot = &TotalDescontos
+		
+	Else
+		&IsAtualizaCusto = true
+		&PedItmPrm = domPedItmPrm.NORMAL
+	EndIF
+
+	PedItmPrm = &PedItmPrm
+	
+	commit
+EndFor
+
+&RateioAcrescimos = 0
+&RateioDescontos = 0
+
+//ATUALIZA TOTAIS DO PEDIDO
+For Each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	
+	if PedDtaFat.IsEmpty() or PedDtaFat.IsNull()
+		PedDtaFic = PedDtaEms
+	Else
+		PedDtaFic = PedDtaFat
+	EndIF
+	
+	&PedTotVlrPrm = PedTotVlrPrm_FORMULA
+	&PedTotVlrSpm = PedTotVlrSpm_FORMULA
+	&PedTotVlrSrv = PedTotVlrSrv_FORMULA
+	PedTotVlrPrm = &PedTotVlrPrm
+	PedTotVlrSpm = &PedTotVlrSpm
+	PedTotVlrSrv = &PedTotVlrSrv
+	
+	PedVlrDscPrm 	= PedVlrDscPrm_FORMULA	
+	PedVlrDscSpm 	= PedVlrDscSpm_FORMULA
+	PedVlrDscSrv 	= PedVlrDscSrv_FORMULA		
+	PedVlrBrt 		= PedVlrBrt_FORMULA
+	
+	Commit
+	
+	&PedVlrLiq		= &PedTotVlrPrm + &PedTotVlrSpm + &PedTotVlrSrv
+	&PedVlrFrt 		= PedVlrFrt_FORMULA
+	PedVlrLiq 		= PedVlrLiq_FORMULA
+	PedVlrFrt		= &PedVlrFrt
+	
+	commit
+	
+	&RateioDescontos = PedVlrDscGlb
+	&RateioAcrescimos = &PedVlrFrt + PedVlrOut + PedVlrGnre
+	Exit
+EndFor
+
+//DESCONTOS GERAL
+&PedProTaxDscGerItm = 0
+if &RateioDescontos > 0 and &PedVlrLiq > 0
+	&PedProTaxDscGerItm = round((&RateioDescontos*100)/&PedVlrLiq,2)
+EndIF
+
+//ACRESCIMOS GERAL
+&PedProTaxAcrGerItm = 0
+if &RateioAcrescimos > 0 and &PedVlrLiq > 0
+	&PedProTaxAcrGerItm = round((&RateioAcrescimos*100)/&PedVlrLiq,2)
+EndIF
+
+If &PedItmCod <> 0 and (&PedProTaxAcrGerItm = 0 and &PedProTaxDscGerItm = 0)
+	For Each Order EmpCod, FilCod, PedCod, PedItmCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PedCod = &PedCod
+		Where PedItmCod = &PedItmCod
+		
+		PedVlrUntComDsc = PedVlrUntComDsc_FORMULA
+		&PedVlrItmComDsc = PedVlrItmComDsc_FORMULA
+		PedVlrItmComDsc = &PedVlrItmComDsc
+		
+		
+		PedProTaxAcrGerItm = &PedProTaxAcrGerItm
+		PedProTaxDscGerItm = &PedProTaxDscGerItm
+			
+		Exit
+	EndFor
+	
+	Commit
+	
+	if &IsAtualizaCusto = true //Somente pedidos Compra
+		For Each Order EmpCod, FilCod, PedCod, PedItmCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			Where PedItmCod = &PedItmCod
+			
+			PedVlrCus 		= PedVlrCusCmp_FORMULA
+			PedVlrCusPrd    = PedVlrCusPrd_FORMULA
+			Exit
+		EndFor
+		commit
+	EndIf
+
+	
+Else
+	AtualizaItemPedidoDescontoTotal.Call( &EmpCod, &FilCod, &PedCod, &PedProTaxDscGerItm, &PedProTaxAcrGerItm, &IsAtualizaCusto)
+EndIf
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod, in:&PedItmCod, in:&CapaItem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CapaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CapaItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmPrm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmPrm</Value></Property><Property><Name>Description</Name><Value>Produto Status</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmPrm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCom</Value></Property><Property><Name>Description</Name><Value>%Comissao Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrItmComDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrItmComDsc</Value></Property><Property><Name>Description</Name><Value>Total com Descontos (LIQUIDO)</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrItmComDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedProTaxDscGerItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedProTaxDscGerItm</Value></Property><Property><Name>Description</Name><Value>Desconto Geral Capa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedProTaxDscGerItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrLiq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrFrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrFrt</Value></Property><Property><Name>Description</Name><Value>Valor Frete</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrFrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RateioDescontos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RateioDescontos</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedProTaxAcrGerItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedProTaxAcrGerItm</Value></Property><Property><Name>Description</Name><Value>Acrescimo Geral Capa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedProTaxAcrGerItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RateioAcrescimos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RateioAcrescimos</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTotVlrSrv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTotVlrSrv</Value></Property><Property><Name>Description</Name><Value>Total Serviço</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTotVlrSrv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTotVlrPrm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTotVlrPrm</Value></Property><Property><Name>Description</Name><Value>Total Promoção</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTotVlrPrm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedTotVlrSpm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedTotVlrSpm</Value></Property><Property><Name>Description</Name><Value>Total Sem Promoção</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedTotVlrSpm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUntDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUntDsc</Value></Property><Property><Name>Description</Name><Value>Valor Calculado Liquido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUntDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaCusto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaCusto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmDsc</Value></Property><Property><Name>Description</Name><Value>Descontos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VazioWwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VazioWwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDescontos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDescontos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmDsc</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>AtualizaTotaisPedidoPDV</Value></Property><Property><Name>Description</Name><Value>Atualiza Totais Pedido PDV</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

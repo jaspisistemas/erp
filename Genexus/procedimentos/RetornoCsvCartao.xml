@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="DESKTOP-Q22AJBP\Italo" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2022-07-18T19:14:51.0000000Z" checksum="2315fb9bcb85b9c8347af42642e12c18" fullyQualifiedName="RetornoCsvCartao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="091df230-26fb-42a0-8a29-1bec4ea1eba1" name="RetornoCsvCartao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Retorno Csv Cartao" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//=====Captura extensão do arquivo recebido como parâmetro=====
+&PosicaoInicial = StrSearchRev(&selectedURL,'.',&selectedURL.Trim().Length())
+&PosicaoInicial += 1
+&Extensao = SubStr(&selectedURL,&PosicaoInicial,5)
+&SdtPagamentoDuplicata.Clear()
+//=====Se a extesão nao for csv, envia mensagem=====
+If &Extensao.ToLower() <> 'csv'
+ msg('Arquivo Incorreto!')
+ 
+Else
+ 
+ //=====Abre Arquivo recebido como parâmetro=====
+ &retorno = dfrOpen(&selectedURL,,',','"','utf-8')
+ 
+ //=====Realizar a seguinte rotina enquanto não chegar ao fim do arquivo=====
+ Do While dfrNext() = 0
+	 
+		&retorno = dfrGTxt(&ResumoVenda) // "Resumo de Vendas: 00393052869143",,,,"Data de Crédito: 28/10/19",,,,,,,,,,,,,
+		
+		&DataTransacao = CtoD(&ResumoVenda) /// pega data da venda
+		If not &ResumoVenda.Trim().IsEmpty()
+			Do Case
+				Case Substr(&ResumoVenda,1,6) = 'Resumo'   //pega linha Resumo
+				 &retorno = dfrGNum(&NumericVazio) 
+				 &retorno = dfrGNum(&NumericVazio) 
+				 &retorno = dfrGNum(&NumericVazio)  
+				 &retorno = dfrGTxt(&DataCredito)  //pega a data  do crédito 
+					
+				Case not &DataTransacao.IsEmpty()
+					&Autorizacao = ''
+					&Comprovante = ''
+//					msg('Tem data de Transação '  + &DataTransacao.ToFormattedString() + ' autorizacao: '+ &Autorizacao )
+					&retorno = dfrGTxt(&Cliente)     // "Código do Cliente"
+					&retorno = dfrGTxt(&Comprovante) // "Comprovante"
+					&retorno = dfrGTxt(&Produto)     // "Produto" - ex: VISA Crédito
+					&retorno = dfrGTxt(&Tipo)        // Tipo de transação ex: Compra com 03 parcelas
+					&retorno = dfrGTxt(&Parcelas)    // Parcelas ex:"3/3"
+					&retorno = dfrGTxt(&Autorizacao) // Autorização
+					&retorno = dfrGTxt(&NumCartao)   // Num. Cartão
+					&retorno = dfrGTxt(&SeuNumero)   // Seu Número
+					&retorno = dfrGTxt(&Varchar)     // Codigo ECI
+					&retorno = dfrGTxt(&Varchar)     // Terminal
+					&retorno = dfrGTxt(&Varchar)     // Tipo de Captura
+					&retorno = dfrGTxt(&TipoCartao)  // Tipo de Cartão
+					&retorno = dfrGNum(&ValorCompra) // Valor da Compra
+					&retorno = dfrGNum(&ValorParcela)// Valor Bruto Parcela
+					&retorno = dfrGNum(&ValorDesc)   // Valor Desc.
+					&retorno = dfrGNum(&ValorLiq)    // Valor Líquido
+					
+					Do 'GetDuplicata'				
+			EndCase
+		EndIf
+ EndDo
+	
+ //=====Fechar arquivo=====
+ &retorno = dfrClose()
+ 
+EndIf
+
+If &SdtPagamentoDuplicata.Count > 0 
+	 
+	GravaFinanceiroDuplicataCartaocsv.call(&EmpCod,&SdtPagamentoDuplicata)
+	&SdtPagamentoDuplicata.FromJson(&WEBSESSION.Get('Retorno_cartoes'))
+	&xmlwriter.Open('csvcartao.xml') 
+	&xmlwriter.WriteRawText(&SdtPagamentoDuplicata.ToXml())
+	&xmlwriter.Close()
+Else
+	Msg('Nenhuma Duplicata encontrada neste arquivo!')
+EndIf
+
+
+Sub 'GetDuplicata'
+	
+//	If &ValorCompra > 0 
+//		&INDEX = (StrSearch(&Parcelas,'/',1)) -1
+//		&NroParcelas  = val(SUBSTR(TRIM(&Parcelas),1,&INDEX))
+//	EndIf
+
+	For each Order EmpCod,CreRecPag,CreVlrSdo,CreCarNroAut,CreDtaVct
+		Where EmpCod = &EmpCod
+		Where CreRecPag = ReceberPagar.Receber
+		Where CreCarNroAut = &Autorizacao.Trim() when not &Autorizacao.Trim().IsEmpty()
+		Where not CreCarNroAut.IsEmpty()
+//		Where CreVlrSdo > 0 
+		
+		&DataCredito = RetornaSoNumeros.Udp(&DataCredito)
+		&MovDtaCon = ymdtoD(val(substr(trim(&DataCredito),5,2)),val(substr(trim(&DataCredito),3,2)),val(substr(trim(&DataCredito),1,2)))
+		&SdtPagamentoDuplicataItem = new()
+		&SdtPagamentoDuplicataItem.EmpCod = EmpCod
+		&SdtPagamentoDuplicataItem.CreCod = CreCod
+		&SdtPagamentoDuplicataItem.CreFilPgt = CreFilPgt
+		&SdtPagamentoDuplicataItem.CreDupNro = CreDupNro
+		&SdtPagamentoDuplicataItem.FilCod = FilCod
+		&SdtPagamentoDuplicataItem.CreCliCodRaz = CreCliCodRaz 
+		&SdtPagamentoDuplicataItem.CreCliCod = CreCliCod
+		&SdtPagamentoDuplicataItem.CreCarBanCod = CreCarBanCod
+		&SdtPagamentoDuplicataItem.CreCliRaz = CreCliRaz
+		&SdtPagamentoDuplicataItem.CrePagVlrTar = (CreVlrSdo - (iif(&ValorLiq> 0,&ValorLiq/100,0)))
+		&SdtPagamentoDuplicataItem.CreVlrPgt = CreVlrSdo
+		
+		&SdtPagamentoDuplicataItem.CreVlrSdo = CreVlrSdo 
+		&SdtPagamentoDuplicataItem.CreCbrCod = CreCbrCod 
+		&SdtPagamentoDuplicataItem.CreDtaEms = CreDtaEms 
+		&SdtPagamentoDuplicataItem.CreDtaVct = CreDtaVct 
+		&SdtPagamentoDuplicataItem.CreTipBxa = TipoDuplicataBaixa.Total
+		&SdtPagamentoDuplicataItem.CrePagDta = &MovDtaCon
+		&SdtPagamentoDuplicataItem.CrePlanCod = CrePlanCod  
+		&SdtPagamentoDuplicataItem.CreCarBanCod = CreCarBanCod
+		&SdtPagamentoDuplicataItem.CreCarCreDeb = CreCarCreDeb
+		&SdtPagamentoDuplicataItem.CreCarNroAut = CreCarNroAut
+		
+		&SdtPagamentoDuplicataItem.CreCarComp = &Comprovante     // "Comprovante"
+		&SdtPagamentoDuplicataItem.CreCarProNom = &Produto       // "Produto" - ex: VISA Crédito
+		&SdtPagamentoDuplicataItem.CreCarNroPar = &Parcelas
+		&SdtPagamentoDuplicataItem.CreCarTip = &Tipo             // Tipo de transação ex: Compra com 03 parcelas
+		&SdtPagamentoDuplicataItem.CreCarVlrComp = iif(&ValorCompra> 0,&ValorCompra/100,0) // Valor da Compra
+		&SdtPagamentoDuplicataItem.CreCarVlrPar = iif(&ValorParcela> 0,&ValorParcela/100,0)  // Valor Bruto Parcela
+		&SdtPagamentoDuplicataItem.CreCarVlrDes = iif(&ValorDesc> 0,&ValorDesc/100,0)     // Valor Desc.
+		&SdtPagamentoDuplicataItem.CreCarVlrLiq = iif(&ValorLiq> 0,&ValorLiq/100,0) 
+		
+		&SdtPagamentoDuplicata.Add(&SdtPagamentoDuplicataItem)
+		&Autorizacao = ''
+		exit
+	when none
+		If not &Comprovante.IsEmpty()
+			&SdtPagamentoDuplicataItem = new()
+			&SdtPagamentoDuplicataItem.CrePagDta = &MovDtaCon
+			&SdtPagamentoDuplicataItem.CreCarComp = &Comprovante     // "Comprovante"
+			&SdtPagamentoDuplicataItem.CreCarProNom = &Produto       // "Produto" - ex: VISA Crédito
+			&SdtPagamentoDuplicataItem.CreCarNroPar = &Parcelas
+			&SdtPagamentoDuplicataItem.CreCarTip = &Tipo             // Tipo de transação ex: Compra com 03 parcelas
+			&SdtPagamentoDuplicataItem.CreCarVlrComp = iif(&ValorCompra> 0,&ValorCompra/100,0) // Valor da Compra
+			&SdtPagamentoDuplicataItem.CreCarVlrPar = iif(&ValorParcela> 0,&ValorParcela/100,0)  // Valor Bruto Parcela
+			&SdtPagamentoDuplicataItem.CreCarVlrDes = iif(&ValorDesc> 0,&ValorDesc/100,0)     // Valor Desc.
+			&SdtPagamentoDuplicataItem.CreCarVlrLiq = iif(&ValorLiq> 0,&ValorLiq/100,0)
+			&SdtPagamentoDuplicata.Add(&SdtPagamentoDuplicataItem)
+		EndIf
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&PesCod,in:&selectedURL);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="selectedURL">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>selectedURL</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Url, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoInicial</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Extensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Extensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResumoVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResumoVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataCredito">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataCredito</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataTransacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataTransacao</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumericVazio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericVazio</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Cliente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Cliente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Comprovante">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Comprovante</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Produto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Produto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tipo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Parcelas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Parcelas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Autorizacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Autorizacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumCartao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumCartao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SeuNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SeuNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoCartao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoCartao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorCompra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorCompra</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorParcela">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorParcela</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorDesc</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorLiq</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPagamentoDuplicataItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPagamentoDuplicataItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata.SdtPagamentoDuplicataItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPagamentoDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPagamentoDuplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xmlwriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xmlwriter</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WEBSESSION">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WEBSESSION</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RetornoCsvCartao</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

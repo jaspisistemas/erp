@@ -1,0 +1,639 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2025-01-16T20:11:27.0000000Z" lastUpdate="2025-01-14T14:56:09.0000000Z" checksum="dd4f3f8e5fe2282e918471140fbde2a6" fullyQualifiedName="prcMovimentaLancamentosViagem" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="7cd7c402-ad7e-4db0-8123-2a5200df7287" name="prcMovimentaLancamentosViagem" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Movimenta Lancamentos Viagem" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[Do Case
+	Case &Mode = 'INS' //Modo de inserção 
+		//Busca o último código referente a lançamento
+		&Error = 0
+		For Each Order EmpCod, FilCod, ViaCod, (ViaLanCod)
+			Where EmpCod = &parmEmpCod	//empresa
+			Where FilCod = &parmFilCod	//Filial
+			Where ViaCod = &parmViaCod	//Viagem
+			
+			&ViaLanCod = ViaLanCod	//último código referente a lançamentos
+			
+			Exit
+		EndFor
+		
+		//Se não for adiantamento, atualiza o valor dos lançamentos
+		If &parmViaLanTip = 'DM' Or &parmViaLanTip = 'DV'
+			Do 'AtualizaVlrLançamento'
+		EndIf
+		
+		If &parmViaLanTip = 'DE'
+			Do 'BuscaCaixaEmpresa'
+		EndIf
+		
+		//Identifica qual compartimento foi abastecido
+		Do Case 
+			Case &parmViaLanComQtdA > 0
+				&parmViaLanComTipA = Status_SimNao.Sim
+			Case &parmViaLanComQtdC > 0
+				&parmViaLanComTipC = Status_SimNao.Sim
+			Case &parmViaLanComQtdT > 0
+				&parmViaLanComTipT = Status_SimNao.Sim
+		EndCase
+
+		If &Error = 0
+			&ViaLanCod += 1	//Acrescenta mais um ao último código 
+			New
+				EmpCod				= &parmEmpCod				//Empresa
+				FilCod				= &parmFilCod				//Filial
+				ViaCod				= &parmViaCod				//Viagem
+				ViaLanCod			= &ViaLanCod				//Lançamento
+				ViaLanTip			= &parmViaLanTip			//Tipo do Preenchimento
+				ViaLanStsPag		= &parmViaLanStsPag			//Status de Pagamento
+				ViaLanVlr			= &parmViaLanVlr			//Valor do Lançamento
+				ViaLanObs			= &parmViaLanObs			//Observação/Finalidade
+				ViaLanDta			= &parmViaLanDta			//Data do lançamento
+				ViaLanHor			= &parmViaLanHor			//Hora do Lançamento
+				ViaLanFor			= &parmViaLanFor			//Código do Fornecedor/Favorecido
+				ViaLanNumDoc		= &parmViaLanNumDoc			//Número do Documento
+				ViaLanQtd			= &parmViaLanQtd			//Quantidade de Itens
+				ViaLanVeiKm			= &parmViaLanVeiKm			//KM do veículo na hora do Lançamento
+				ViaLanComUfeCod		= &parmViaLanComUfeCod		//Uf de abastecimento
+				ViaLanComTipC		= &parmViaLanComTipC		//Se o Cavalo foi abastecido
+				ViaLanComQtdC		= &parmViaLanComQtdC		//Quantidade abastecida no Cavalo 
+				ViaLanComTipT		= &parmViaLanComTipT		//Se a Tração foi abastecida
+				ViaLanComQtdT		= &parmViaLanComQtdT		//Quantidade abastecida da Tração
+				ViaLanComTipA		= &parmViaLanComTipA		//Se a Arla foi Abastecida
+				ViaLanComQtdA		= &parmViaLanComQtdA		//Quantidade abastecida na arla
+				ViaLanSts			= Status_AtivoInativo.ATIVO //Status do Lançamento
+				ViaLanOriCtaBanCod	= &parmViaLanOriCtaBanCod	//Conta de Origem (PARA ADIANTAMENTO)
+				ViaLanPlanCod		= &parmViaLanPlanCod		//Plano de Contas 
+				ViaLanDstCtaBanCod	= &AuxMovCtaBanCod			//Conta de Destino (PARA DEVOLUÇÃO)
+			EndNew
+			
+			Commit
+			
+			Do 'GravaMovimento'
+		Else
+			&Mode = 'ERR'
+		EndIf
+		
+	Case &Mode = 'DLT'
+		For Each Order EmpCod, FilCod, ViaCod, ViaLanCod
+			Where EmpCod 	= &parmEmpCod	//Empresa
+			Where FilCod 	= &parmFilCod	//Filial
+			Where ViaCod 	= &parmViaCod	//Viagem
+			Where ViaLanCod = &parmViaLanCod//Lançamento
+			
+			ViaLanSts 		= Status_AtivoInativo.INATIVO	//Altera o Status do Lançamento
+			ViaLanVlrTot 	= ViaLanVlrTot - ViaLanVlr		//Altera o Valor do Total lançado
+			
+			For Each Order EmpCod, MovCod, MovItmCod
+				Where MovViaCod	= &parmViaCod
+				Where MovItmVlr = &parmViaLanVlr
+				
+				&MovCod 	= MovCod
+				DeletaMovimentoComDependencias.Call(&parmEmpCod, &MovCod, True, True, True,false)
+				
+				Exit
+			EndFor
+			
+			Exit
+		EndFor
+		
+		Commit
+		
+EndCase
+
+Sub 'GravaMovimento'
+	&DataVazia.SetEmpty()
+	Do 'BuscaBancoMotorista'
+
+	Do Case
+		//Caso for um adiantamento
+		Case &parmViaLanTip = 'A'	
+			Do 'GETConfig'
+			
+			//E há plano de contas informado
+			If Not &PlanCod.IsEmpty() And Not &DstPlanCod.IsEmpty()		// Valida se plano de contas não é vazio (ORIGEM))				
+				//Origem
+				UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &parmEmpCod, 0, &OriMovCod)  
+				New 
+					EmpCod    		= &parmEmpCod                      	// Empresa Código
+					MovCod    		= &OriMovCod                    	// Movimento Código
+					MovDoc    		= iif(&parmViaLanNumDoc.IsEmpty(), trim(&OriMovCod.ToString()),&parmViaLanNumDoc)// Movimento Nro Documento    
+					MovDtaPgt 		= &parmViaLanDta                    // Movimento Data pagamento
+					MovDta    		= ServerDate()						// Movimento Data de Lançamento
+					MovHor    		= ServerNow()                  		// Movimento Hora de Lançamento
+					MovCtaBanCod 	= &parmViaLanOriCtaBanCod           // Movimento Conta Bancária 
+					MovCreDeb 		= 'D'								// Débito
+					MovDtaCon 		= &parmViaLanDta                    // Movimento Data de Conferência
+					MovTip    		= TipoMovimento.Transferencia		// Movimento de Transferência
+					MovSts 			= Status_Caixa.Lancado				// Lançado
+					MovViaCod		= &parmViaCod						// Viagem relacionada
+					MovViaLanCod	= &ViaLanCod						// Lançamento relacionado
+					When Duplicate
+					&Error = 1
+					Return
+				EndNew
+				
+				//Origem Item
+				UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &parmEmpCod, 0, &MovCod)  
+				New 
+					EmpCod 			= &parmEmpCod              	// Empresa Código	
+					MovCod 			= &OriMovCod               	// Movimento Código    
+					MovItmCod 		= 1                    		// Movimento Item Código
+					PlanCod  		= &PlanCod					// Plano de Contas
+					MovItmVlr    	= &parmViaLanVlr         	// Movimento Item Valor
+					MovItmCpl    	= 'LÇTO ORIGEM! CONTA DST: '+ Upper(trim(str(&DstCtaBanCod))) +' CPL: '+ Upper(&parmViaLanObs.Trim())
+					MovCreFilCod 	= 0 
+					MovCreCod   	= 0
+					MovCrePagCod 	= 0
+					MovTrnOriCod 	= &MovCod					//Movimento de Origem 
+					MovTrnOriCodItm = 1
+				EndNew
+				
+				//Destino
+				New 
+					EmpCod    		= &parmEmpCod                       	// Empresa Código
+					MovCod    		= &MovCod                       		// Movimento Código
+					MovDoc    		= iif(&parmViaLanNumDoc.IsEmpty(),trim(&MovCod.ToString()),&parmViaLanNumDoc)// Movimento Nro Documento  
+					MovDtaPgt 		= &parmViaLanDta                       	// Movimento Data pagamento
+					MovDta    		= ServerDate()							// Movimento Data Lançamento
+					MovCreDeb 		= 'C'									// Crédito
+					MovHor    		= ServerNow()                 			// Movimento Hora Lançamento
+					MovCtaBanCod	= &DstCtaBanCod              			// Movimento Conta Bancária 
+					MovDtaCon 		= &parmViaLanDta                       	// Movimento Data de Conferência
+					MovTip    		= TipoMovimento.Transferencia			// Movimento de Transferência
+					MovSts 			= Status_Caixa.Lancado					// Lançado
+					MovViaCod		= &parmViaCod							// Viagem relacionada
+					MovViaLanCod	= &ViaLanCod							// Lançamento relacionado
+					When duplicate
+					&Error = 1
+					return
+				EndNew
+				
+				//Destino Item
+				New 
+					EmpCod       	= &parmEmpCod			// Empresa Código	
+					MovCod       	= &MovCod				// MOvimento Código    
+					MovItmCod    	= 1						// Movimento Item Código
+					PlanCod      	= &DstPlanCod			// Plano de Contas
+					MovItmVlr    	= &parmViaLanVlr		// MOvimento Item Valor
+					MovItmCpl    	= 'LÇTO DESTINO! CONTA ORI: '+  Upper(trim(str(&parmViaLanOriCtaBanCod))) +' CPL: '+ Upper(&parmViaLanObs.Trim())
+					MovCreFilCod	= 0 					
+					MovCreCod    	= 0
+					MovCrePagCod 	= 0
+					MovTrnOriCod 	= &OriMovCod			// Movimento de Origem 
+					MovTrnOriCodItm = 1
+				EndNew
+				
+				If &Error = 0
+					Commit
+				EndIf
+				
+				//Atualiza os saldos
+				Do 'AtualizaSaldoContaOrigem'
+				Do 'AtualizaSaldoContaDestino'	
+			Else
+				&Error = 0
+				msg('ATENÇÃO! Não existe código do plano de contas cadastrado no parâmetro CONF360 OU CONF362, verifique!)')
+			EndIf
+			
+			//Caso for uma devolução
+		Case &parmViaLanTip = 'DE'
+			Do 'GETConfig'
+			If Not &PlanCod.IsEmpty() And Not &DstPlanCod.IsEmpty()		// Valida se plano de contas não é vazio (ORIGEM))
+				
+				//Origem
+				UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &parmEmpCod, 0, &OriMovCod)  
+				New 
+					EmpCod    		= &parmEmpCod                      	// Empresa Código
+					MovCod    		= &OriMovCod                    	// Movimento Código
+					MovDoc    		= iif(&parmViaLanNumDoc.IsEmpty(), trim(&OriMovCod.ToString()),&parmViaLanNumDoc)// Movimento Nro Documento    
+					MovDtaPgt 		= &parmViaLanDta                    // Movimento Data pagamento
+					MovDta    		= ServerDate()						// Movimento Data de Lançamento
+					MovHor    		= ServerNow()                  		// Movimento Hora de Lançamento
+					MovCtaBanCod 	= &parmViaLanOriCtaBanCod           // Movimento Conta Bancária 
+					MovCreDeb 		= 'D'								// Débito
+					MovDtaCon 		= &parmViaLanDta                    // Movimento Data de Conferência
+					MovTip    		= TipoMovimento.Transferencia		// Movimento de Transferência
+					MovSts 			= Status_Caixa.Lancado				// Lançado
+					MovViaCod		= &parmViaCod						// Viagem relacionada
+					MovViaLanCod	= &ViaLanCod						// Lançamento relacionado
+					When Duplicate
+					&Error = 1
+					Return
+				EndNew
+				
+				//Origem Item
+				UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &parmEmpCod, 0, &MovCod)  
+				New 
+					EmpCod 			= &parmEmpCod              	// Empresa Código	
+					MovCod 			= &OriMovCod               	// Movimento Código    
+					MovItmCod 		= 1                    		// Movimento Item Código
+					PlanCod  		= &PlanCod					// Plano de Contas
+					MovItmVlr    	= &parmViaLanVlr         	// Movimento Item Valor
+					MovItmCpl    	= 'LÇTO ORIGEM! CONTA DST: '+ Upper(trim(str(&AuxMovCtaBanCod))) +' CPL: '+ Upper(&parmViaLanObs.Trim())
+					MovCreFilCod 	= 0 
+					MovCreCod   	= 0
+					MovCrePagCod 	= 0
+					MovTrnOriCod 	= &MovCod					//Movimento de Origem 
+					MovTrnOriCodItm = 1
+				EndNew
+				
+				
+				New 
+					EmpCod    		= &parmEmpCod                       	// Empresa Código
+					MovCod    		= &MovCod                       		// Movimento Código
+					MovDoc    		= iif(&parmViaLanNumDoc.IsEmpty(),trim(&MovCod.ToString()),&parmViaLanNumDoc)// Movimento Nro Documento  
+					MovDtaPgt 		= &parmViaLanDta                       	// Movimento Data pagamento
+					MovDta    		= ServerDate()							// Movimento Data Lançamento
+					MovCreDeb 		= 'C'									// Crédito
+					MovHor    		= ServerNow()                 			// Movimento Hora Lançamento
+					MovCtaBanCod	= &AuxMovCtaBanCod             			// Movimento Conta Bancária 
+					MovDtaCon 		= &parmViaLanDta                       	// Movimento Data de Conferência
+					MovTip    		= TipoMovimento.Transferencia			// Movimento de Transferência
+					MovSts 			= Status_Caixa.Lancado					// Lançado
+					MovViaCod		= &parmViaCod							// Viagem relacionada
+					MovViaLanCod	= &ViaLanCod							// Lançamento relacionado
+					When duplicate
+					&Error = 1
+					return
+				EndNew
+				
+				New 
+					EmpCod       	= &parmEmpCod			// Empresa Código	
+					MovCod       	= &MovCod				// Movimento Código    
+					MovItmCod    	= 1						// Movimento Item Código
+					PlanCod      	= &DstPlanCod			// Plano de Contas
+					MovItmVlr    	= &parmViaLanVlr		// Movimento Item Valor
+					MovItmCpl    	= 'LÇTO DESTINO! CONTA ORI: '+  Upper(trim(str(&parmViaLanOriCtaBanCod))) +' CPL: '+ Upper(&parmViaLanObs.Trim())
+					MovCreFilCod	= 0 
+					MovCreCod    	= 0
+					MovCrePagCod 	= 0
+					MovTrnOriCod 	= &OriMovCod			//Movimento de Origem 
+					MovTrnOriCodItm = 1
+				EndNew
+				
+				If &Error = 0
+					Commit
+				EndIf
+				
+				//Atualiza saldo da Conta
+				Do 'AtualizaSaldoContaOrigem'
+				Do 'AtualizaSaldoContaDestino'
+				
+			Else
+				&Error = 0
+				msg('ATENÇÃO! Não existe código do plano de contas cadastrado no parâmetro CONF360 OU CONF362, verifique!)')
+			EndIf
+			
+		OtherWise
+			//Caso for as demais despesas
+			
+			//Se foi pago
+			If &parmViaLanStsPag = Status_SimNao.Sim
+				
+				//Grava uma Movimentação
+				UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &parmEmpCod, 0, &MovCod) //Retorna o último código cadastrado
+				New
+					EmpCod 			= &parmEmpCod			// Empresa 
+					MovCod 			= &MovCod				// Movimento
+					MovDta 			= ServerDate()			// Data do Movimento
+					MovDtaPgt 		= &parmViaLanDta		// Data do Pagamento
+					MovHor 			= serverNow()			// Hora do Movimento
+					MovCtaBanCod 	= &DstCtaBanCod			// Conta bancária que será descontado o valor
+					MovCreDeb 		= 'D'					// Tipo 'DÉBITO'
+					MovDoc			= iif(&parmViaLanNumDoc.IsEmpty(),trim(&MovCod.ToString()),&parmViaLanNumDoc) //Nro. Documento 
+					MovTip 			= TipoMovimento.Manual	// Lançamento Manual
+					MovDtaCon 		= &parmViaLanDta		// Data de Conferência
+					MovCplMan 		= Upper(&parmViaLanObs)	// Complemento
+					MovIsCon 		= Status_SimNao.sim		// Movimento Conciliado
+					MovSts 			= Status_Caixa.Lancado	// Movimento Lançado
+					MovViaCod		= &parmViaCod			// Viagem relacionada
+					MovViaLanCod	= &ViaLanCod							// Lançamento relacionado
+					When duplicate
+					&Error 			= 2
+					Return
+				EndNew
+				
+				//Grava Item da movimentação
+				New
+					EmpCod          = &parmEmpCod			// Empresa
+					MovCod          = &MovCod				// Movimento
+					MovItmCod       = 1						// Item do Movimento
+					MovItmVlr       = &parmViaLanVlr		// Valor do Movimento
+					PlanCod         = &parmViaLanPlanCod	// Plano de Contas
+					If &parmViaLanObs.Trim().IsEmpty()		// Se não houver complemento atribui o nome do plano de contas
+						MovItmCpl   = &AuxPlanCodNom		// Complemento
+					Else					
+						MovItmCpl   = Upper(&parmViaLanObs)	// Complemento
+					Endif			
+					MovCreFilCod    = &parmFilCod			// Filial
+					MovCreCod       = 0
+					MovCrePagCod    = 0
+					MovTrnOriCod    = &MovCod				// Movimento de Origem 
+					MovTrnOriCodItm	= 1						// Item do movimento de Origem 
+					MovItmSts = Status_Caixa.Lancado		// Lançado
+				Endnew
+				
+				Commit
+				//Atualiza Saldo
+				Do 'AtualizaSaldoContaDestino'
+				
+			EndIf
+	EndCase
+	
+EndSub
+
+Sub 'GETConfig'
+	// Configurações de parâmetro para lançamento de origem (DÉBITO)
+	RetornaConfSistema.Call(&parmEmpCod, &parmFilCod, domConfSistema.TCon028_PlanoContaPadraoTransOrigem, &PlanHie) // Retorna Código do Planbo de Contas Origem
+	do 'GetPlanoContas'
+	&PlanCod = &AuxPlanCod
+	
+	// Configurações de parâmetro para lançamento de Destino (CRÉDITO)
+	RetornaConfSistema.Call(&parmEmpCod, &parmFilCod, domConfSistema.TCon029_PlanoContasTransfDestino, &PlanHie) // Retorna Código do Planbo de Contas Destino
+	do 'GetPlanoContas'
+	&DstPlanCod = &AuxPlanCod
+EndSub
+
+Sub 'GetPlanoContas'
+	
+	&AuxPlanCod = 0
+	For Each Order EmpCod, PlanCod
+		Where EmpCod 	= &parmEmpCod	//Empresa
+		Where PlanHie 	= &PlanHie		//Hierarquia
+		Where PlanCod	= PlanCod When Not &parmViaLanPlanCod.IsEmpty() //Plano de Contas se não for vazio
+		
+		&AuxPlanCod 	= PlanCod		//Plano de Contas
+		&AuxPlanCodNom	= PlanCodNom	//Nome do Plano de Contas
+		
+		Exit
+	EndFor
+
+EndSub
+
+Sub 'AtualizaSaldoContaDestino'
+	
+	if &MovCod > 0 //Se houver movimento
+		prcAtualizaMovimentoFinanceiro.Call(&parmEmpCod, &MovCod) //Atualiza valores
+	Endif
+
+	For each Order EmpCod,MovCod
+		Where EmpCod = &parmEmpCod	//Empresa
+		Where MovCod = &MovCod		//Movimento
+	
+		AtualizaSaldoConta.Call(TrnMode.Insert, EmpCod, MovCtaBanCod, MovDtaCon, MovCreDeb, MovVlr, &DataVazia, 0,'')	//Atualiza saldo da conta
+			
+		Exit
+	EndFor
+EndSub
+
+Sub 'AtualizaSaldoContaOrigem'
+	
+	if &OriMovCod > 0 //Se houver movimento
+		prcAtualizaMovimentoFinanceiro.Call(&parmEmpCod, &OriMovCod) //Atualiza valores
+	Endif
+
+	For each Order EmpCod, MovCod, (MovDtaPgt)
+		Where EmpCod = &parmEmpCod //Empresa
+		Where MovCod = &OriMovCod //Movimento
+		AtualizaSaldoConta.Call(TrnMode.Insert, EmpCod, MovCtaBanCod, MovDtaCon, MovCreDeb, MovVlr, &DataVazia, 0, '') //Atualiza saldo da conta
+		
+		Exit
+	EndFor
+EndSub
+
+Sub 'BuscaBancoMotorista'
+	
+	//Busca a Conta bancária do motorista
+	For Each Order EmpCod, FilCod, ViaCod
+		Where EmpCod = &parmEmpCod	//Empresa
+		Where FilCod = &parmFilCod	//Filial
+		Where ViaCod = &parmViaCod	//Viagem
+		
+		&MotPesCod = PesCod	//Código do Motorista
+		
+		Exit
+	EndFor
+
+	For Each Order EmpCod, CtabanCod
+		Where EmpCod 	= &parmEmpCod	//Empresa
+		Where CtaMotCod	= &MotPesCod	//Motorista
+		
+		&DstCtaBanCod = CtabanCod	//Conta Bancária do Motorista
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'BuscaCaixaEmpresa'
+	
+	//Valida se há adiantamentos
+	
+	For Each Order EmpCod, MovCod
+		Where EmpCod 	= &parmEmpCod	// Empresa
+		Where MovCreDeb = 'D'			// Débito
+		Where MovViaCod = &parmViaCod	// Viagem relacionada
+		
+		
+		Exit
+	When None
+		
+		&Error = 1
+		
+	EndFor
+
+	
+EndSub
+
+Sub 'AtualizaVlrLançamento'
+	
+	//Atualiza valor do movimento 
+	For Each Order EmpCod, FilCod, ViaCod
+		Where EmpCod = &parmEmpCod	// Empresa
+		Where FilCod = &parmFilCod	// Filial
+		Where ViaCod = &parmViaCod	// Viagem
+		
+		ViaLanVlrTot 	+= &parmViaLanVlr
+		
+		Exit
+	EndFor
+	
+	Commit
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(InOut:&Mode, In:&parmEmpCod, In:&parmFilCod, In:&parmViaCod, In:&parmViaLanTip, In:&parmViaLanStsPag, In:&parmViaLanVlr, In:&parmViaLanObs, In:&parmViaLanDta, In:&parmViaLanHor, 
+	In:&parmViaLanNumDoc, In:&parmViaLanQtd, In:&parmViaLanVeiKm, In:&parmViaLanComUfeCod, In:&parmViaLanComQtdC, In:&parmViaLanComQtdT, In:&parmViaLanComQtdA, In:&parmViaLanFor, In:&parmViaLanCod, 
+	In:&parmViaLanOriCtaBanCod, In:&parmViaLanPlanCod, In:&AuxMovCtaBanCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ViaLanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ViaLanCod</Value></Property><Property><Name>Description</Name><Value>Código do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaCod</Value></Property><Property><Name>Description</Name><Value>Código da Viagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanTip</Value></Property><Property><Name>Description</Name><Value>Tipo do Lançamento (Adiantamento, Despesa Veículo, Despesa Motorista, Despesa Abastecimento)</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanStsPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanStsPag</Value></Property><Property><Name>Description</Name><Value>Lançamento pago, ou não?</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanStsPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanVlr</Value></Property><Property><Name>Description</Name><Value>Valor do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanObs</Value></Property><Property><Name>Description</Name><Value>Observação do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanDta</Value></Property><Property><Name>Description</Name><Value>Data do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanHor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanHor</Value></Property><Property><Name>Description</Name><Value>Hora do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanHor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanFor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanFor</Value></Property><Property><Name>Description</Name><Value>Fornecedor do lançamento (Posto)</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanFor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanNumDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanNumDoc</Value></Property><Property><Name>Description</Name><Value>Número da Nfe ou do Chque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanNumDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade do Item </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanVeiKm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanVeiKm</Value></Property><Property><Name>Description</Name><Value>Km Atual do Veículo (No horário do Lançamento)</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanVeiKm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComUfeCod</Value></Property><Property><Name>Description</Name><Value>UF do abastecimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComTipC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComTipC</Value></Property><Property><Name>Description</Name><Value>Abastecimento Carreta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComTipC</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComQtdC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComQtdC</Value></Property><Property><Name>Description</Name><Value>Quantidade abastecida da Carreta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComQtdC</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComTipT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComTipT</Value></Property><Property><Name>Description</Name><Value>Abastecimento Tração</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComTipT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComQtdT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComQtdT</Value></Property><Property><Name>Description</Name><Value>Quantidade abastecida da Tração</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComQtdT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComTipA">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComTipA</Value></Property><Property><Name>Description</Name><Value>Abastecimento Arla</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComTipA</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanComQtdA">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanComQtdA</Value></Property><Property><Name>Description</Name><Value>Quantidade abastecida da Arla</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanComQtdA</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanCod</Value></Property><Property><Name>Description</Name><Value>Código do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanOriCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanOriCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta de origem do Adiantamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanOriCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DstCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DstCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DstPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DstPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataVazia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVazia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmViaLanPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmViaLanPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano de contas do Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ViaLanPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxPlanCodNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxPlanCodNom</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCodNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMovCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMovCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Movimento Conta Bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Error">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Error</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcMovimentaLancamentosViagem</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

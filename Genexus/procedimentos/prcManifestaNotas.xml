@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="WINJEAN\jeanfae" versionDate="2025-11-04T20:58:10.0000000Z" lastUpdate="2025-11-04T13:34:04.0000000Z" checksum="88b8a92510e7970cff9a2af077474cc5" fullyQualifiedName="prcManifestaNotas" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="368bba39-2316-47eb-aa53-c03296d78fde" name="prcManifestaNotas" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Manifesta Notas" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&NfeCte = 'NFE'
+&IsGet50 = true
+do 'GetFilial'
+&IsExisteSolicitacao = false
+&NumeroNSU = 0
+do 'GetSolicitacao'  
+
+&GUID = GUID.NewGuid()
+	
+&MANIFESTACAODESTINATARIOProgressId = 'DFE' +&NfeCte.Trim()+ &GUID.ToString()
+&MANIFESTACAODESTINATARIONSUProgressId = 'DFENSU' +&NfeCte.Trim()+ &GUID.ToString()
+
+do 'buscamanifestacao'
+
+Sub 'SincronizacaoNSU'
+
+	do 'GetFilial'
+	
+	&NumeroNSU = &FilUltNSU+1
+	if &NumeroNSU <= &ultimoIndividual
+		&NumeroNSU = &ultimoIndividual+1
+	EndIf
+	
+	if &NumeroNSU <= &FilMaxNSU 
+		&IsExisteSolicitacao = false
+		do 'GetSolicitacao'  
+		
+		If &IsExisteSolicitacao = false // or &IsCiencia = true		
+			GeraXmlSincroManifest.Call(&EmpCod,&FilCod,'S',&NfeCte, &NumeroNSU, &SolCod)
+			RecepcaoDFe.Submit(&MANIFESTACAODESTINATARIONSUProgressId, &MANIFESTACAODESTINATARIONSUProgressId, &EmpCod, &FilCod, &FilCod, &SolCod)
+			do 'whileAguarda2'
+			
+		Else //JA POSSUI EM ANDAMENTO
+			RecepcaoDFe.Submit(&MANIFESTACAODESTINATARIONSUProgressId, &MANIFESTACAODESTINATARIONSUProgressId, &EmpCod, &FilCod, &FilCod, &SolCod)
+			do 'whileAguarda2'
+		Endif
+	Else
+		&NumeroNSU = &FilMaxNSU
+		msg('2 - Processo Finalizado')
+		
+		prcExecutaCiencia.Call(&EmpCod, &FilCod, &IsCiencia)
+		prcPegaArquivosDownloadDFe.Call(&EmpCod, &FilCod)
+	Endif
+
+EndSub
+
+Sub 'whileAguarda2'
+	&IsAguarda2 = true
+	
+	do While (&IsAguarda2 = true)
+		msg('Aguardando2 retorno . . .', status)
+		For Each Order ProgressId
+			Where ProgressId = &MANIFESTACAODESTINATARIONSUProgressId
+			
+			if ProgressValue = 100
+				&IsAguarda2 = false
+				msg(trim(str(ProgressValue)) + ' ' + ProgressLogXml.Trim() , status)
+			else
+				msg('Aguardando2 retorno . . .' + trim(Str(ProgressValue)), status)
+			Endif
+			
+			Exit
+		EndFor
+		
+		if &IsAguarda2 = false
+			For Each Order SolEmpCod, SolCod
+				Where SolEmpCod = &EmpCod
+				Where SolCod = &SolCod
+				&SolMsgCod = SolMsgCod
+				
+				Exit
+			EndFor	
+			
+			&ultimoIndividual = &NumeroNSU //JDF tem que ser antes do getFilial
+			&IsGet50 = false
+			Do 'GetFilial'
+			
+			Do Case
+				CAse (&SolMsgCod = '138') //SUCESSO PODE SOLICITAR NOVAMENTE
+					
+					&CountVezesSolicitadas += 1
+					msg('Documento Localizado NSU: ' + trim(str(&ultimoIndividual)), status)
+					
+					do 'SincronizacaoNSU'
+					
+				CAse (&SolMsgCod = '137') //JA BAIXOU TUDO, AGORA NAO TEM MAIS		
+					msg('Documento NÃO Localizado NSU: ' + trim(str(&ultimoIndividual)), status)
+					do 'SincronizacaoNSU'
+					
+				Otherwise //(&SolMsgCod = '656') //Status Retorno: 656 - Rejeicao: Consumo Indevido (Deve ser aguardado 1 hora para efetuar nova solicitacao caso nao existam mais documentos a serem pesquisados. Tente apos 1 hora) NSU: 144799
+					//CASO DER O ERRO E AINDA TEM NSU PARA BAIXAR, INICIAR A BAIXA MANUAL DOS NSU
+					msg('Processo Finalizado', status)
+			EndCAse
+		Else
+			&Dorme = sleep(2)
+		Endif
+	EndDo
+
+EndSub
+
+sub 'whileAguarda1'
+	&IsAguarda1 = true
+	Do while (&IsAguarda1 = true)
+		msg('Aguardando1 retorno . . .', status)
+		For Each Order ProgressId //Progresso
+			Where ProgressId = &MANIFESTACAODESTINATARIOProgressId
+			
+			if ProgressValue = 100
+				&IsAguarda1 = false
+				msg(trim(str(ProgressValue)) + ' ' + ProgressLogXml.Trim() , status)
+			else
+				msg('Aguardando1 retorno . . .' + trim(Str(ProgressValue)), status)
+			Endif
+			
+			Exit
+		EndFor
+		
+		if &IsAguarda1 = false
+			For Each Order SolEmpCod, SolCod //Solicitacao
+				Where SolEmpCod = &EmpCod
+				Where SolCod = &SolCod
+				&SolMsgCod = SolMsgCod
+				
+				Exit
+			EndFor
+			
+			
+			Do 'GetFilial'
+			
+			Do Case
+				CAse (&SolMsgCod = '138') //SUCESSO PODE SOLICITAR NOVAMENTE
+					&CountVezesSolicitadas += 1
+					msg('Notas Localizadas, BUSCANDO MAIS NOTAS, Solicitação com sucesso: ' + trim(str(&CountVezesSolicitadas)),status)
+					do 'buscamanifestacao'
+					
+				CAse (&SolMsgCod = '137') //JA BAIXOU TUDO, AGORA NAO TEM MAIS		
+					msg('TUDO OK, NO MOMENTO NÃO POSSUI MAIS NOTAS A SEREM MANIFESTADAS',status)
+					
+					prcExecutaCiencia.Call(&EmpCod, &FilCod, &IsCiencia)
+					prcPegaArquivosDownloadDFe.Call(&EmpCod, &FilCod)
+					
+				CAse (&SolMsgCod = '656') //Status Retorno: 656 - Rejeicao: Consumo Indevido (Deve ser aguardado 1 hora para efetuar nova solicitacao caso nao existam mais documentos a serem pesquisados. Tente apos 1 hora) NSU: 144799
+					//CASO DER O ERRO E AINDA TEM NSU PARA BAIXAR, INICIAR A BAIXA MANUAL DOS NSU
+					msg('Processo Finalizado 656',status)
+					if (&FilMaxNSU > &FilUltNSU )
+						do 'SincronizacaoNSU'					
+					Endif
+				Otherwise
+					//CASO DER O ERRO E AINDA TEM NSU PARA BAIXAR, INICIAR A BAIXA MANUAL DOS NSU
+					msg('Processo Finalizado',status)
+			EndCAse
+		Else
+			&Dorme = sleep(2)
+		EndIf
+	EndDo
+	
+EndSub
+
+Sub 'buscamanifestacao'
+	
+	Do 'GetFilial'
+	
+	&IsExisteSolicitacao = false
+	&NumeroNSU = 0
+	do 'GetSolicitacao'
+	
+	If &IsExisteSolicitacao = false // or &IsCiencia = true		
+		if &SolMsgCod <> '656'
+			GeraXmlSincroManifest.Call(&EmpCod,&FilCod,'S',&NfeCte, 0, &SolCod)
+			
+			RecepcaoDFe.Submit(&MANIFESTACAODESTINATARIOProgressId, &MANIFESTACAODESTINATARIOProgressId, &EmpCod, &FilCod, &FilCod, &SolCod)
+			do 'whileAguarda1'
+		Else
+			//CASO DER O ERRO E AINDA TEM NSU PARA BAIXAR, INICIAR A BAIXA MANUAL DOS NSU			
+			msg('Processo Finalizado', status)
+			if (&FilMaxNSU > &FilUltNSU )
+				do 'SincronizacaoNSU'
+			Endif
+		Endif
+		
+	Else //JA POSSUI EM ANDAMENTO
+		RecepcaoDFe.Submit(&MANIFESTACAODESTINATARIOProgressId, &MANIFESTACAODESTINATARIOProgressId, &EmpCod, &FilCod, &FilCod, &SolCod)
+		do 'whileAguarda1'
+	Endif
+	
+EndSub
+
+Sub 'getSolicitacao'
+
+	if &NfeCte = 'CTE'
+		RetornaExisteSolicitacaoPendente.call(&EmpCod, &FilCod, &NumeroNSU, 0, TipoSolicitacao.Sincronizar_DFeCte, &IsExisteSolicitacao, &SolCod)
+	Else
+		RetornaExisteSolicitacaoPendente.call(&EmpCod, &FilCod, &NumeroNSU, 0, TipoSolicitacao.Sincronizar_DFe, &IsExisteSolicitacao, &SolCod)
+	Endif
+
+EndSub
+
+Sub 'GetFilial'
+
+	For each order EmpCod,FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		msg(format('FILIAL: %1 - %2', trim(str(FilCod)), iif(FilNom.IsEmpty() or FilNom.IsNull(), FilRaz, FilNom)),status)
+		
+		&FilUltSin = FilUltSin //DATA HORA
+		
+		if &IsGet50 = true
+			if &NfeCte = 'NFE'
+				&FilUltNSU = FilUltNSU //Ultimo NSU SINCRONIZADO
+				&FilMaxNSU = FilMaxNSU
+				
+				if serverNow() < FilNsuBlqDtaHor
+					if &SolMsgCod <> '137'
+						&SolMsgCod = '656'
+						msg('Status Retorno: 656 - Rejeicao: Consumo Indevido (Deve ser aguardado 1 hora para efetuar nova solicitacao caso nao existam mais documentos a serem pesquisados. Tente apos '+trim(toformattedString(FilNsuBlqDtaHor)),status)
+					Endif
+				Endif
+			Else			
+				&FilUltNSU = FilUltNSUCte //Ultimo NSU SINCRONIZADO
+				&FilMaxNSU = FilMaxNSUCte
+				
+				if serverNow() < FilNsuCteBlqDtaHor
+					if &SolMsgCod <> '137'
+						&SolMsgCod = '656'
+						msg('Status Retorno: 656 - Rejeicao: Consumo Indevido (Deve ser aguardado 1 hora para efetuar nova solicitacao caso nao existam mais documentos a serem pesquisados. Tente apos '+trim(toformattedString(FilNsuCteBlqDtaHor)),status)
+					Endif
+				
+				Endif
+			Endif
+		Endif
+		
+		&QtdPendentes = &FilMaxNSU-&FilUltNSU
+		
+		Exit
+	EndFor
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="FilUltSin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilUltSin</Value></Property><Property><Name>Description</Name><Value>Ultima Sincronização</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilUltSin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAguarda2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAguarda2</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountVezesSolicitadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountVezesSolicitadas</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilMaxNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilMaxNSU</Value></Property><Property><Name>Description</Name><Value>Máximo NSU</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilMaxNSU</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilUltNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilUltNSU</Value></Property><Property><Name>Description</Name><Value>Último NSU</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilUltNSU</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAguarda1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAguarda1</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsCiencia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsCiencia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExisteSolicitacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExisteSolicitacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsGet50">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsGet50</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MANIFESTACAODESTINATARIONSUProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MANIFESTACAODESTINATARIONSUProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MANIFESTACAODESTINATARIOProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MANIFESTACAODESTINATARIOProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCte</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumeroNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumeroNSU</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdPendentes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdPendentes</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsgCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsgCod</Value></Property><Property><Name>Description</Name><Value>Sol Msg Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsgCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ultimoIndividual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ultimoIndividual</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcManifestaNotas</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

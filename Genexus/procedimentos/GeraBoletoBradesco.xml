@@ -1,0 +1,673 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="61be474e-e67a-493c-b33c-c573d96e1098" user="WINJEAN\jeanfae" versionDate="2024-12-12T17:52:31.0000000Z" lastUpdate="2024-12-06T20:53:07.0000000Z" checksum="0d1dafd04b8bab81688440056d2cb4e4" fullyQualifiedName="GeraBoletoBradesco" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="95744a91-f45c-4eb7-acbe-fffac7bcb793" name="GeraBoletoBradesco" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Boleto Bradesco" parent="Bradesco" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&PREENCHIDO = 0
+&IsErro = false
+&Mensagem.SetEmpty()
+LoadWWPContext.Call(&WWPContext)
+
+
+/////********VERIFICAR VALIDADE CERTIFICADO DIGITAL**********\\\\\
+
+For Each Order EmpCod, CreCod,CreRecPag,CreCrbRegAut
+	Where EmpCod = &EmpCod
+	Where CreCod = &CreCod
+	Where CreRecPag = ReceberPagar.Receber
+	Where CreDtaVct >= serverdate()
+	Where CreCrbRegAut = Status_SimNao.Sim
+	&CreCliCod = CreCliCod
+	&CreDtaEms = CreDtaEms
+	&CreDtaVct = CreDtaVct
+	&CreCliRaz = RetiraCaracteresEspeciais.Udp(CreCliRaz)
+	
+	&CreCbrCod = CreCbrCod
+	
+	Do 'GetLocalCobraca'
+	
+		// ************* PREENCHENDO OS DADOS DO SDT ***************\\
+		
+		&CbrCnpj = RetornaSoNumeros.Udp(&CbrCnpj)
+		
+		&nuCPFCNPJvar = Substr(&CbrCnpj,1,8)
+		&SdtRegistroBradesco.nuCPFCNPJ = &nuCPFCNPJvar
+		
+		&filialCPFCNPJvar = Substr(&CbrCnpj,9,4)
+		&SdtRegistroBradesco.filialCPFCNPJ = &filialCPFCNPJvar //CPF = 0 - nao esta validando pessoa fisica
+		
+		&ctrlCPFCNPJvar = Substr(trim(&CbrCnpj),13,2)
+		&SdtRegistroBradesco.ctrlCPFCNPJ = &ctrlCPFCNPJvar
+		
+		&SdtRegistroBradesco.cdTipoAcesso = '2' //fixo
+		&SdtRegistroBradesco.clubBanco = '2269651' //fixo
+		&SdtRegistroBradesco.cdTipoContrato = '48' //fixo
+		&SdtRegistroBradesco.nuSequenciaContrato = '0' //nao
+		&SdtRegistroBradesco.idProduto = &CbrCarCod.Trim() //carteira
+		
+		&Conta = padL(&CbrCtaBanCrt, 7, '0' ) //exemplo 123400000001234567
+		&nuNegociacao = PadL(&CbrCtaBanAgeCod,4, '0') + '0000000' + &Conta  //Agencia: 4 posições (Sem digito), Zeros: 7 posições ,Conta: 7 posições (Sem digito)
+		&SdtRegistroBradesco.nuNegociacao = &nuNegociacao // obgrigatorio
+		
+		&SdtRegistroBradesco.cdBanco = '237' //fixo
+		&SdtRegistroBradesco.eNuSequenciaContrato = '0' //nao
+		&SdtRegistroBradesco.tpRegistro = '1' //fixo
+		&SdtRegistroBradesco.cdProduto =  trim(str(CreCod)) //Usaremos código da duplicata
+		
+		If CreBloNro.Trim().IsEmpty()       // Duplicata Nosso Número
+			&CtaBanNosNro += 1
+			GerarNossoNumero.CALL(&CbrCtaBanBanCod,&CbrNroCon,&CtaBanNosNro,CreDtaEms,&AuxCreBloNro,&Erro)
+			If &Erro = 0
+				CreBloNro = trim(&AuxCreBloNro)
+				Do 'GravaNossoNumero'
+			Else
+				&Mensagem += 'ERRO:Numero Bloqueto'
+				&IsErro = true
+			EndIf
+		EndIf
+	
+		&SdtRegistroBradesco.nuTitulo = CreBloNro
+		&SdtRegistroBradesco.nuCliente = CreDupNro //JDF TAVA ERRADO O CreCliCod, tem que ser o CreDupNro. //trim(str(CreCliCod)) //obrigatorio
+		
+		&DataEms = RetornaSoNumeros.Udp(&CreDtaEms.ToString())
+		&DataEms = Substr(&DataEms,1,2) + '.' + Substr(&DataEms,3,2) + '.' + Substr(&DataEms,5,4)
+		&SdtRegistroBradesco.dtEmissaoTitulo = &DataEms//obrigatorio
+		
+		&DataVct = RetornaSoNumeros.Udp(&CreDtaVct.ToString())
+		&DataVct = Substr(&DataVct,1,2) + '.' + Substr(&DataVct,3,2) + '.' + Substr(&DataVct,5,4)  
+		&SdtRegistroBradesco.dtVencimentoTitulo = &DataVct //00.00.0000 //CreDtaVct //obrigatorio
+		
+		&SdtRegistroBradesco.tpVencimento = '0' //fixo = 0
+		&SdtRegistroBradesco.vlNominalTitulo = str((CreVlrDup * 100))
+		&SdtRegistroBradesco.cdEspecieTitulo = '02' //obrigatorio //item 9.1 manual //02 = DM: Dup de venda mercantil
+		&SdtRegistroBradesco.controleParticipante = '' //nao
+		&SdtRegistroBradesco.qtdePagamentoParcial = '0' //obrigatorio se for config pgto parcial
+		
+		if &JurTax <> 0 and not &JurTax.IsEmpty()
+			&DiaVarChar.SetEmpty()
+			&numericInteiro  = &JurTax * 100000 //pq preciso 5 casas decimais e + 3 inteiros e pq a formula divide por 100
+			&percentualJuros = padL(trim(str(&numericInteiro)),8,'0') //'00016666'
+			&SdtRegistroBradesco.percentualJuros = &percentualJuros  //NNNDDDDD //CbrJurCod
+			&SdtRegistroBradesco.vlJuros = '0' //fixo 0 pq informa o percentual
+			&SdtRegistroBradesco.qtdeDiasJuros = '1'
+		else
+			&SdtRegistroBradesco.percentualJuros = '0'  //NNNDDDDD //CbrJurCod
+			&SdtRegistroBradesco.vlJuros = '0' //fixo 0 pq informa o percentual
+			&SdtRegistroBradesco.qtdeDiasJuros = '0' //nao
+		EndIf
+		
+		if &CbrMltVlr <> 0 or not &CbrMltVlr.IsEmpty()
+			&numericInteiro.SetEmpty()
+			&numericInteiro = &CbrMltVlr * 100000 //pq preciso 5 casas decimais e + 3 inteiros e pq a formula divide por 100
+			&percentualMulta  = padL(trim(str(&numericInteiro)),8,'0')
+			&SdtRegistroBradesco.percentualMulta = &percentualMulta //nao
+			&SdtRegistroBradesco.vlMulta = '0' //nao
+			&SdtRegistroBradesco.qtdeDiasMulta = '1' // nao
+		else
+			&SdtRegistroBradesco.percentualMulta = '0' 
+			&SdtRegistroBradesco.vlMulta = '0' 
+			&SdtRegistroBradesco.qtdeDiasMulta = '0'
+		EndIf
+		
+		//Desc1		
+		&numericInteiro.SetEmpty()
+		&numericInteiro = &CbrDesDia * 100000 //pq preciso 5 casas decimais e + 3 inteiros e pq a formula divide por 100
+		&percentualDesconto1 = padL(trim(str(&numericInteiro)),8, '0')
+		&SdtRegistroBradesco.percentualDesconto1 = &percentualDesconto1 // '0' //nao
+		&SdtRegistroBradesco.vlDesconto1 = '0' //nao
+		
+		If (&CreDtaVct - &CreDtaEms) > &CbrQtdDiaDesc  
+			&Data.SetEmpty()
+			&Data = &CreDtaVct.AddDays(-1 * &CbrQtdDiaDesc)
+			&DataVct = RetornaSoNumeros.Udp(&Data.ToString())
+			&DataVct = Substr(&DataVct,1,2) + '.' + Substr(&DataVct,3,2) + '.' + Substr(&DataVct,5,4)
+		else
+			&DataVct.SetEmpty()
+		EndIf
+	
+		if &CbrDesDia > 0 and not &DataVct.Trim().IsEmpty()
+			&SdtRegistroBradesco.dataLimiteDesconto1 = &DataVct
+		else
+			&SdtRegistroBradesco.dataLimiteDesconto1 = ''
+		EndIf
+		
+		
+		//Desc2		
+		&SdtRegistroBradesco.percentualDesconto2 = '0' //nao
+		&SdtRegistroBradesco.vlDesconto2 = '0' //nao
+		&SdtRegistroBradesco.dataLimiteDesconto2 = '' //se tiver valor ou % para desconto2
+		
+		//Desc3		
+		&SdtRegistroBradesco.percentualDesconto3 = '0' //nao
+		&SdtRegistroBradesco.vldesconto3 = '0' //nao
+		&SdtRegistroBradesco.dataLimiteDesconto3 = '' //se tiver valor ou % para desconto3
+		
+		//bonif		
+		&SdtRegistroBradesco.prazoBonificacao = '0' // 1=dias corridos / 2=dias uteis //se o % ou valor da bonificacao for informado
+		&SdtRegistroBradesco.percentualBonificacao = '0' //nao - item 9.2 do manual
+		&SdtRegistroBradesco.vlBonificacao = '0' //nao
+		&SdtRegistroBradesco.dtLimiteBonificacao = ''
+		&SdtRegistroBradesco.vlAbatimento = '0' //nao
+		
+		//pagador		
+		&SdtRegistroBradesco.vlIOF = '0' //obrigatorio para cobranca carteira de seguros
+		&SdtRegistroBradesco.nomePagador = Substr(CreCliRaz, 1, 69)
+		&SdtRegistroBradesco.logradouroPagador = Substr(trim(CreCliCobLog), 1, 40)  //obrigatorio
+		&SdtRegistroBradesco.nuLogradouroPagador = CreCliCobNro //obrigatorio
+		&SdtRegistroBradesco.complementoLogradouroPagador = '' //nao
+		
+		&cepPagador = Substr(CreCliCobCep, 1,5)
+		&SdtRegistroBradesco.cepPagador = &cepPagador //.ToNumeric() //obrigatorio
+		&complementoCepPagador = Substr(CreCliCobCep, 7,3) //POSICAO 7 PQ A 6 É O IFEN -
+		&SdtRegistroBradesco.complementoCepPagador = &complementoCepPagador //obrigatorio
+		
+		&SdtRegistroBradesco.bairroPagador = CreCliCobBai //obrigatorio
+		&SdtRegistroBradesco.municipioPagador = CreCliCobCidNom //obrigatorio
+		&SdtRegistroBradesco.ufPagador = CreCliCobUfeCod //obrigatorio
+		
+		if CreCliTip = 'F' //fisica  ////Se CPF =00099999999999 com controle Se CNPJ =9999999999999
+			&SdtRegistroBradesco.cdIndCpfcnpjPagador = '1' //1=CPF  //obrigatorio
+			&CreCliCpf = padL(trim(RetornaSoNumeros.Udp(CreCliCpf)),11,'0')
+			&SdtRegistroBradesco.nuCpfcnpjPagador = &CreCliCpf //.ToNumeric()
+		else
+			&SdtRegistroBradesco.cdIndCpfcnpjPagador = '2' //2=CNPJ //obrigatorio
+			&CreCliCnpj = RetornaSoNumeros.Udp(CreCliCnpj)
+			&SdtRegistroBradesco.nuCpfcnpjPagador = &CreCliCnpj //.ToNumeric()
+		EndIf
+		&SdtRegistroBradesco.endEletronicoPagador = '' //nao
+		
+		//Avalista		
+		&SdtRegistroBradesco.nomeSacadorAvalista = ''//nao
+		&SdtRegistroBradesco.logradouroSacadorAvalista = '' //obrigatorio se informar avalista
+		&SdtRegistroBradesco.nuLogradouroPagador = '' //obrigatorio se informar avalista
+		&SdtRegistroBradesco.complementoLogradouroSacadorAvalista = '' //nao
+		&SdtRegistroBradesco.cepSacadorAvalista = '0' ////obrigatorio se informar avalista
+		&SdtRegistroBradesco.complementoCepSacadorAvalista = '0' //obrigatorio se informar avalista
+		&SdtRegistroBradesco.bairroSacadorAvalista = '' //obrigatorio se informar avalista
+		&SdtRegistroBradesco.municipioSacadorAvalista = '' //obrigatorio se informar avalista
+		&SdtRegistroBradesco.ufSacadorAvalista = '' //obrigatorio se informar avalista
+		&SdtRegistroBradesco.cdIndCpfcnpjSacadorAvalista = '0' //1=CPF //2=CNPJ //obrigatorio se informar avalista
+		&SdtRegistroBradesco.nuCPFCNPJSacadorAvalista = '0' //Se CPF =00099999999999 com controle Se CNPJ =99999999999999 //obrigatorio se informar avalista
+		&SdtRegistroBradesco.endEletronicoSacadorAvalista = '' //nao
+		&PREENCHIDO = 1
+		exit
+when none
+	&Mensagem = 'Impossível gerar Boleto para esta Duplicata!, a Mesma NÃO pode estar vencida, e deve ser do tipo RECEBER, e com boleto online no local de Cobrança!'
+	&IsErro = true
+EndFor
+
+//#################################################################################################################################################
+
+iF &PREENCHIDO = 1
+	
+	&File.Source = 'certificado_Bradesco'
+	&CaminhoVarChar = trim(&File.GetPath()) + '\bin\app\certificado.pfx'
+	&File.Close()
+	//padraoUsuario.Call('G', '#REGISTROBRADESCO_JEANINICIAL', 1, 1, &CaminhoVarChar, &PadDtaMod)  
+	
+	&RequisicaoAssinada = &jaspi_AssinaJson.AssinaJson(&CaminhoVarChar, '@Hhkl.@@!1q2w1z@Xkv5685@!!', &SdtRegistroBradesco.ToJson())
+
+	if &IsErro = false			
+		
+		//https://cobranca.bradesconetempresa.b.br/ibpjregistrotitulows/registrotitulo
+		HostWebServiceBoletoApi.Call('',237, &EmpWebHost, &EmpWebBaseUrl, &EmpWebPor) // 237 = Bradesco
+		&HttpClient.Host = &EmpWebHost //servidor
+		&HttpClient.Secure = 1
+		&httpclient.AddHeader(!'Content-type',!'application/json')
+		&String = '/ibpjregistrotitulows/registrotitulo' //homologacao'
+		&httpclient.AddString(&RequisicaoAssinada) 
+		&HttpClient.Execute('POST', &String)
+		
+		&SdtRetornoBradesco.fromJson(&HttpClient.toString())
+		&jeanMensagem = &HttpClient.toString() 
+		&IndexInicial = &jeanMensagem.IndexOf('<return>')
+		&IndexInicial += 8
+		&jeanMensagem = Substr(&jeanMensagem, &IndexInicial, 8000)
+		
+		//		
+		
+		&IndexFinal = &jeanMensagem.IndexOf('</return>')
+		&IndexFinal -= 1
+		&jeanMensagem = Substr(&jeanMensagem, 1, &IndexFinal)
+		
+		//		padraoUsuario.Call('G', '#REGISTROBRADESCO_JEANFINAL', &WWPContext.PesCod, &WWPContext.EmpCod, &jeanMensagem, &PadDtaMod)  
+		
+		&SdtRetornoBradesco.FromJson(&jeanMensagem)		
+		
+		//		padraoUsuario.Call('G', '#REGISTROBRADESCO', &WWPContext.PesCod, &WWPContext.EmpCod, &HttpClient.toString(), &PadDtaMod)  
+		//		padraoUsuario.Call('G', '#REGISTROBRADESCO2', &WWPContext.PesCod, &WWPContext.EmpCod, &RequisicaoAssinada, &PadDtaMod)  
+		//		padraoUsuario.Call('G', '#REGISTROBRADESCOJSON', &WWPContext.PesCod, &WWPContext.EmpCod, &SdtRetornoBradesco.ToJson().ToString(), &PadDtaMod)    
+		
+		
+		Do Case
+			Case &HttpClient.ErrCode = 0 and &SdtRetornoBradesco.cdErro = 0 and not &SdtRetornoBradesco.msgErro.IsEmpty() //HTTP_CREATED  Operação realizada com sucesso
+				&Mensagem = 'Boleto Registrado com sucesso!'
+				DO 'AtualizaDadosRetorno'
+				//JDF - PERA SO 1 MINUTO
+				//				ImpressaoBoletoBradesco.call(&EmpCod,&CreCod,&CreCbrCod,&CbrChaTra,&CbrCtaBanAgeCod,&CbrNroCon,str(&SdtRetornoBradesco.nutituloGerado),&CbrCtaBanAgeDig)
+				
+			Otherwise
+				&IsErro = true
+				if &HttpClient.ErrCode <> 0
+					&Mensagem = 'Erro HTTP:'+trim(str(&HttpClient.ErrCode)) + ':' + &HttpClient.ErrDescription.ToString() 
+				Endif
+				
+				&Mensagem += '; '+&SdtRetornoBradesco.cdErro.ToString() + ':' + &SdtRetornoBradesco.msgErro.Trim() //+ '___Caminho: ' + &CaminhoVarChar
+		EndCase
+		
+	else
+		&IsErro = true
+		if &Mensagem.IsEmpty()
+			&Mensagem += 'ERRO '
+		EndIf
+	EndIf
+Else
+	&Mensagem = 'A estrutura não está prenchida para poder consumir os servidores! Chave de Transação não encontrada  ou chave master inválida!'
+	&IsErro = true
+EndIf
+
+//#################################################################################################################################################
+Sub 'GetLocalCobraca'
+	&ErroCobraca = 0
+	
+	For each Order EmpCod,CbrCod //,CbrTipImp
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CreCbrCod
+		&CbrCtaBanAgeCod = CbrCtaBanAgeCod
+		&CbrCtaBanAgeDig = CbrCtaBanAgeDig
+		&CbrCtaBanCrt = CbrCtaBanCrt
+		&CbrCtaBanBanCod = CbrCtaBanBanCod
+		&CbrNroCon = CbrNroCon
+		&CbrCarCod = CbrCarCod
+		&CbrDesDia = CbrDesDia
+		&CbrQtdDiaDesc = CbrQtdDiaDesc
+		&CbrDesAnt  = CbrDesAnt
+		&CbrInsBol1 = CbrInsBol1
+		&CbrMltVlr  = CbrMltVlr
+		&CtaBanNosNro = CtaBanNosNro     // Local Cobrança Nosso Número
+		&CbrCnpj = CbrCnpj
+		
+		&CbrJurCod = CbrJurCod             // Local Cobrança Juros Código
+		&JurTax = 0
+		Do 'Juros'
+		exit
+	EndFor
+EndSub
+
+Sub 'Juros'	
+	For each Order EmpCod,JurCod,(JurAno),(JurMes)
+		Where EmpCod = &EmpCod
+		Where JurCod = &CbrJurCod
+		&JurTax = JurTax  //JDF - BANCO QUER A TAXA MENSAL E NAO AO DIA.
+		//&JurTaxDia = 
+		Exit
+	EndFor
+EndSub
+
+Sub 'AtualizaDadosRetorno'
+	For Each Order EmpCod,CreCod, CreRecPag, CreCrbRegAut
+		Where EmpCod = &EmpCod
+		Where CreCod = &CreCod
+		Where CreRecPag = ReceberPagar.Receber
+		Where CreCrbRegAut = Status_SimNao.Sim
+		&DtRegistroVar = &SdtRetornoBradesco.dtRegistro.ToString()
+		CreDtaRet = yMDtoD(val(substr(&DtRegistroVar,5,4)),val(substr(&DtRegistroVar,3,2)),val(substr(&DtRegistroVar,1,2)))
+		CreCodBar = &SdtRetornoBradesco.cdBarras
+		CreLinDig = &SdtRetornoBradesco.linhaDigitavel
+		CreArqRetApiEco = &SdtRetornoBradesco.ToJson()
+		Exit
+//	when none
+//		&Mensagem += '_Não foi possível atualizar os dados de retorno do Bradesco_OnLine'
+//		
+	EndFor
+Commit
+EndSub
+
+
+Sub 'GravaNossoNumero'
+	For each Order EmpCod,CbrCod,CbrTipImp
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CreCbrCod
+		Where CbrTipImp = TipoImpressao.GerarBoleto  //Gerar Boleto
+		CtaBanNosNro	= &CtaBanNosNro  
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&CreCod, out:&IsErro, out:&Mensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CaminhoVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CaminhoVarChar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCarCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCarCod</Value></Property><Property><Name>Description</Name><Value>Carteira</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCarCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaMas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaMas</Value></Property><Property><Name>Description</Name><Value>Chave Master</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaMas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrChaTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrChaTra</Value></Property><Property><Name>Description</Name><Value>Chave Transação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrChaTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCnpj</Value></Property><Property><Name>Description</Name><Value>Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanAgeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanAgeCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Agência</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanAgeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanAgeDig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanAgeDig</Value></Property><Property><Name>Description</Name><Value>Conta Bnacária Dígito</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanAgeDig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Banco Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanCrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanCrt</Value></Property><Property><Name>Description</Name><Value>Conta Corrente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanCrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrDesAnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrDesAnt</Value></Property><Property><Name>Description</Name><Value>Percentual de desconto para pagamento antecipado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrDesAnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrDesDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrDesDia</Value></Property><Property><Name>Description</Name><Value>Percentual de Desconto para pagemento em dia.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrDesDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrInsBol1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrInsBol1</Value></Property><Property><Name>Description</Name><Value>Intrução para Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrInsBol1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrJurCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrJurCod</Value></Property><Property><Name>Description</Name><Value>Juros Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrJurCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrMltVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrMltVlr</Value></Property><Property><Name>Description</Name><Value>Valor Multa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrMltVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrNroCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrNroCon</Value></Property><Property><Name>Description</Name><Value>Número Convênio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrNroCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrQtdDiaDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrQtdDiaDesc</Value></Property><Property><Name>Description</Name><Value>Qtd Dias desconto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrQtdDiaDesc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cepPagador">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cepPagador</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>9</Value></Property><Property><Name>AttMaxLen</Name><Value>9</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CNPJ</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="complementoCepPagador">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>complementoCepPagador</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>9</Value></Property><Property><Name>AttMaxLen</Name><Value>9</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Conta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Conta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>7</Value></Property><Property><Name>AttMaxLen</Name><Value>7</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCnpj</Value></Property><Property><Name>Description</Name><Value>Cliente CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCpf</Value></Property><Property><Name>Description</Name><Value>Cliente CPF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliRaz</Value></Property><Property><Name>Description</Name><Value>Cliente Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CryptoCert">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CryptoCert</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:CryptoCertificate</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CryptoSign">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CryptoSign</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:CryptoSign</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanNosNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanNosNro</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nosso Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanNosNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ctrlCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ctrlCPFCNPJ</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ctrlCPFCNPJvar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ctrlCPFCNPJvar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataEms</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataVct</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>AttMaxLen</Name><Value>10</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtRegistroVar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtRegistroVar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroCobraca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroCobraca</Value></Property></Properties>
+        </Variable>
+        <Variable Name="errorCode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>errorCode</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="filialCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>filialCPFCNPJ</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="filialCPFCNPJvar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>filialCPFCNPJvar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IschaveTransacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IschaveTransacao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="jaspi_AssinaJson">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>jaspi_AssinaJson</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:jaspi_AssinaJsonProgram</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JsonFixo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JsonFixo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTax</Value></Property><Property><Name>Description</Name><Value>Juros Taxa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:JurTax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTaxDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTaxDia</Value></Property><Property><Name>Description</Name><Value>Juros Taxa ao Dia</Value></Property><Property><Name>Length</Name><Value>9</Value></Property><Property><Name>Decimals</Name><Value>5</Value></Property><Property><Name>AttMaxLen</Name><Value>9</Value></Property><Property><Name>AttAvgLen</Name><Value>5</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTaxDiaVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTaxDiaVarChar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nuCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nuCPFCNPJ</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>9</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>9</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nuCPFCNPJvar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nuCPFCNPJvar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property></Properties>
+        </Variable>
+        <Variable Name="numericInteiro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>numericInteiro</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nuNegociacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nuNegociacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="percentualJuros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>percentualJuros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PREENCHIDO">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PREENCHIDO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RequisicaoAssinada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RequisicaoAssinada</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRegistroBradesco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRegistroBradesco</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRegistroBradesco</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRetornoBradesco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRetornoBradesco</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRetornoBradesco</Value></Property></Properties>
+        </Variable>
+        <Variable Name="String">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>String</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WWPContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WWPContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="percentualMulta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>percentualMulta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="percentualDesconto1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>percentualDesconto1</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Data">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Data</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DiaVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DiaVarChar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="jeanMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>jeanMensagem</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IndexInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IndexInicial</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IndexFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IndexFinal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraBoletoBradesco</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

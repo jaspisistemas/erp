@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="2a44768c-29ee-45db-8775-9aa5477983a4" user="WINJEAN\jeanfae" versionDate="2025-03-17T17:28:27.0000000Z" lastUpdate="2025-03-17T16:57:56.0000000Z" checksum="5b9a318c4c01616e7f7f7e3fd639ee14" fullyQualifiedName="prcGravaTransfencia" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="d2b3b106-8c0d-4db1-bb28-ecebe67a5f79" name="prcGravaTransfencia" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Grava Transfencia" parent="FatProc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&TrsDtaEms = serverdate()
+
+//Valida Existe Capa.
+For Each Order EmpCod, (TrsCod)
+	Where EmpCod = &EmpCod
+	Where TrsSaiFilCod = &OriFilCod
+	Where TrsEntFiLCod = &DestFilCod
+	Where TrsDtaEms = &TrsDtaEms 
+	Where TrsSts = Status_Pedido.FECHADO
+	
+	&OrigemPedCod = TrsSaiPedCod 
+	&DestinoPedCod = TrsEntPedCod			
+	&TrsCod = TrsCod
+	
+	Exit
+When none
+	
+	RetornaConfSistema.Call(&EmpCod, &OriFilCod, domConfSistema.TCon048_TransDestinoProduto, &ValorConfiguracao)
+	&DestinoLctCod = val(&ValorConfiguracao)
+	
+	RetornaConfSistema.Call(&EmpCod, &OriFilCod, domConfSistema.TCon047_TransOrigemProduto, &ValorConfiguracao)
+	&OrigemLctCod = val(&ValorConfiguracao)
+	
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &OriFilCod //CLIENTE DA FILIAL SAIDA
+		&FilPesCod = FilPesCod
+		&FilTabCod = FilTabCod
+	EndFor
+
+	UltimoCodigoEmpresa.Call(domParCod.TRANSPEDIDO, &EmpCod, 0, &TrsCod)
+	New
+		EmpCod = &EmpCod
+		TrsCod = &TrsCod
+		TrsDtaEms = &TrsDtaEms
+		TrsSaiFilCod = &OriFilCod
+		
+		prcInsereCapaTransferencia.Call(&EmpCod, &OriFilCod, &TrsDtaEms, &OrigemLctCod, &FilPesCod, &FilTabCod, &OrigemPedCod)	
+		TrsSaiPedCod = &OrigemPedCod
+		
+		TrsEntFiLCod = &DestFilCod
+		
+		prcInsereCapaTransferencia.Call(&EmpCod, &DestFilCod, &TrsDtaEms, &DestinoLctCod, &FilPesCod, &FilTabCod, &DestinoPedCod)	
+		TrsEntPedCod = &DestinoPedCod
+		
+		TrsSts = Status_Pedido.FECHADO
+	EndNew
+	
+	Commit
+EndFor
+
+//ja temos o codigo transferencia.
+//Gravamos o Item
+GravaTransfProduto.Call(&EmpCod, &TrsCod, 0, &OriProcod, &OriProGraCod, &PedQtd, &DestProCod, &DestProGraCod, &PedQtd, &newTrsItmCod)
+
+
+//ja existe os pedidos. status: Fechado, 
+//Gravamos Item no pedido Origem
+&ProVlrCus = 0
+For Each Order EmpCod, ProCod
+	Where EmpCod = &EmpCod
+	Where ProCod = &OriProcod
+	
+	&ProVlrCus = ProVlrCus
+	
+	Exit
+EndFor
+PrcGravaItemTransferenciaPedido.Call(&EmpCod, &DestFilCod, &DestinoPedCod, &newTrsItmCod, &OriProcod, &OriProGraCod, &PedQtd, &ProVlrCus)
+AtualizaTotaisPedido.Call(&EmpCod, &DestFilCod, &DestinoPedCod, &newTrsItmCod, 'I')
+
+FechaEstoqueTransferenciaPorItem.Call(&EmpCod, &DestFilCod, &DestinoPedCod, Status_Pedido.FECHADO, &newTrsItmCod)
+
+//ja existe os pedidos. status: Fechado, 
+//Gravamos Item no pedido Destino
+&ProVlrCus = 0
+For Each Order EmpCod, ProCod
+	Where EmpCod = &EmpCod
+	Where ProCod = &DestProCod
+	
+	&ProVlrCus = ProVlrCus
+	
+	Exit
+EndFor
+PrcGravaItemTransferenciaPedido.Call(&EmpCod, &OriFilCod, &OrigemPedCod, &newTrsItmCod, &DestProCod, &DestProGraCod, &PedQtd, &ProVlrCus)
+AtualizaTotaisPedido.Call(&EmpCod, &OriFilCod, &OrigemPedCod, &newTrsItmCod, 'I')
+
+FechaEstoqueTransferenciaPorItem.Call(&EmpCod, &OriFilCod, &OrigemPedCod, Status_Pedido.FECHADO, &newTrsItmCod)
+//FechaTransferenciaProduto.Submit('wpFechaTrans', &ProgressId, &EmpCod, &FilCod, &Context.PesCod, &trsCod)
+
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&OriFilCod, in:&OriProcod, in:&OriProGraCod, in:&DestFilCod, in:&DestProCod, in:&DestProGraCod, in:&PedQtd);
+//parm(in:&EmpCod, in:&OriProCod, in:&OriProGraCod, in:&PedQtd)
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriProcod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriProcod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TrsCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TrsCod</Value></Property><Property><Name>Description</Name><Value>Transferencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OrigemPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OrigemPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OrigemLctCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OrigemLctCod</Value></Property><Property><Name>Description</Name><Value>Tipo Lançamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorConfiguracao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorConfiguracao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="newTrsItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>newTrsItmCod</Value></Property><Property><Name>Description</Name><Value>Item TransFerencia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TrsItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProVlrCus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProVlrCus</Value></Property><Property><Name>Description</Name><Value>Valor Custo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProVlrCus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa da Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilTabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilTabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilTabCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGravaTransfencia</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

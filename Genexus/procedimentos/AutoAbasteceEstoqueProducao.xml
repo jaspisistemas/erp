@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="a005aaf5-dd8b-4d7a-9cb0-9b92dd1a3244" user="WIN-JEAN\jean.fae" versionDate="2022-10-10T20:15:40.0000000Z" lastUpdate="2022-10-07T13:50:16.0000000Z" checksum="1ed3daec83c1c68a831e8c7eb1a719a4" fullyQualifiedName="AutoAbasteceEstoqueProducao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="64caeda3-3ad5-4bb9-b080-686adf6e23fd" name="AutoAbasteceEstoqueProducao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Auto Abastece Estoque Producao" parent="ProdPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+For Each Order EmpCod, FilCod, PedCod, PedItmCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	Where ProAtuEst = true //AUTO ALIMENTAR ESTOQUE.
+	//where PedQtd > EstQtd
+	Exit
+When none
+	return
+EndFor
+
+&IsAchou = false
+&IsModeloNovo = false
+
+//CAPA ENTRADA PRODUÇÃO
+For Each Order EmpCod, FilCod, PrdCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PrdDtaEnt = &PedDtaFat
+	Where PrdObs = 'ENTRADA AUTOMATICA / VENDA DE KIT'	
+	where PrdSts = Status_Pedido.FECHADO or PrdSts = Status_Pedido.ABERTO
+	
+	&PrdCod = PrdCod
+	&PrdSts = PrdSts
+	&IsAchou = true
+	
+	For Each Order EmpCod, FilCod, PrdCod, PrdKitPedCod 
+		Where PrdKitPedCod = &PedCod
+		if PrdKitPedItmCod > 0
+			&IsModeloNovo = true	
+		Endif
+		Exit
+	When None
+		&IsModeloNovo = true	
+	endFor
+
+	Exit
+when NONE
+	UltimoCodigoEmpresa.Call(domParCod.ENTRADAPRODUCAO, &EmpCod, &FilCod, &PrdCod)
+	
+	new
+		EmpCod = &EmpCod
+		FilCod = &FilCod
+		PrdCod = &PrdCod
+		PrdDtaEnt = &PedDtaFat
+		&PrdObs = 'ENTRADA AUTOMATICA / VENDA DE KIT'	
+		PrdObs = &PrdObs
+		
+		PrdSts = Status_Pedido.ABERTO
+	EndNew
+EndFor
+
+commit
+
+If &IsAchou = true
+	//AUTO ABASTECER
+	if  &PrdSts = Status_Pedido.FECHADO
+		if &IsModeloNovo = true //Precisa ser assim pois as receitas nao gravavam o pedido de origem.
+			prcAbrirEntradaProducao_AutoAbastecer.Call(&EmpCod, &FilCod, &PrdCod, &PedCod, &PesCod)
+		Else
+			prcAbrirEntradaProducao.Call(&EmpCod, &FilCod, &PrdCod, &PesCod)
+		Endif
+	Endif
+
+	//REMOVE ITENS DA ORDEM PRODUCAO
+	For Each Order EmpCod, FilCod, PrdCod, PrdKitPedCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PrdCod = &PrdCod
+		Where PrdKitPedCod = &PedCod
+		
+		delete
+	EndFor
+	
+	commit
+Endif
+
+
+//ADICIONAR OS KITS NA ENTRADA DA PRODUCAO
+if &novoPedSts = Status_Pedido.FECHADO
+	For Each Order EmpCod, FilCod, PedCod, PedItmCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PedCod = &PedCod
+		Where ProAtuEst = true //AUTO ALIMENTAR ESTOQUE.
+		Where ProEstTip <> TipoEstoque.NAO_ATUALIZA
+		Where PedQtd > 0
+		
+		If EstQtd >= 0
+			&PedQtd  = 0
+		Else
+			&estQtd = (EstQtd*-1)
+			If &estQtd >= PedQtd
+				&PedQtd = PedQtd
+			Else
+				&PedQtd = &estQtd
+			EndIf
+		Endif
+		
+		if &PedQtd > 0
+			do 'localizaUltimoCodigo'
+			
+			New
+				EmpCod = &EmpCod
+				FilCod = &FilCod
+				PrdCod = &PrdCod
+				PrdItmCod = &PrdItmCod
+				ProCod = ProCod
+				ProGraCod = ProGraCod
+				PrdItmQtd = &PedQtd
+				PrdProEstQtd = EstQtd
+				PrdProEstPrd = EstPrd
+				PrdVlrUnt = PedVlrCus
+				PrdKitPedCod = &PedCod
+				if &IsModeloNovo = true
+					PrdKitPedItmCod = PedItmCod
+				Endif
+			
+			EndNEw
+			
+			commit
+		Endif
+		
+	EndFor
+Endif
+
+//FECHA A ORDEM DE ENTRADA PRODUCAO
+if &IsModeloNovo = true
+	prcFechaEntradaProducao_AutoAbastecer.Call('',&EmpCod, &FilCod, &PrdCod, &PedCod, &PesCod, &PrdEntPedCod )
+Else
+	prcFechaEntradaProducao.Call('',&EmpCod, &FilCod, &PrdCod, &PesCod, &PrdEntPedCod)
+Endif
+
+sub 'localizaUltimoCodigo'
+	&PrdItmCod = 0
+	
+	For Each Order EmpCod, FilCod, PrdCod, (PrdItmCod)
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where PrdCod = &PrdCod
+		&PrdItmCod = PrdItmCod
+		Exit
+	EndFor
+	
+	&PrdItmCod += 1
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod, in:&PesCod, in:&PedDtaFat, in:&novoPedSts);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon035_TipoLancamentoEntradaProducao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon035_TipoLancamentoEntradaProducao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon036_TipLctoBaixaMateriaPrima">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon036_TipLctoBaixaMateriaPrima</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrdCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrdCod</Value></Property><Property><Name>Description</Name><Value>Producao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrdCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrdEntPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrdEntPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido Gerado Entrada Producao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrdEntPedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrdSaiPedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrdSaiPedCod</Value></Property><Property><Name>Description</Name><Value>Pedido gerado Saida Materia Prima</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrdSaiPedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrdObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrdObs</Value></Property><Property><Name>Description</Name><Value>Observacoes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrdObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaFat</Value></Property><Property><Name>Description</Name><Value>Pedido Data Faturado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsGerarPedidoMateriaPrima">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsGerarPedidoMateriaPrima</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa da Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrdItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrdItmCod</Value></Property><Property><Name>Description</Name><Value>Prd Itm Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrdItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PrdSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PrdSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PrdSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="estQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>estQtd</Value></Property><Property><Name>Description</Name><Value>Estoque Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="novoPedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>novoPedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsModeloNovo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsModeloNovo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>AutoAbasteceEstoqueProducao</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

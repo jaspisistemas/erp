@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="348bea0e-3288-44fd-9c36-4419e04b4425" user="WIN-ITALO\Italo" versionDate="2025-03-05T17:29:24.0000000Z" lastUpdate="2025-03-03T20:00:59.0000000Z" checksum="d96f0ba76e66fc30900dc68b1b195f11" fullyQualifiedName="ChatGPT.sendText" moduleGuid="d27c4bff-8cb7-456e-bbf6-1ff90f5fdb66" guid="a9221e53-cf76-436c-b22a-609391d075cb" name="sendText" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="send Text" parent="ChatGPT.completions" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&sdtMensagemChatGPT',&sdtMensagemChatGPT.ToJson())
+&HttpMethod = HttpMethod.Post
+&Subpath = 'chat/completions'
+
+do 'valida'
+
+if CodeIsSucesso(&UserMessage.code)
+	do 'carregaEstrutura'
+	
+	GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&sdtPostGPT',&sdtPostGPT.ToJson())
+	ChatGPT.send(&EmpCod,&LogGUID,&HttpMethod,&Subpath,&sdtPostGPT,&sdtGPT,&UserMessage)
+	
+	if CodeIsSucesso(&UserMessage.code)
+		do 'trataResposta'
+	else
+		do 'trataErro'
+	endif
+endif
+
+&sdtRespostaChatGPT.UserMessage = &UserMessage
+
+GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&sdtRespostaChatGPT',&sdtRespostaChatGPT.ToJson())
+
+Sub 'carregaEstrutura'
+	&sdtPostGPT = new()
+	
+	// ------------ define a estrutura json que espera receber ------------
+	// caso o retorno esperado seja json, é preciso informar uma estrutura pré definida
+	if not &sdtMensagemChatGPT.json_schema.IsNull()
+		&sdtPostGPT.response_format.type = 'json_schema'
+		&sdtPostGPT.response_format.json_schema = &sdtMensagemChatGPT.json_schema
+		&sdtPostGPT.response_format.json_schema.strict = true
+	endif
+	// --------------------------------------------------------------------
+	
+	&sdtPostGPT.model = &sdtMensagemChatGPT.modelo
+	
+	for &sdtMensagemChatGPTMensagem in &sdtMensagemChatGPT.mensagens
+		&sdtPostGPTMessage = new()
+		&sdtPostGPTMessage.role = TipoRoleGPT.user
+		
+		do case
+			case &sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.texto
+				&sdtPostGPTMessage.content = &sdtMensagemChatGPTMensagem.conteudo
+				
+			case &sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.midia
+				&sdtPostGPTMessageContentUrlItem = new()
+				&sdtPostGPTMessageContentUrlItem.type = TipoMensagemChatGPT.imagem_url
+				&sdtPostGPTMessageContentUrlItem.image_url.url = &sdtMensagemChatGPTMensagem.url
+				&sdtPostGPTMessage.content_urls.Add(&sdtPostGPTMessageContentUrlItem)
+				
+			case &sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.midia_texto
+				&sdtPostGPTMessageContentUrlItem = new()
+				&sdtPostGPTMessageContentUrlItem.type = TipoMensagemChatGPT.texto
+				&sdtPostGPTMessageContentUrlItem.text = &sdtMensagemChatGPTMensagem.conteudo
+				&sdtPostGPTMessage.content_urls.Add(&sdtPostGPTMessageContentUrlItem)
+		endcase
+		
+		&sdtPostGPT.messages.Add(&sdtPostGPTMessage)
+	endfor
+EndSub
+
+Sub 'trataResposta'
+	&sdtRespostaChatGPT = new()
+	&sdtRespostaChatGPT.id = &sdtGPT.id
+	
+	for &sdtGPTChoice in &sdtGPT.choices
+		&sdtRespostaChatGPT.mensagens.Add(&sdtGPTChoice.message.content)
+	endfor
+EndSub
+
+Sub 'trataErro'
+EndSub
+
+Sub 'valida'
+	if &sdtMensagemChatGPT.mensagens.Count = 0
+		&UserMessage = criaUserMessageError('Informe ao menos uma mensagem','')
+	else
+		for &sdtMensagemChatGPTMensagem in &sdtMensagemChatGPT.mensagens
+			if &sdtMensagemChatGPTMensagem.tipo.IsEmpty()
+				&UserMessage = criaUserMessageError(
+				format('Informe o tipo da mensagem %1',&sdtMensagemChatGPT.mensagens.IndexOf(&sdtMensagemChatGPTMensagem).ToString().Trim()),
+				'')
+				exit
+			else
+				if &sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.texto
+					and &sdtMensagemChatGPTMensagem.conteudo.IsEmpty()
+					&UserMessage = criaUserMessageError(
+					format('Informe o conteúdo da mensagem %1',&sdtMensagemChatGPT.mensagens.IndexOf(&sdtMensagemChatGPTMensagem).ToString().Trim()),
+					'')
+					exit
+				else
+					if &sdtMensagemChatGPTMensagem.tipo = TipoMensagemChatGPTGx.midia
+						and &sdtMensagemChatGPTMensagem.url.IsEmpty()
+						&UserMessage = criaUserMessageError('Informe uma url para a mensagem de imagem','')
+						exit
+					endif
+				endif
+			endif
+		endfor
+	endif
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod,inout:&LogGUID,in:&sdtMensagemChatGPT,out:&sdtRespostaChatGPT);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpMethod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpMethod</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:HttpMethod, GeneXus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGPT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGPT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtChatGPT, ChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagemChatGPT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagemChatGPT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagemChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagemChatGPTMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagemChatGPTMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagemChatGPT.mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPostGPT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPostGPT</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPostChatGPT, ChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPostGPTMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPostGPTMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPostChatGPT.item, ChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Subpath">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Subpath</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:UserMessage</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtPostGPTMessageContentUrlItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtPostGPTMessageContentUrlItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtPostChatGPT.item.item, ChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGPTChoices">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGPTChoices</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGPTChoice">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGPTChoice</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtChatGPT.choicesItem, ChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRespostaChatGPT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRespostaChatGPT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRespostaChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRespostaChatGPTMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRespostaChatGPTMsg</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRespostaChatGPT</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>sendText</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

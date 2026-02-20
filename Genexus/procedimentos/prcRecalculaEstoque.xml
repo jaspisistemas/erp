@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="32d92d72-e2a0-4451-9d65-14a56e2c4c02" user="WINJEAN\jeanfae" versionDate="2024-09-13T20:52:34.0000000Z" lastUpdate="2024-09-13T20:49:50.0000000Z" checksum="df3240e7be3ded40426b2777b6506b79" fullyQualifiedName="prcRecalculaEstoque" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="6bd9e224-bfce-4728-a9dc-aa33f52e0293" name="prcRecalculaEstoque" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Recalcula Estoque" parent="RecalculaEstoque" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&finNfeDtaEms = serverdate()
+AtualizaDataFaturadoNotas.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms)
+
+retornaCodigoCategoriaProduto.Call(&EmpCod, &GrupHie, &GrupCod, &GrupNom, &AuxGrupHie)
+
+&DataInicial = CtoD(&CfgVlr)
+
+if &ProgressId = 'cmdRecalculo'
+	msg('Data Inicial:' + &DataInicial.ToFormattedString(), status)
+EndIF
+
+&sdtEstoque.Clear()
+
+&Total = 0
+&Count = 0
+&Percentual = 0
+&ProgressIni = serverNow()
+do 'Atualiza'
+
+&HojeData = serverdate()
+&limiteData = &HojeData.AddDays(-30)
+
+msg(toformattedString(&limiteData), status)
+
+For Each Order EmpCod,ProCod, ProGraCod
+	Where EmpCod = &EmpCod or &EmpCod = 0
+	Where ProRef >= &iniProRef when not &iniProRef.IsEmpty()
+	Where ProRef <= &FinProRef when not &FinProRef.IsEmpty()
+	Where ProSetCod = &SetCod when &SetCod <> 0
+	Where GrupCod = &GrupCod when &GrupCod <> 0
+	Where ProUltAtuEst <= (&limiteData) or ProUltAtuEst.IsEmpty() or ProUltAtuEst.IsNull() when &ProgressId = 'cmdRecalculo'
+	Where ProSts = Status_Produto.ATIVO
+	Where ProEstTip = tipoestoque.ATUALIZAR_ESTOQUE or ProEstTip.IsEmpty() or ProEstTip.IsNull()
+	Where ProTipDef <> Definicao.SERVICO
+	&Total += 1
+EndFor
+
+msg(trim(str(&Total)), status)
+
+For Each Order EmpCod, ProGraRefPadL
+	Where EmpCod = &EmpCod or &EmpCod = 0
+	Where ProRef >= &iniProRef when not &iniProRef.IsEmpty()
+	Where ProRef <= &FinProRef when not &FinProRef.IsEmpty()
+	Where ProSetCod = &SetCod when &SetCod <> 0
+	Where GrupCod = &GrupCod when &GrupCod <> 0
+	Where ProUltAtuEst <= (&limiteData) or ProUltAtuEst.IsEmpty() or ProUltAtuEst.IsNull() when &ProgressId = 'cmdRecalculo'
+	Where ProSts = Status_Produto.ATIVO
+	Where ProEstTip = tipoestoque.ATUALIZAR_ESTOQUE or ProEstTip.IsEmpty() or ProEstTip.IsNull()
+	Where ProTipDef <> Definicao.SERVICO
+	
+	&AuxProCod = ProCod
+	&Count += 1
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+
+	RetornaQuantidadeEstoque.Call(EmpCod, &FilCod, ProCod, ProGraCod, &EstCom, &EstVen, &AntEstPrd, &AntEstQtd, &EstSdo, &EstSug, &AntEstQtdFis)
+	RecalculaEstoque.Call(EmpCod, &FilCod, ProCod, ProGraCod, &SomenteProducao, &SomenteNotas, &DataInicial)
+	RetornaQuantidadeEstoque.Call(EmpCod, &FilCod, ProCod, ProGraCod, &EstCom, &EstVen, &AtuEstPrd, &AtuEstQtd,  &EstSdo, &EstSug, &AtuEstQtdFis)
+	
+	If &AntEstQtdFis <> &AtuEstQtdFis
+		&sdtEstoqueItem = new()
+		&sdtEstoqueItem.ProCod = ProCod
+		&sdtEstoqueItem.ProRef = ProGraRef
+		&sdtEstoqueItem.ProGraCod = ProGraCod
+		&sdtEstoqueItem.EstTipCod = 3
+		&sdtEstoqueItem.EstQtd = &AtuEstQtdFis
+		&sdtEstoqueItem.ProNom = ProNomGra
+		&sdtEstoqueItem.AntEstQtd = &AntEstQtdFis
+		&sdtEstoque.Add(&sdtEstoqueItem)
+
+	EndIF
+	If &AntEstPrd <> &AtuEstPrd
+		&sdtEstoqueItem = new()
+		&sdtEstoqueItem.ProCod = ProCod
+		&sdtEstoqueItem.ProRef = ProGraRef
+		&sdtEstoqueItem.ProGraCod = ProGraCod
+		&sdtEstoqueItem.EstTipCod = 2
+		&sdtEstoqueItem.EstQtd = &AtuEstPrd
+		&sdtEstoqueItem.ProNom = ProNomGra
+		&sdtEstoqueItem.AntEstQtd = &AntEstPrd
+		&sdtEstoque.Add(&sdtEstoqueItem)
+	EndIF
+	
+	If &AntEstQtd <> &AtuEstQtd
+		&sdtEstoqueItem = new()
+		&sdtEstoqueItem.ProRef = ProGraRef
+		&sdtEstoqueItem.ProCod = ProCod
+		&sdtEstoqueItem.ProGraCod = ProGraCod
+		&sdtEstoqueItem.EstTipCod = 1
+		&sdtEstoqueItem.EstQtd = &AtuEstQtd
+		&sdtEstoqueItem.ProNom = ProNomGra
+		&sdtEstoqueItem.AntEstQtd = &AntEstQtd
+		&sdtEstoque.Add(&sdtEstoqueItem)
+	EndIF
+
+	if  &AntEstPrd <> &AtuEstPrd or &AntEstQtd <> &AtuEstQtd
+		ProUltAtuEst = &HojeData
+	Else
+		ProUltAtuEst = &HojeData.AddDays(45)
+	Endif
+
+	
+	Commit
+EndFor
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'Atualiza'
+		for each Order ProgressId
+			where ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressLogXml = &sdtEstoque.ToXml()
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		When none
+			new
+				ProgressId = &ProgressId
+				ProgressValue = &Percentual
+				ProgressLogXml = &sdtEstoque.ToXml()
+				ProgressFin = &ProgressFin
+				ProgressIni = &Progressini
+			Endnew
+		endfor
+		
+		commit
+		
+	if &ProgressId = 'cmdRecalculo'
+		msg('Produto:' + trim(str(&AuxProCod)) + ' Percentual: ' + trim(str(&Percentual)), status)
+	EndIF
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod, in:&iniProRef, in:&FinProRef, in:&SetCod, in:&GrupHie, in:&SomenteProducao, in:&SomenteNotas);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AntEstPrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntEstPrd</Value></Property><Property><Name>Description</Name><Value>Estoque Producao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstPrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AntEstQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntEstQtd</Value></Property><Property><Name>Description</Name><Value>Estoque Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AtuEstPrd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AtuEstPrd</Value></Property><Property><Name>Description</Name><Value>Estoque Producao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstPrd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AtuEstQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AtuEstQtd</Value></Property><Property><Name>Description</Name><Value>Estoque Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CfgVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CfgVlr</Value></Property><Property><Name>Description</Name><Value>Valor Config.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CfgVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataInicial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataInicial</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstCom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstCom</Value></Property><Property><Name>Description</Name><Value>Estoque Comprado Em Aberto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstCom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstSdo</Value></Property><Property><Name>Description</Name><Value>Estoque Saldo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstSug">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstSug</Value></Property><Property><Name>Description</Name><Value>Estoque Sugestao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstSug</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstVen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstVen</Value></Property><Property><Name>Description</Name><Value>Estoque Vendido em Aberto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstVen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FimProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FimProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Progressini">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Progressini</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEstoque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEstoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEstoque</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEstoqueItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEstoqueItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEstoque.sdtEstoqueItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SetCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SetCod</Value></Property><Property><Name>Description</Name><Value>Setor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SetCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SomenteProducao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SomenteProducao</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniProRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniProRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinProRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinProRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="limiteData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>limiteData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SomenteNotas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SomenteNotas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AtuEstQtdFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AtuEstQtdFis</Value></Property><Property><Name>Description</Name><Value>Estoque Fiscal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtdFis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AntEstQtdFis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntEstQtdFis</Value></Property><Property><Name>Description</Name><Value>Estoque Fiscal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtdFis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupNom</Value></Property><Property><Name>Description</Name><Value>Nome Grupo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxGrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxGrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcRecalculaEstoque</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

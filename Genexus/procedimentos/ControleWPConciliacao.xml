@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="80617bbf-8698-4e11-9870-c159255c810a" user="WINJEAN\jeanfae" versionDate="2025-08-12T19:28:38.0000000Z" lastUpdate="2025-08-12T11:03:12.0000000Z" checksum="04f0c71ef9258b65dd02d4cd7b662263" fullyQualifiedName="ControleWPConciliacao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="579db9b9-1482-4765-873f-ae9c861d571a" name="ControleWPConciliacao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Controle WPConciliacao" parent="ConciliacaoBancaria" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&sdtMensagens.Clear()
+do case
+	case &OqueFazer = 'IGNO'
+		do 'IgnoraItem'
+	case &OqueFazer = 'JACON'
+		do 'JaConciliado'
+	case &OqueFazer = 'NEWLAN'
+		if &PlanCod.IsEmpty()
+			return
+		Endif
+	
+		do 'ConciliaComLancamento'
+	case &OqueFazer = 'CONSEL'
+		do 'ConciliaSelecionados'
+	case &OqueFazer = 'DESCON'
+		do 'Desconciliar'
+	case &OqueFazer = 'ATUAPEN'
+		do 'AtualizaParaPendente'
+	case &OqueFazer = 'AUTO'
+		do 'ConciliacaoAutomatica'
+endcase
+
+commit
+
+Sub 'IgnoraItem'
+	do 'isConciliado'
+	
+	if &isConciliado = false
+		For each Order EmpCod,CtabanCod, LanBanCod
+			where EmpCod = &Context.EmpCod
+			Where CtabanCod = &CtabanCod
+			where LanBanCod = &SdtConciliacaoItem.LanBanCod
+			LanBanStatus = StatusConciliacao.Ignorar
+			&msgTitulo = 'Feito!'
+			&msgMensagem = 'Lançamento ignorado com sucesso'
+			&msgType = DVMessageType.success
+			exit
+		when none
+			&msgTitulo = 'Oops!'
+			&msgMensagem = 'Ocorreu um erro e não consegui encontrar o lançamento para ignorar'
+			&msgType = DVMessageType.error
+		EndFor
+	endif
+EndSub
+
+Sub 'ConciliaComLancamento'
+	do 'isConciliado'
+	
+	if &isConciliado = false
+		&SdtMovimentoItem.Clear()
+		&SdtMovimentoItemItem = new()
+		&SdtMovimentoItemItem.MovItmCod    = 0
+		&SdtMovimentoItemItem.MovItmCpl    = &SdtConciliacaoItem.LanBanDesc
+		&SdtMovimentoItemItem.MovItmVlr    = &SdtConciliacaoItem.LanBanVlr
+		&SdtMovimentoItemItem.PlanCod      = &PlanCod
+		&SdtMovimentoItemItem.MovItmDoc    = &SdtConciliacaoItem.LanBanDoc
+		&SdtMovimentoItemItem.MovItmIsCon  = Status_SimNao.Sim
+		&SdtMovimentoItemItem.MovItmDtaCon = &SdtConciliacaoItem.LanBanData
+		&SdtMovimentoItemItem.PlanCodNom = ''
+		&SdtMovimentoItem.Add(&SdtMovimentoItemItem)
+		
+		GravaMovimento.Call(
+		&Context.EmpCod,
+		TrnMode.Insert,
+		0,
+		serverdate(), 
+		&SdtConciliacaoItem.LanBanData,
+		&SdtConciliacaoItem.CtaBanCodOrigem,
+		&SdtConciliacaoItem.LanBanCreDeb,
+		&SdtConciliacaoItem.LanBanDoc,
+		&SdtMovimentoItem,
+		TipoMovimento.Manual,
+		'[SISTEMA] Conciliação bancária',
+		&Error)
+		
+		If &Error = 1
+			&msgTitulo = 'Oops!'
+			&msgMensagem = 'Ocorreu um erro interno durante o lançamento'
+			&msgType = DVMessageType.error
+		Else
+			&msgTitulo = 'Feito!'
+			&msgMensagem = 'Conciliação de lançamento efetuado com sucesso'
+			&msgType = DVMessageType.success
+			
+			&lanBanStatus = StatusConciliacao.Conciliado
+			do 'AlteraStatusLancamento'
+		EndIf
+	endif
+EndSub
+
+Sub 'AlteraStatusLancamento'
+	For each Order EmpCod,CtabanCod, LanBanCod
+		where EmpCod = &Context.EmpCod
+		Where CtabanCod = &CtabanCod
+		where LanBanCod = &SdtConciliacaoItem.LanBanCod
+		LanBanStatus = &LanBanStatus
+		exit
+	EndFor
+EndSub
+
+Sub 'JaConciliado'
+	For each Order EmpCod,CtabanCod, LanBanCod
+		where EmpCod = &Context.EmpCod
+		Where CtabanCod = &CtabanCod
+		where LanBanCod = &SdtConciliacaoItem.LanBanCod
+		LanBanStatus = StatusConciliacao.JaConciliado
+		&msgTitulo = 'Feito!'
+		&msgMensagem = 'Lançamento atualizado para Já Conciliado'
+		&msgType = DVMessageType.success
+		exit
+	when none
+		&msgTitulo = 'Oops!'
+		&msgMensagem = 'Ocorreu um erro e não consegui encontrar o lançamento para conciliar'
+		&msgType = DVMessageType.error
+	EndFor
+EndSub
+
+Sub 'ConciliaSelecionados'
+	&Moedadiferenca = 0
+	&Moedabanco = &SdtConciliacaoItem.LanBanVlr
+	do 'isConciliado'
+	
+	&Moedadiferenca = &Moedabanco - &Moedasistema
+	if &Moedadiferenca <> 0
+		&isConciliado = true 
+		&sdtMensagem = new()
+		&sdtMensagem.msgTitulo = 'Total divergente!'
+		&sdtMensagem.msgMensagem = 'Seleciona um valor: '+trim(ToformattedString(&Moedasistema))+ '  diferente do valor correto: ' +trim(toformattedString(&Moedabanco))
+		&sdtMensagem.msgType = DVMessageType.error
+		&sdtMensagens.Add(&sdtMensagem)
+	Endif
+	
+	if &isConciliado = false
+		do 'ConciliaSelecionadosAux'
+	endif
+EndSub
+
+Sub 'ConciliaSelecionadosAux'
+	if &SdtConciliacaoItem.Movimento.Count > 0
+		for &SdtConciliacaoItemMovItm in &SdtConciliacaoItem.Movimento
+			for each order EmpCod, MovCod, MovItmCod
+				where EmpCod = &Context.EmpCod
+				where MovCod = &SdtConciliacaoItemMovItm.MovCod
+				where MovItmCod = &SdtConciliacaoItemMovItm.MovItmCod
+				
+				MovItmDoc     = &SdtConciliacaoItem.LanBanDoc
+				MovItmDtaCon  = &SdtConciliacaoItem.LanBanData
+				MovItmIsCon   = Status_SIMNao.Sim
+				MovItmConDesc = &SdtConciliacaoItem.LanBanDesc
+				
+			endfor
+		endfor
+		
+		For each Order EmpCod, CtabanCod, LanBanCod
+			where EmpCod = &Context.EmpCod
+			Where CtabanCod = &CtabanCod
+			where LanBanCod = &SdtConciliacaoItem.LanBanCod
+			LanBanStatus = StatusConciliacao.Conciliado
+			
+			exit
+		EndFor
+		
+		&msgTitulo = 'Feito!'
+		&msgMensagem = 'Conciliação dos movimentos realizado com sucesso'
+		&msgType = DVMessageType.success
+	endif
+EndSub
+
+
+Sub 'Desconciliar'
+	
+	For each Order EmpCod,CtabanCod, LanBanCod
+		where EmpCod = &Context.EmpCod
+		Where CtabanCod = &CtabanCod
+		where LanBanCod = &SdtConciliacaoItem.LanBanCod
+		
+		&lanBanStatusOld = LanBanStatus
+		LanBanStatus = StatusConciliacao.Pendente
+		
+		exit
+	EndFor
+
+	if &lanBanStatusOld = StatusConciliacao.Conciliado
+		for each order EmpCod, MovCod, MovItmCod
+			where EmpCod = &Context.EmpCod
+			Where MovCtaBanCod = &CtabanCod
+			where MovItmDoc = &SdtConciliacaoItem.LanBanDoc
+			
+			MovItmDoc.SetEmpty()
+			MovItmIsCon = Status_SimNao.Nao
+			MovItmConDesc.SetEmpty()
+			MovItmDtaCon.SetEmpty()
+			
+		endfor
+	endif
+
+	&msgTitulo = 'Feito!'
+	&msgMensagem = 'Lançamento desconciliado com sucesso'
+	&msgType = DVMessageType.success
+EndSub
+
+Sub 'AtualizaParaPendente'
+	&lanBanStatus = StatusConciliacao.Pendente
+	do 'AlteraStatusLancamento'
+	
+	&msgTitulo = 'Feito!'
+	&msgMensagem = 'Agora este lançamento pode ser conciliado novamente'
+	&msgType = DVMessageType.success
+EndSub
+
+Sub 'ConciliacaoAutomatica'
+	&msgTitulo = ''
+	&msgMensagem = ''
+	&msgType = DVMessageType.noSpecify
+	
+	for &SdtConciliacaoItem in &SdtConciliacao
+		
+		&Moedadiferenca = 0
+		&Moedasistema = 0
+		&Moedabanco = &SdtConciliacaoItem.LanBanVlr
+		
+		If (&SdtConciliacaoItem.LanBanstatus = StatusConciliacao.Pendente
+			or &SdtConciliacaoItem.LanBanstatus.IsEmpty())
+			and &SdtConciliacaoItem.Movimento.Count > 0
+			
+			do 'isConciliado' //soma &Moedasistema
+			&Moedadiferenca = &Moedabanco - &Moedasistema
+			if &Moedadiferenca <> 0
+				&isConciliado = true 
+				&sdtMensagem = new()
+				&sdtMensagem.msgTitulo = 'Total divergente!'
+				&sdtMensagem.msgMensagem = 'Seleciona um valor: '+trim(ToformattedString(&Moedasistema))+ '  diferente do valor correto: ' +trim(toformattedString(&Moedabanco))
+				&sdtMensagem.msgType = DVMessageType.error
+				&sdtMensagens.Add(&sdtMensagem)
+			Endif
+		
+			if &isConciliado = false 
+				do 'ConciliaSelecionadosAux'
+				if &msgType = DVMessageType.success
+					&SdtConciliacaoItem.LanBanStatus = StatusConciliacao.Conciliado
+				endif
+			endif
+		EndIf
+	endfor
+	
+	if &msgType = DVMessageType.success
+		&msgTitulo = 'Feito!'
+		&msgMensagem = 'Todos os lançamento conferidos foram conciliados'
+	endif
+EndSub
+
+Sub 'isConciliado'
+	for &SdtConciliacaoItemMovItm in &SdtConciliacaoItem.Movimento
+		
+		if &SdtConciliacaoItemMovItm.MovCreDeb = &SdtConciliacaoItem.LanBanCreDeb
+			&Moedasistema += &SdtConciliacaoItemMovItm.MovVlr
+		Else
+			&Moedasistema -= &SdtConciliacaoItemMovItm.MovVlr
+		Endif
+	
+		for each
+			order EmpCod, MovCod
+			where EmpCod = &Context.EmpCod
+			Where MovCtaBanCod = &CtabanCod
+			where MovCod = &SdtConciliacaoItemMovItm.MovCod
+			where MovItmCod = &SdtConciliacaoItemMovItm.MovItmCod
+			where MovItmIsCon = Status_SimNao.Sim
+			&isConciliado = true
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo = 'Movimento já conciliado!'
+			&sdtMensagem.msgMensagem = 'O movimento ' + str(MovCod) + '/' + str(MovItmCod) + ' já está conciliado'
+			&sdtMensagem.msgType = DVMessageType.error
+			&sdtMensagens.Add(&sdtMensagem)
+			
+			
+		
+			exit
+		when none
+			&isConciliado = false
+		endfor
+	endfor
+	
+	if &isConciliado = false
+		for each
+			order EmpCod, LanBanCod
+			where EmpCod = &Context.EmpCod
+			Where CtabanCod = &CtabanCod
+			where LanBanCod = &SdtConciliacaoItem.LanBanCod
+			where (LanBanStatus <> StatusConciliacao.Pendente)
+			&isConciliado = true
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo = 'Lançamento bancário já conciliado!'
+			&sdtMensagem.msgMensagem = 'O lançamento bancário ' + LanBanDesc + ' de R$' + str(LanBanVlr) + ' já está conciliado'
+			&sdtMensagem.msgType = DVMessageType.error
+			&sdtMensagens.Add(&sdtMensagem)
+			exit
+		when none
+			&isConciliado = false
+		endfor
+	endif
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(
+	in:&OqueFazer,
+	in:&Context,
+	in:&CtabanCod,
+	in:&PlanCod,
+	in:&SdtConciliacaoItem,
+	inout:&SdtConciliacao,
+	out:&sdtMensagens,
+	out:&msgTitulo,
+	out:&msgMensagem,
+	out:&msgType
+);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CtabanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtabanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isConciliado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isConciliado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LanBanStatus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LanBanStatus</Value></Property><Property><Name>Description</Name><Value>Lan Ban Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LanBanStatus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="lanBanStatusOld">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>lanBanStatusOld</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LanBanStatus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="msgMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>msgMensagem</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="msgTitulo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>msgTitulo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="msgType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>msgType</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DVMessageType, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueFazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueFazer</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:OqueFazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacaoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacaoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria.SdtConciliacaoBancariaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacaoItemMovItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacaoItemMovItm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria.SdtConciliacaoBancariaItem.MovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagem</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens.sdtMensagensItem</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagens</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtMovimentoItemItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtMovimentoItemItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtMovimentoItem.SdtMovimentoItemItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moedabanco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moedabanco</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moedasistema">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moedasistema</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moedadiferenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moedadiferenca</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Error">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Error</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <InnerHtml><![CDATA[Depois de conciliar, tem que alterar o status para "Conciliado" para que ao fazer o load, sem pesquisar no BD, ele ceja que já foi conciliado e não exiba mais este lançamento]]></InnerHtml>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ControleWPConciliacao</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

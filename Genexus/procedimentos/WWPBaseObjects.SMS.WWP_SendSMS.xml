@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="8ace2a83-a8e1-48fc-b198-5b8abba771ef" user="LUIZ\LuiZ Henrique" versionDate="2022-10-04T15:04:04.0000000Z" lastUpdate="2020-11-16T11:58:34.0000000Z" checksum="c5ba3bbdfb256fdd84ad819268e8ae9d" fullyQualifiedName="WWPBaseObjects.SMS.WWP_SendSMS" moduleGuid="489cb14d-a078-456b-ad49-d9dbe82981d1" guid="e18f476b-f3b9-4416-800a-d343caa16f1c" name="WWP_SendSMS" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Send SMS" parent="WWPBaseObjects.SMS.Procedures" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&Success = False
+&SMS.Load(&SMSId)
+
+If &SMS.Fail()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"SMS not found with id: " + &SMSId.ToString().Trim())
+	return
+EndIf
+
+If &SMS.WWPSMSMessage.IsEmpty()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"SMS message cannot be empty: " + &SMSId.ToString().Trim())
+	WWPBaseObjects.SMS.WWP_UpdateSMSStatus(&SMSId, WWPBaseObjects.SMS.WWP_StatusSMS.Error, !"SMS message cannot be empty")
+	return
+EndIf
+
+If &SMS.WWPSMSSenderNumber.IsEmpty()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"SMS sender cannot be empty: " + &SMSId.ToString().Trim())
+	WWPBaseObjects.SMS.WWP_UpdateSMSStatus(&SMSId, WWPBaseObjects.SMS.WWP_StatusSMS.Error, !"SMS sender cannot be empty")
+	return
+EndIf
+
+If &SMS.WWPSMSRecipientNumbers.IsEmpty()
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"SMS recipient cannot be empty: " + &SMSId.ToString().Trim())
+	WWPBaseObjects.SMS.WWP_UpdateSMSStatus(&SMSId, WWPBaseObjects.SMS.WWP_StatusSMS.Error, !"SMS recipient cannot be empty")
+	return
+EndIf
+
+&RecipientPhoneList = WWPBaseObjects.SMS.WWP_ParsePhoneNumbersList(&SMS.WWPSMSRecipientNumbers)
+If not &SMS.WWPSMSRecipientNumbers.IsEmpty() and &RecipientPhoneList.Count = 0
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, !"SMS recipient is not valid phone list: " + &SMSId.ToString().Trim())
+	WWPBaseObjects.SMS.WWP_UpdateSMSStatus(&SMSId, WWPBaseObjects.SMS.WWP_StatusSMS.Error, !"SMS recipient is not valid")
+	return
+EndIf
+
+&RequestBody = !'{"from": "%1", "to": %2, "body": "%3" }'
+&RequestBody = Format(&RequestBody, &SMS.WWPSMSSenderNumber.Trim(), &RecipientPhoneList.ToJson(), &SMS.WWPSMSMessage.Trim())
+
+WWPBaseObjects.WWP_Logger.Debug(&Pgmname, !"Calling Sinch API with body: " + &RequestBody)
+
+&HttpClient = new()
+&HttpClient.Secure = 1
+&HttpClient.Host = !"sms.api.sinch.com"
+&HttpClient.BaseUrl = Format(!"xms/v1/%1/", &SMSParametersSDT.ServicePlanId)
+&HttpClient.AddHeader(!"Authorization", !"Bearer " + &SMSParametersSDT.Token.Trim())
+&HttpClient.AddHeader(!"Content-Type", !"application/json")
+&HttpClient.AddString(&RequestBody)
+&HttpClient.Execute(!"POST", !"batches")
+
+&Response = &HttpClient.ToString()
+WWPBaseObjects.WWP_Logger.Debug(&Pgmname, !"Sinch API response: " + &Response)
+&SendSMSResultSDT.FromJson(&Response)
+
+If &HttpClient.StatusCode <> 201
+	WWPBaseObjects.WWP_Logger.Error(&Pgmname, Format(!"Error sending sms with id: %1 - Code: %2 - %3", &SMSId.ToString().Trim(), &HttpClient.ErrCode.ToString().Trim(), &HttpClient.ErrDescription))
+	WWPBaseObjects.SMS.WWP_UpdateSMSStatus(&SMSId, WWPBaseObjects.SMS.WWP_StatusSMS.Error, Format(!"Code: %1 - %2", &HttpClient.ErrCode.ToString().Trim(), &HttpClient.ErrDescription))
+	return
+EndIf
+
+WWPBaseObjects.SMS.WWP_UpdateSMSStatus(&SMSId, WWPBaseObjects.SMS.WWP_StatusSMS.Sent, &Response)
+&Success = True
+commit
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&SMSId, in:&SMSParametersSDT, out:&Success, out:&SendSMSResultSDT);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecipientPhoneList">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecipientPhoneList</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RequestBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RequestBody</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Response">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Response</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property><Property><Name>Length</Name><Value>2097152</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2097152</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SendSMSResultSDT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SendSMSResultSDT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:WWP_SendSMSResultSDT, WWPBaseObjects.SMS</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SMS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SMS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bc:WWP_SMS, WWPBaseObjects.SMS</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SMSId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SMSId</Value></Property><Property><Name>Description</Name><Value>SMSId</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:WWPSMSId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SMSParametersSDT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SMSParametersSDT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:WWP_SMSParametersSDT, WWPBaseObjects.SMS</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Success">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Success</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>WWP_SendSMS</Value></Property><Property><Name>Description</Name><Value>Send SMS</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

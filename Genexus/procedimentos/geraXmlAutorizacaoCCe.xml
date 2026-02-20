@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d5f687c3-2181-4efd-94e2-024651619340" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2021-09-22T13:45:41.0000000Z" checksum="47cb195cdda647bedb856b486f9283fe" fullyQualifiedName="geraXmlAutorizacaoCCe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="ddb48a29-fac8-47a1-9276-f6fadcc9de0c" name="geraXmlAutorizacaoCCe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="gera Xml Autorizacao CCe" parent="prccce" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+LoadWWPContext.Call(&Context)
+&PesCod = &Context.PesCod
+
+retornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &sdtConfiguracoesPasta)
+
+&Hoje = serverdate()
+&VersaoNF = '1.00'
+
+GravaSolicitacao.Call(&EmpCod, &FilCod, &NfeCod, &NfeCceCod, TipoSolicitacao.Autoriza_CCe, &PesCod, &SolCod)
+
+//Pega Ultima Evento de Carta Autorizada
+For each Order EmpCod, FilCod, NfeCod, (NfeCCeEvtCod)
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &NfeCod
+	Where NfeCCeSts = Status_NFe.Autorizada
+    &NfeCCeEvtCod = NfeCCeEvtCod
+	Exit
+EndFor
+&NfeCCeEvtCod += 1
+	
+//dados da NFe
+For Each Order EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeCod = &NfeCod
+	
+	&cUF = substr(str(FilCidUfeIbge,7,0),1,2)
+	&FilFusHor = FilFusHor
+	&FilAmbEms = FilAmbEms
+	&FilCpj = RetornaSoNumeros.Udp(FilCpj)
+	&NfeChv = NfeChv
+	
+	For each Order EmpCod, FilCod, NfeCod, NfeCCeCod
+		Where NfeCCeCod = &NfeCceCod
+		
+		If not NfeCCeCor.IsEmpty()
+			&NfeCCeCor = RetiraCaracteresEspeciais.Udp(NfeCCeCor)
+			//replace  genexus para retirar ENTER das descrições
+			&NfeCCeCor = Trim(strreplace(&NfeCCeCor,Chr(10),';'))
+			&NfeCCeCor = Trim(strreplace(&NfeCCeCor,Chr(13),';'))
+			&NfeCCeCor = &NfeCCeCor.Trim()
+		EndIf
+		Exit
+		
+	EndFor	
+    Exit
+EndFor
+
+&nomeArquivo 	= &NfeChv.Trim() + '-' + padL(trim(str(&NfeCCeEvtCod)),2,'0') 
+&ID 			= 'ID110110' + &NfeChv + padL(trim(str(&NfeCCeEvtCod)),2,'0')
+&IdLote 		= trim(str(&FilCod)) + trim(str(&NfeCod)) + trim(str(&NfeCceCod))
+
+&ano = str(YEAR(&hoje))
+&mes = str(MONTH(&hoje))
+&dia = str(DAY(&hoje))
+&hojeHora = TAdd(servernow(), -100)
+
+&hora = PadL(trim(str(Hour(&hojeHora))),2, '0') + ':' + PadL(trim(str(Minute(&hojeHora))),2, '0') + ':00'
+
+&CondicoesUso = 'A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N, de 15 de dezembro de 1970 e pode ser utilizada para regularizacao de erro ocorrido na emissao de documento fiscal, desde que o erro nao esteja relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, aliquota, diferenca de preco, quantidade, valor da operacao ou da prestacao; II - a correcao de dados cadastrais que implique mudanca do remetente ou do destinatario; III - a data de emissao ou de saida.'
+
+&Nome_enviar = &sdtConfiguracoesPasta.PastaNFenvio.Trim() + trim(&nomeArquivo) + '-env-cce.xml'
+
+&ArqNota.Open(&Nome_enviar)
+
+// START DOC xml
+&ArqNota.WriteStartDocument(Encoding.UTF_8)
+
+&ArqNota.WriteStartElement('envEvento')
+
+&ArqNota.WriteAttribute('versao',&VersaoNF)
+&ArqNota.WriteAttribute('xmlns','http://www.portalfiscal.inf.br/nfe')
+
+&ArqNota.WriteElement('idLote', &IdLote)
+
+&ArqNota.WriteStartElement('evento')
+&ArqNota.WriteAttribute('versao', &VersaoNF)
+&ArqNota.WriteAttribute('xmlns','http://www.portalfiscal.inf.br/nfe')
+
+&ArqNota.WriteStartElement('infEvento')
+&ArqNota.WriteAttribute('Id', &ID)
+
+&ArqNota.WriteElement('cOrgao', &cUF)
+&ArqNota.WriteElement('tpAmb',&FilAmbEms)
+
+If &FilCpj.Length() > 11
+	&ArqNota.WriteElement('CNPJ', &FilCpj)
+Else
+	&ArqNota.WriteElement('CPF', &FilCpj)
+EndIf
+&ArqNota.WriteElement('chNFe', &NfeChv)
+
+&ArqNota.WriteElement('dhEvento',trim(&ano) +'-'+ PadL(trim(&mes),2,'0') +'-'+ PadL(trim(&dia),2,'0') + 'T' + &hora + '-' + trim(&FilFusHor))
+&ArqNota.WriteElement('tpEvento', '110110')
+&ArqNota.WriteElement('nSeqEvento',trim(str(&NfeCCeEvtCod)))
+&ArqNota.WriteElement('verEvento', &VersaoNF)
+
+&ArqNota.WriteStartElement('detEvento')
+&ArqNota.WriteAttribute('versao', &VersaoNF) 
+&ArqNota.WriteElement('descEvento', 'Carta de Correcao')
+&ArqNota.WriteElement('xCorrecao', &NfeCCeCor.Trim())
+&ArqNota.WriteElement('xCondUso', &CondicoesUso.Trim())
+
+&ArqNota.WriteEndElement()
+&ArqNota.WriteEndElement()
+&ArqNota.Close()
+
+wpAutorizaCCeRecepcao.Link(&DeOndeVem, &EmpCod, &FilCod, &NfeCod, &NfeCceCod, &SolCod)
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DeOndeVem, in:&EmpCod, in:&FilCod, in:&NfeCod, in:&NfeCceCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ArqNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArqNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_enviar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_enviar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeChv</Value></Property><Property><Name>Description</Name><Value>Chave NFE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCceCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCceCod</Value></Property><Property><Name>Description</Name><Value>Nfe CCe Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCeEvtCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCeEvtCod</Value></Property><Property><Name>Description</Name><Value>Sequencia Evento na NF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCeEvtCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VersaoNF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VersaoNF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IdLote">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IdLote</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ID</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cUF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cUF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAmbEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAmbEms</Value></Property><Property><Name>Description</Name><Value>Ambiente Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAmbEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCCeCor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCCeCor</Value></Property><Property><Name>Description</Name><Value>Descrição da Correção</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCCeCor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hora</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Hora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="hojeHora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>hojeHora</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:DateTime</Value></Property><Property><Name>Length</Name><Value>10</Value></Property><Property><Name>Decimals</Name><Value>5</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_LONG</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CondicoesUso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CondicoesUso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFusHor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFusHor</Value></Property><Property><Name>Description</Name><Value>Fuso Horario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFusHor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DeOndeVem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DeOndeVem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>geraXmlAutorizacaoCCe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

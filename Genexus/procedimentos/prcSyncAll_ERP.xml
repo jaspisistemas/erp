@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2020-10-09T11:04:12.0000000Z" checksum="005869525e11d50bd09881b94844d0c9" fullyQualifiedName="prcSyncAll_ERP" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="0c527ee4-ca15-449e-bccd-0994dd75375f" name="prcSyncAll_ERP" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Sync All_ERP" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+HostWebServiceJaspiERP.Call(&EmpCod, &EmpWebHost, &EmpWebBaseUrl, &EmpWebPor)
+
+&HttpClient.Host = &EmpWebHost //servidor  sistema.efrete.com
+&HttpClient.Port = &EmpWebPor
+&HttpClient.BaseUrl = &EmpWebBaseUrl //diretório virtual do serviço 
+&HttpClient.Secure = 0 //false
+
+&LongVarchar  =  '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:erp="ERP">'
+&LongVarchar +=  '   <soapenv:Header/>'
+&LongVarchar +=  '   <soapenv:Body>'
+&LongVarchar +=  '      <erp:ppWbsDadosClientes.Execute>'
+&LongVarchar +=  '      	<erp:Sdtsyncall>'
+
+For Each Order EmpCod
+	Where EmpCod = &EmpCod
+	
+	&LongVarchar +=  '          	<erp:SyncOque>GRAVARINF_CLIENTE</erp:SyncOque>'
+	&LongVarchar +=  '          	<erp:SyncKey>'+EmpCodSec.Trim()+'</erp:SyncKey>'
+	
+	&LongVarchar +=  '          	<erp:Sync>'
+	
+	For Each Order EmpCod, FilVctCer
+		Where FilAmbEms = TAmb.Producao or FilAmbEmsMdfe = TAmb.Producao
+		Where not FilVctCer.IsEmpty() and not FilVctCer.IsNull()		
+		
+           &LongVarchar +=  '          	<erp:SyncItem>'
+           &LongVarchar +=  '          		<erp:SyncCod>CliVctCer</erp:SyncCod>'
+           &LongVarchar +=  '          		<erp:SyncValue>'+FilVctCer.ToFormattedString()+'</erp:SyncValue>'
+           &LongVarchar +=  '          	</erp:SyncItem>'		   
+	  Exit
+	EndFor
+	
+	&LongVarchar +=  '          	</erp:Sync>'
+	
+	&LongVarchar +=  '          </erp:Sdtsyncall>'
+	
+	Exit
+EndFor
+
+&LongVarchar +=  '		</erp:ppWbsDadosClientes.Execute>'
+&LongVarchar +=  '   </soapenv:Body>'
+&LongVarchar +=  '</soapenv:Envelope>'
+
+//ADICIONANDO CABEÇALHO DE COMUNICAÇÃO
+&HttpClient.AddHeader('Content-Type','text/xml;charset=UTF-8')
+&HttpClient.AddHeader('SOAPAction', '"ERPaction/APPWBSDADOSCLIENTES.Execute"')
+&HttpClient.AddString(&LongVarchar) //ADICIONANDO PARAMETROS
+&HttpClient.Execute('POST','appwbsdadosclientes.aspx') //FAZENDO POST DE COSNULTA  https://dev.efrete.com:6061/Services/LogonService.asmx?WSDL NÃO FIZ POR WSDL POIS RETORNAVA ERRO
+
+If &HttpClient.ErrCode = 0 //sem erro de comunicação			
+	&LongVarchar = ''
+	&longvarchar = &HttpClient.toString()
+	
+////	&longvarchar = strReplace(&longvarchar,'<?xml version = "1.0" encoding = "utf-8"?>', '')
+////	&longvarchar = strReplace(&longvarchar,'<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">', '')
+////	&longvarchar = strReplace(&longvarchar,'<SOAP-ENV:Body>', '')
+////	&longvarchar = strReplace(&longvarchar,'</SOAP-ENV:Body>', '')
+////	&longvarchar = strReplace(&longvarchar,'</SOAP-ENV:Envelope>', '')
+////	
+////	&longvarchar = strReplace(&longvarchar,'<ppJASPI_Rotinas.ExecuteResponse xmlns="ADM_JASPI">', '')
+////	&longvarchar = strReplace(&longvarchar,'</ppJASPI_Rotinas.ExecuteResponse>', '')
+////	&longvarchar = strReplace(&longvarchar,'Sdtestruturamodulos', 'sdtEstruturaMenus')
+		
+////	&ppJaspi_RotinasSdtEstruturaMenus.FromXml(&LongVarchar)
+	
+	
+//	&ProgressID = trim(Str(&EmpCod)) + &OqueSyncronizar.trim()
+//	
+//	For Each Order ProgressId
+//		Where ProgressId = &ProgressID
+//		ProgressIni = serverdate()
+//		ProgressFin = serverdate()
+//		ProgressLogXml = &longvarchar
+//	When None
+//		New
+//			ProgressId = &ProgressID
+//			ProgressIni = serverdate()
+//			ProgressFin = serverdate()
+//			ProgressLogXml = &longvarchar
+//		EndNEw
+//	EndFor
+//	
+//	Commit
+	
+//	&Erro = 0
+Else
+//	&Erro = 1
+	
+	&ProgressID = trim(Str(&EmpCod)) + &OqueSyncronizar.trim()
+	
+	For Each Order ProgressId
+		Where ProgressId = &ProgressID
+		ProgressIni = serverdate()
+		ProgressFin = serverdate()
+		ProgressLogXml = &HttpClient.ErrDescription
+	When None
+		New
+			ProgressId = &ProgressID
+			ProgressIni = serverdate()
+			ProgressFin = serverdate()
+			ProgressLogXml = &HttpClient.ErrDescription
+		EndNEw
+	EndFor
+	
+	Commit
+EndIf
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&OqueSyncronizar);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Location">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Location</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Location</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueSyncronizar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueSyncronizar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outPpJASPI_SyncAllsdtSyncAll">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outPpJASPI_SyncAllsdtSyncAll</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_SyncAllsdtSyncAll</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_SyncAll">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_SyncAll</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:ppJASPI_SyncAll</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_SyncAllsdtSyncAll">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_SyncAllsdtSyncAll</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_SyncAllsdtSyncAll</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_SyncAllsdtSyncAll_SyncItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_SyncAllsdtSyncAll_SyncItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_SyncAllsdtSyncAll_SyncItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressID</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCodSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCodSec</Value></Property><Property><Name>Description</Name><Value>Código Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCodSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcSyncAll_ERP</Value></Property><Property><Name>Description</Name><Value>prc Sync All_ERP</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

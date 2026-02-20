@@ -1,0 +1,939 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="WINJEAN\jeanfae" versionDate="2026-01-12T20:21:13.0000000Z" lastUpdate="2026-01-12T18:54:44.0000000Z" checksum="03d2f9e83f0e413e8073d5aea0c77ac2" fullyQualifiedName="EnviaSintegra_Web" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="29b77788-36bf-4660-a2b2-3169d108ddea" name="EnviaSintegra_Web" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Exporta Sintegra New" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&LogGUID = GUID.NewGuid()
+
+//csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.ServicePointManager.SecurityProtocol;
+
+&mes = month(&iniNfeDtaEms)
+&Ano = year(&iniNfeDtaEms)
+
+&TotalPercentual = 1000
+&Count = 0
+
+&NomeRelatorio2 = trim(str(&mes)) + trim(str(&Ano)) + &AuxNomeArquivo
+
+Do Case
+	Case &auxNfeProTer = 'P'
+		&NfeProTer = Nota_ProPriaTerceira.PROPRIA
+	Case &auxNfeProTer = 'T'
+		&NfeProTer = Nota_ProPriaTerceira.TERCEIROS
+	Otherwise
+		&NfeProTer.SetEmpty()
+EndCase
+
+msg('ENVIA SINTEGRA - ATUALIZAR DATAS', status)
+AtualizaDataFaturadoNotas.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms)
+msg('ENVIA SINTEGRA - DATAS ATUALIZADAS', status)
+
+&CountNfe = 0
+For Each Order EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms 
+	Where ModCod = '55' or ModCod = '65'
+	Where NfeProTer = &NfeProTer or &NfeProTer.IsEmpty() //Notas Propria/Terceiro
+	Where NfeNum <> 0
+	
+	&CountNfe = 1
+	Exit
+EndFor
+
+&CountNfs = 0
+For Each Order EmpCod, NfsFilCod, NfsCod
+	Where EmpCod = &EmpCod
+	Where NfsFilCod = &FilCod
+	Where NfsDtaFat >= &iniNfeDtaEms and NfsDtaFat <= &finNfeDtaEms 
+	Where NfsProTer = &NfeProTer or &NfeProTer.IsEmpty() //Notas Propria/Terceiro
+	Where NfsNum <> 0
+		
+	&CountNfs = 1
+	Exit
+EndFor
+
+
+&CountNfeTerceiros = 0
+For Each Order EmpCod, FilCod, NfeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms 
+	Where ModCod = '55' or ModCod = '65'
+	Where NfeProTer = Nota_ProPriaTerceira.TERCEIROS
+	Where NfeNum <> 0
+	&CountNfeTerceiros = 1
+	Exit
+EndFor
+
+if &NotasTransporte = Status_SimNao.Sim //Pegar da Tabela CTe
+	//###-------- REGISTRO TIPO 70
+	&countCte = 0
+	For Each Order EmpCod, FilCod, CteDtaEms, CteModCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where (CteDtaEms >= &iniNfeDtaEms and CteDtaEms <= &finNfeDtaEms  and CteProTer = Nota_ProPriaTerceira.PROPRIA )  or (CteDtaSai >= &iniNfeDtaEms and CteDtaSai <= &finNfeDtaEms and CteProTer = Nota_ProPriaTerceira.TERCEIROS) 
+		Where CteModCod in ('7','8','9','10','11','57','67')
+		&countCte = 1
+		Exit
+	EndFor
+EndIF
+
+&ProgressLogXml = 'Contabilizou'
+&Count += 20
+do 'Percentual'
+ 
+//GERA ARQUIVO SINTEGRA
+if (&countCte > 0 or &CountNfe > 0)	
+	&ProgressLogXml = 'Inicio sintegra Proprias'
+	&Count += 5
+	do 'Percentual'
+	
+	&NomeArquivoSintegraProPrio = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() + 'SintProprio-' + &NomeRelatorio2.Trim() + '.txt'
+	&File.Source = &NomeArquivoSintegraProPrio
+	if &File.Exists()
+		&File.Delete()
+	EndIF
+	&File.Close()
+	
+	GeraArquivoSintegraNovo.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, &RegistroInventario, &NotasTransporte, &Finalidade, Nota_ProPriaTerceira.PROPRIA, &NomeArquivoSintegraProPrio)
+	
+	&ProgressLogXml = 'Gerou sintegra Proprias'
+	&Count += 5
+	do 'Percentual'
+
+	if (&auxNfeProTer.IsEmpty() or &auxNfeProTer = 'T') and &CountNfeTerceiros > 0
+		&NfeProTer.SetEmpty()
+		&NomeArquivoSintegraTerceiros = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() + 'SintPropTerc-' + &NomeRelatorio2.Trim() + '.txt'
+		&File.Source = &NomeArquivoSintegraTerceiros
+		if &File.Exists()
+			&File.Delete()
+		EndIF
+		&File.Close()
+		GeraArquivoSintegraNovo.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, &RegistroInventario, &NotasTransporte, &Finalidade, &NfeProTer, &NomeArquivoSintegraTerceiros)
+		
+		&ProgressLogXml = 'Gerou sintegra Terceiros'
+		&Count += 10
+		do 'Percentual'
+	EndiF
+EndIF
+
+&Count += 100
+do 'Percentual'
+
+If &CountNfs > 0 // possui NFs Entao gera arquivos
+	&ZipXMLSNFS = &NomeRelatorio2
+	CopiaXmlAutorizadosNfse.Call('SINTEGRA',&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, &SomenteAutorizadas, &sdtConfiguracoesPasta, &ZipXMLSNFS,&EnviaPdfCte,&colPesCod,&CountNfse)
+	
+	&ProgressLogXml = 'Copiou xmls NFSe'
+	&Count += 10
+	do 'Percentual'	
+	
+	&NomeArquivoRelatorioNFSe = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() +'NFSe-'+ &NomeRelatorio2.Trim() + ".pdf"
+	&File.Source = &NomeArquivoRelatorioNFSe
+	if &File.Exists()
+		&File.Delete()
+	EndIF 
+	&File.Close()
+	
+	RELJAS161_ToFile.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms,0, 0, 0,&NfsCNAe,&PesRaz, &NomeArquivoRelatorioNFSe, 'S')
+	
+	&ProgressLogXml = 'Gerou relatorios Pdf NFS-e'
+	&Count += 10
+	do 'Percentual'
+EndIf
+
+
+&Count += 100
+do 'Percentual'		
+
+If &countCte > 0  // possui Cte Entao gera arquivos	
+	&ZipXMLSCte = &NomeRelatorio2
+	CopiaXmlAutorizadosCte.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, &SomenteAutorizadas, &sdtConfiguracoesPasta, &ZipXMLSCte,&EnviaPdfCte)
+	
+	&ProgressLogXml = 'Copiou xmls Cte'
+	&Count += 10
+	do 'Percentual'	
+	
+	&NomeArquivoRelatorioCte = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() +"CTE\"+ &NomeRelatorio2.Trim() + ".pdf"
+	&File.Source = &NomeArquivoRelatorioCte
+	if &File.Exists()
+		&File.Delete()
+	EndIF 
+	&File.Close()
+	
+	RELJAS086_ToFile.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, 0, 0, 0, '',&PesRaz, &NomeArquivoRelatorioCte, '', '', Status_Simnao.Nao, '', 'T')
+	
+	Do 'TipoCte'
+	//prestação
+	&NomeArquivoRelatorioCtePrestacao = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() +"CTE\"+'Prest'+&NomeRelatorio2.Trim()  +".pdf"
+	&File.Source = &NomeArquivoRelatorioCtePrestacao
+	if &File.Exists()
+		&File.Delete()
+	EndIF
+	&File.Close()
+	
+	RELJAS088file.call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms,    0, 0, 0, '',&AgrTip,&PesRaz,&NomeArquivoRelatorioCtePrestacao)
+	
+	&ProgressLogXml = 'Gerou relatorios Pdf CT-e'
+	&Count += 10
+	do 'Percentual'
+EndIf
+
+&Count += 200
+do 'Percentual'
+
+If &CountNfe > 0 //Possui Notas entao Gera arquivos.		
+	&ProgressLogXml = 'Iniciando copia Arquivos Xml Nfe'
+	&Count += 2
+	do 'Percentual'
+	&ZipXMLS = &NomeRelatorio2
+	CopiaXmlAutorizados.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, &SomenteAutorizadas, &sdtConfiguracoesPasta, &ZipXMLS,&EnviaPdfNota)
+	
+	&ProgressLogXml = 'Finalizado CopiaArquivos Xml Nfe'
+	&Count += 2
+	do 'Percentual'
+	
+	&ProgressLogXml = 'Iniciando copia Arquivos Xml Nfe Terceiros'
+	&Count += 3
+	do 'Percentual'
+	&ZipXMLS1 = &NomeRelatorio2
+	CopiaXmlAutorizadosTerceiros.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, &SomenteAutorizadas, &sdtConfiguracoesPasta, &ZipXMLS1)
+	
+	&ProgressLogXml = 'Finalizado CopiaArquivos Xml Nfe Terceiros'
+	&Count += 3
+	do 'Percentual'
+	
+	if &EnviaRelatorioProdutos = true
+		&NomeRelatorio = 'RelatorioProdutos-' + &NomeRelatorio2.Trim()
+		&NomeArquivoRelatorioProdutos = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() + &NomeRelatorio.Trim() + ".pdf"
+		&File.Source = &NomeArquivoRelatorioProdutos
+		if &File.Exists()
+			&File.Delete()
+		EndIF
+		&File.Close()
+		
+		RELJAS039_Monofasicos_toFile.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, 0, '', Nota_ProPriaTerceira.PROPRIA, 0, 'M', 'S', &NomeArquivoRelatorioProdutos, &IsTemUmMOnofasico)
+		if &IsTemUmMOnofasico <> true
+			&NomeArquivoRelatorioProdutos = ''
+		Endif
+		
+		&ProgressLogXml = 'Gerou Produtos Nfe'
+		&Count += 10
+		do 'Percentual'
+	Endif
+	
+	&NomeRelatorio = 'RelatorioNotasEmitidas-' + &NomeRelatorio2.Trim()
+	&NomeArquivoRelatorio = &sdtConfiguracoesPasta.PastaDiretorioTempFis.Trim() + &NomeRelatorio.Trim() + ".pdf"
+	&File.Source = &NomeArquivoRelatorio
+	if &File.Exists()
+		&File.Delete()
+	EndIF
+	&File.Close()
+	
+	RELJAS039_toFile.Call(&EmpCod, &FilCod, &iniNfeDtaEms, &finNfeDtaEms, 0, '', &NfeProTer, &NomeArquivoRelatorio )
+	
+	&ProgressLogXml = 'Gerou pdf Nfe'
+	&Count += 40
+	do 'Percentual'
+ EndIf
+
+//EnviaEmail
+if &DestinoPesEml <> ''
+	&ProgressLogXml = 'Vai Enviar Email'
+	&Count += 50
+	do 'Percentual'
+
+	do 'EnviarEmail'
+EndIF
+
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+Sub 'TipoCte'
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		&AgrTip = FilAgrTip
+		exit
+	EndFor
+EndSub
+	
+sub 'EnviarEmail'
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		If FilCtaEml.IsEmpty()
+			FilCtaEml = &DestinoPesEml
+			Commit
+		EndIF
+		
+		&FilRaz = FilRaz
+		&FilCNPJ = FilCpj
+		Exit
+	EndFor
+	
+	For Each Order EmpCod, EmpEmlCod
+		Where EmpCod = &EmpCod
+		Where EmpEmlTip = TipoContaEmail.Email_Faturamento
+		
+		If EmpEml = 'nao_responda@jaspi.com.br' or EmpEml = 'nao.responda.jaspi@gmail.com' //adiciona a mensagem dados do remetente
+			&EmpEmlCod = EmpEmlCod
+			do 'EmailPadrao'
+		Else
+			&AddressVarchar = EmpEml
+			//&FilRaz
+			&AuthenticationNumeric = EmpEmlAut
+			&SecureNumeric 		= EmpEmlSec
+			&TimeoutNumeric        = 600
+			&HostVarchar 			= EmpEmlHos
+			&UserNameVarchar 		= EmpEmlUsr
+			&EmpEmlSen 		= DecryptSenhaEmail.Udp(EmpCod, EmpEmlCod, EmpEml)
+			&PortNumeric 			= EmpEmlPor
+			&imapHost = EmpEmlImapHos
+			&imapPort = EmpEmlImapPor
+			&imapSsl = EmpEmlImapSsl
+			
+		EndIF
+		
+		Exit
+	When None
+		GravaRemetentePadrao.Call(&EmpCod, TipoContaEmail.Email_Faturamento, &EmpEmlCod)
+		do 'EmailPadrao'
+	EndFor
+	
+	For Each Order EmpCod, PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		&FunNom = PesRaz
+		
+		For Each Order EmpCod, PesCod, PesEmlCod
+			&FunEmailContato = PesEml
+			Exit
+		EndFor
+		
+		Exit
+	EndFor
+	
+	&ProgressLogXml = 'Logou Email'
+	&Count += 50
+	do 'Percentual'
+	
+	&EmlAss = 'Contabilidade Mês:' + trim(PadL(str(&mes), 2, '0')) + '/' +trim(str(&Ano)) + ' da empresa ' + trim(&FilRaz)
+	
+	//Destinatário de email
+	&Destinatarios.Add(&DestinoPesEml)
+	
+	do 'PreencheHTML'
+	
+	If not &ZipXMLS.IsEmpty() //add xml NFE
+		&File.Source = &ZipXMLS
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&ZipXMLS)
+		EndIF
+		&File.Close()
+	EndiF
+	If not &ZipXMLS1.IsEmpty() //add xml NFE
+		&File.Source = &ZipXMLS1
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&ZipXMLS1)
+		EndIF
+		&File.Close()
+	EndiF
+	
+	If not &ZipXMLSCte.IsEmpty() //add xml CTE
+		&File.Source = &ZipXMLSCte
+		If &File.Exists()			
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&ZipXMLSCte)
+		EndIF
+		&File.Close()
+	EndiF
+	
+	//#############################  NFS-e ####################################
+	If not &ZipXMLSNFS.IsEmpty() //add xml NFSe
+		&File.Source = &ZipXMLSNFS
+		If &File.Exists()			
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&ZipXMLSNFS)
+		EndIF
+		&File.Close()
+	EndiF
+	
+	if not &NomeArquivoRelatorioNFSe.IsEmpty() //add relatorio NFSe
+		&File.Source = &NomeArquivoRelatorioNFSe
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoRelatorioNFSe)
+		EndIF
+		&File.Close()
+	EndIF
+	//#############################  NFS-e ####################################
+	
+	if not &NomeArquivoSintegraProPrio.IsEmpty()
+		&File.Source = &NomeArquivoSintegraProPrio
+		If &File.Exists()			
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoSintegraProPrio)
+		EndIF
+		&File.Close()
+	EndiF
+	
+	if not &NomeArquivoSintegraTerceiros.IsEmpty()
+		&File.Source = &NomeArquivoSintegraTerceiros
+		If &File.Exists()			
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoSintegraTerceiros)
+		EndIF
+		&File.Close()
+	EndiF
+	
+	if not &NomeArquivoRelatorio.IsEmpty()
+		&File.Source = &NomeArquivoRelatorio
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoRelatorio)
+		EndIF
+		&File.Close()
+	EndIF
+	
+	if &EnviaRelatorioProdutos = true and not &NomeArquivoRelatorioProdutos.IsEmpty()
+		&File.Source = &NomeArquivoRelatorioProdutos
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoRelatorioProdutos)
+		EndIF
+		&File.Close()	
+	Endif
+	
+	if not &NomeArquivoRelatorioCte.IsEmpty()
+		&File.Source = &NomeArquivoRelatorioCte
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoRelatorioCte)
+		EndIF
+		&File.Close()
+	EndIF	
+	
+	if not &NomeArquivoRelatorioCtePrestacao.IsEmpty()
+		&File.Source = &NomeArquivoRelatorioCtePrestacao
+		If &File.Exists()
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&NomeArquivoRelatorioCtePrestacao)
+		EndIF
+		&File.Close()
+	EndIF
+	
+	&Result = &JASPI_enviaEmail.SendEmailSafeJson(&HostVarchar, &PortNumeric, &UserNameVarchar, &EmpEmlSen, &imapHost, &imapPort, &imapSsl, &FilRaz, &AddressVarchar, &FunEmailContato, &FilRaz, &Destinatarios, &EmlAss, &Obs, &Attachments, true)
+	&EmailResult.FromJson(&Result)
+	
+	If &EmailResult.Success = true
+		// Marca como enviado
+		&ProgressLogXml = 'Enviado com Sucesso!'
+		&IsExecutou = true
+	Else
+		&ProgressLogXml = &EmailResult.ErrorCode + " - " + &EmailResult.Message
+		
+	EndIf
+EndSub
+
+Sub 'PreencheHTML'
+	&Obs =  ' </head> '
+	
+	&Obs +=  ' <body> '
+	
+	&Obs += '<b>EMPRESA: ' + trim(&FilRaz) + ' - CNPJ: ' + trim(&FilCNPJ) + '</b><br>'
+	&Obs += 'Sintegra Mês: ' + trim(PadL(str(&mes), 2, '0')) + '/'+trim(Str(&ano))
+	
+	
+	if (&countCte > 0 or &CountNfe > 0 or &CountNfs > 0)
+		&Obs += '<p>Encontra-se Anexados nesse Email os seguintes Arquivos.'
+		
+		If not &ZipXMLS.IsEmpty()
+			&Obs += ' <li><em># xmlsDasNfe.zip</em></li>'
+		EndiF
+		If not &ZipXMLS1.IsEmpty()
+			&Obs += ' <li><em># xmlsDasNfeTerceiros.zip</em></li>'
+		EndiF
+		
+		If  not &ZipXMLSCte.IsEmpty()
+			&Obs += ' <li><em># xmlsDosCTe.zip</em></li>'
+		EndIf
+		
+		If  not &ZipXMLSNFS.IsEmpty()
+			&Obs += ' <li><em># xmlsDasNFSe.zip</em></li>'
+		EndIf
+	
+		if not &NomeArquivoRelatorioNFSe.IsEmpty()
+			&Obs += ' <li><em># RelatorioNotasServiçoEmitidas.pdf</em></li>'
+		EndIF
+		
+		if not &NomeArquivoSintegraProPrio.IsEmpty()
+			&Obs += ' <li><em># SintegraProprias.txt</em></li>'
+		EndiF
+		
+		if not &NomeArquivoSintegraTerceiros.IsEmpty()
+			&Obs += ' <li><em># SintegraPropriasTerceiros.txt</em></li>'
+		EndiF
+		
+		if not &NomeArquivoRelatorio.IsEmpty()
+			&Obs += ' <li><em># RelatorioNotasEmitidas.pdf</em></li>'
+		EndIF
+	
+		if &EnviaRelatorioProdutos = true and not &NomeArquivoRelatorioProdutos.IsEmpty()
+			&Obs += ' <li><em># RelatorioProdutos.pdf</em></li>'
+		EndIF
+	
+		if not &NomeArquivoRelatorioCte.IsEmpty()
+			&Obs += ' <li><em># RelatorioCtesEmitidos.pdf</em></li>'
+		EndIF
+		
+		if not &NomeArquivoRelatorioCtePrestacao.IsEmpty()
+			&Obs += ' <li><em># RelatorioCtesAgrupadosPrestacao.pdf</em></li>'
+		EndIF
+	Else
+		&Obs += '<p>Nenhuma Nota emitida/localizada para o Mês informado.'
+	endif
+
+	&Obs += '<p>'
+	&Obs += '<p>Erros/dúvidas/elogios entre em contato conosco.'
+	&Obs += '<p>E-mail: contato@jaspi.com.br.'
+	&Obs += '<p>Fone: (44) 9-9753-8680 / (45) 9-9998-3031'
+
+	&Obs +=  ' </body> '
+	&Obs +=  ' </html> '
+EndSUb
+
+sub 'EmailPadrao'
+	EmailPadrao.call(&AddressVarchar, &AuthenticationNumeric, &SecureNumeric, &TimeoutNumeric, &HostVarchar, &UserNameVarchar, &PortNumeric, &imapHost, &imapPort, &ImapSSl)
+	&EmpEmlSen = DecryptSenhaEmail.Udp(&EmpCod, &EmpEmlCod, &AddressVarchar)
+		
+EndSub
+
+Sub 'Atualiza'
+	msg(&ProgressLogXml, status)
+	
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+		ProgressLogXml = &ProgressLogXml
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressLogXml = &ProgressLogXml
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+
+	commit
+EndSub
+
+sub 'Percentual'
+	If &Count > 0
+		&Percentual = round((&Count / &TotalPercentual) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+EndSub
+
+Sub 'Exception_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+Endsub
+
+Sub 'Error_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod, in:&sdtConfiguracoesPasta, in:&iniNfeDtaEms, in:&finNfeDtaEms, in:&RegistroInventario, in:&NotasTransporte, in:&Finalidade, In:&SomenteAutorizadas, in:&auxNfeProTer, in:&AuxNomeArquivo, in:&DestinoPesEml, in:&PesCod,in:&PesRaz, inout:&IsExecutou,in:&EnviaPdfCte,in:&EnviaPdfNota, in:&EnviaRelatorioProdutos);
+
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Finalidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Finalidade</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property><Property><Name>ControlValues</Name><Value>Janeiro:1,Feveiro:2,Março:3,Abril:4,Maio:5,Junho:6,Julho:7,Agosto:8,Setembro:9,Outubro:10,Novembro:11,Dezembro:12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProTer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProTer</Value></Property><Property><Name>Description</Name><Value>Propria/Terceira</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProTer</Value></Property><Property><Name>AddEmptyItem</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NotasTransporte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NotasTransporte</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RegistroInventario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RegistroInventario</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SomenteAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SomenteAutorizadas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxNfeProTer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxNfeProTer</Value></Property><Property><Name>Description</Name><Value>Propria/Terceira</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalPercentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalPercentual</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="ZipXMLS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZipXMLS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoPesEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoPesEml</Value></Property><Property><Name>Description</Name><Value>Pessoa Email</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEmlCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEmlCod</Value></Property><Property><Name>Description</Name><Value>Conta Email</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEmlCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEmlSen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEmlSen</Value></Property><Property><Name>Description</Name><Value>Senha</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEmlSen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunNom</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunEmailContato">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunEmailContato</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>400</Value></Property><Property><Name>AttMaxLen</Name><Value>400</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Obs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Obs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoRelatorio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoRelatorio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeRelatorio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeRelatorio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="countCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>countCte</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountNfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountNfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZipXMLSCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZipXMLSCte</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoRelatorioCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoRelatorioCte</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoRelatorioCtePrestacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoRelatorioCtePrestacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AgrTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgrTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeRelatorio2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeRelatorio2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoSintegraProPrio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoSintegraProPrio</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoSintegraTerceiros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoSintegraTerceiros</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountNfeTerceiros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountNfeTerceiros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExecutou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExecutou</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AddressVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AddressVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuthenticationNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuthenticationNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SecureNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SecureNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TimeoutNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TimeoutNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HostVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HostVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserNameVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserNameVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PortNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PortNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZipXMLS1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZipXMLS1</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaPdfCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaPdfCte</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaPdfNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaPdfNota</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaRelatorioProdutos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaRelatorioProdutos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoRelatorioProdutos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoRelatorioProdutos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTemUmMOnofasico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTemUmMOnofasico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountNfs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountNfs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZipXMLSNFS">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZipXMLSNFS</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivoRelatorioNFSe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivoRelatorioNFSe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>250</Value></Property><Property><Name>AttMaxLen</Name><Value>250</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountNfse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountNfse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsCNAe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsCNAe</Value></Property><Property><Name>Description</Name><Value>CNAE </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsCNAE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="colPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>colPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImapSSl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImapSSl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="imapHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>imapHost</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Host</Value></Property></Properties>
+        </Variable>
+        <Variable Name="imapPort">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>imapPort</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Port</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlAss">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlAss</Value></Property><Property><Name>Description</Name><Value>Assunto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlAss</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JASPI_enviaEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JASPI_enviaEmail</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:JASPI_EnviaEmail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmailResult">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmailResult</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:EmailResult</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Result">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Result</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolEmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Attachments">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Attachments</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Destinatarios">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Destinatarios</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EnviaSintegra_Web</Value></Property><Property><Name>Description</Name><Value>Exporta Sintegra New</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

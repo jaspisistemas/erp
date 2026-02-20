@@ -1,0 +1,471 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0c5c37df-b9a0-459e-82e0-a102c165fdcb" user="WINJEAN\jeanfae" versionDate="2025-04-03T11:44:26.0000000Z" lastUpdate="2025-04-02T19:11:53.0000000Z" checksum="8b79772a637667e7cb87498b87b101f0" fullyQualifiedName="api_erp.prcGetProdutosOFF" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="2428a1d5-ca2c-4fd2-a651-e19131cf84f8" name="prcGetProdutosOFF" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Get Produtos OFF" parent="api_erp.produtos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&LogGUID = guid.NewGuid()
+
+&sdtGetProdutos= new()
+&ProDtaHorUltMod = now()
+&HojeData = serverdate()
+&sdtGetProdutos.TemMais = 'N'
+&sdtGetProdutos.UltProCod = 0
+
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+&qtdMax = 150
+
+if &IsAcessoConcedido = true //Acesso concedido
+	RetornaConfSistema.Call(&wwpContext.EmpCod, &wwpContext.FilCod, domConfSistema.TCon052_ServicoDuplicadoVenda, &TCon052_ServicoDuplicadoVenda)
+	RetornaConfSistema.Call(&wwpContext.EmpCod, &wwpContext.FilCod, domConfSistema.TCon053_ProdutoDuplicadoVenda, &TCon053_ProdutoDuplicadoVenda)
+	
+	if &wwpContext.TipoPerfil <> 3 //ADM
+		RetornaAutorizacaoDescontoMaximo.Call(&wwpContext.EmpCod, &wwpContext.PesCod, &IsAutorizadoDescontoMaximo)
+	Else
+		&IsAutorizadoDescontoMaximo = true
+	Endif
+	
+	prcRetornaUlimaDataHoraSincronizacao.Call(&DevRandon, 'PRODUTOOFF', &DevTabDtaUltSync, &DevTabAtu)
+	
+
+	////RETORNAR PRODUTOS / PRECOS / ESTOQUE
+	For each order EmpCod, ProCod
+		Where EmpCod = &wwpContext.EmpCod
+		where ProSts = Status_ativoInativo.ATIVO when &DevTabDtaUltSync.IsEmpty() or &DevTabAtu = true
+		where ProCod > &inProCod 
+		Where GrupSmt = true //GRUPO DISPONIVEL SMART
+		Where (ProDtaHorUltMod >= &DevTabDtaUltSync or &DevTabDtaUltSync.IsEmpty() or ProDtaHorUltMod.IsEmpty() or ProDtaHorUltMod.IsNull()) or
+			(GrupDtaHorMod >= &DevTabDtaUltSync or &DevTabDtaUltSync.IsEmpty() or GrupDtaHorMod.IsEmpty() or GrupDtaHorMod.IsNull()) or &DevTabAtu = true
+		
+		
+		&ProCod  = ProCod
+		&proguid = ProGUID
+		if &proguid.IsEmpty()
+			&proguid = guid.newGuid()
+			ProGUID = &proguid 
+		endif
+
+		
+		do 'GetImagem'
+		
+		if GrupDtaHorMod.IsEmpty() or GrupDtaHorMod.IsNull()
+			setDataModificacaoGrupo.Call(EmpCod, GrupCod)
+		Endif
+		
+		if ProDtaHorUltMod.IsEmpty() or ProDtaHorUltMod.IsNull()
+			ProDtaHorUltMod = &ProDtaHorUltMod
+		Endif
+	 
+		For Each Order EmpCod, ProCod, ProGraCod
+			&ProGraCod = ProGraCod
+			
+			if &sdtGetProdutos.QtdItens >= &qtdMax
+				&sdtGetProdutos.TemMais = 'S'
+				Exit
+			Else				
+				&sdtGetProdutos.UltProCod = ProCod
+				
+				&sdtGetProdutosItem           = new()
+				&sdtGetProdutosItem.Cod    = ProCod				
+				&sdtGetProdutosItem.GUID   = &proguid 
+				&sdtGetProdutosItem.GraCod = ProGraCod
+				&sdtGetProdutosItem.GraNom = trim(ProNomGra.Replace('"', "'"))
+				&sdtGetProdutosItem.Ref = trim(ProGraRef.Replace('"', "'"))
+				//&sdtGetProdutosItem.Img    = &ProImg180
+								
+				if &ProImg180.IsEmpty()
+					if &IsSemImagem = true
+						&sdtGetProdutosItem.ImgBas64  = 'SEMIMAGEM'
+					Else
+						&sdtGetProdutosItem.ImgBas64  = ''
+					Endif
+				Else		
+					&sdtGetProdutosItem.ImgBas64  = &ProImg180.ToBase64String()
+					Do Case
+						Case &sdtGetProdutos.QtdItens < 10
+							&qtdMax -= 2
+						Case &sdtGetProdutos.QtdItens > 50
+							&qtdMax -= 5
+					EndCase
+				Endif
+			
+				&sdtGetProdutosItem.Sts    = ProSts
+				&sdtGetProdutosItem.InfCmp = ProInfCmp
+				&sdtGetProdutosItem.Mar    = MarCod
+				&sdtGetProdutosItem.Def    = ProTipDef
+				
+				if &IsAutorizadoDescontoMaximo <> true
+					&sdtGetProdutosItem.DscMax = ProDesMax
+					
+					if &sdtGetProdutosItem.DscMax > GrupDscMax
+						&sdtGetProdutosItem.DscMax = GrupDscMax
+					Endif
+				Else
+					&sdtGetProdutosItem.DscMax = 100
+				Endif
+				
+				if ProSts = Status_ativoInativo.ATIVO			
+					do 'GetEstoque'
+					&sdtGetProdutosItem.EstQtd = &EstQtd
+					
+					do 'GetPrecos'
+					
+					Do Case //PRODUTO REPETIDO
+						Case ProRepItm = true
+							&sdtGetProdutosItem.RepItm = '1'
+						Case &TCon052_ServicoDuplicadoVenda = 'S' and ProTipDef = Definicao.SERVICO			
+							&sdtGetProdutosItem.RepItm = '1'
+						Case &TCon053_ProdutoDuplicadoVenda = 'S' and ProTipDef <> Definicao.SERVICO
+							&sdtGetProdutosItem.RepItm = '1'
+						otherwise
+							&sdtGetProdutosItem.RepItm = '0'
+					EndCase	
+					
+					if &IsTem = true
+						&sdtGetProdutos.QtdItens += 1
+						&sdtGetProdutos.Item.Add(&sdtGetProdutosItem)
+					Endif
+				Else
+					&sdtGetProdutos.QtdItens += 1
+					&sdtGetProdutos.Item.Add(&sdtGetProdutosItem)
+				Endif
+			EndIf
+		EndFor
+	
+		if &sdtGetProdutos.TemMais = 'S'
+			Exit
+		EndIf
+	EndFor
+Endif
+
+
+
+Sub 'GetImagem'
+	&ProImg180.SetEmpty()
+	&IsSemImagem = true
+	For Each Order EmpCod,ProCod,ProImgCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where ProCod = &ProCod
+		Where ProImgPri = true
+		
+		&IsSemImagem = false
+		
+		if ProImgDtaUltMod >= &DevTabDtaUltSync or (ProImgDtaUltMod.IsEmpty() or ProImgDtaUltMod.IsNull())
+			&ProImg180 = ProImg325
+			
+			if ProImgDtaUltMod.IsEmpty() or ProImgDtaUltMod.IsNull()				
+				ProImgDtaUltMod = &ProDtaHorUltMod
+				
+			Endif
+		Endif
+	
+		Exit
+	EndFor
+EndSub
+
+sub 'GetPrecos'
+	&IsTem = false
+	&AuxTabCod.SetEmpty()
+	For each order EmpCod,TabCod,ProCod,ProGraCod,TabAltCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where TabAltCod = TabUltAlt
+		Where TabSts = StatusTabela.Promocao or TabSts = StatusTabela.NormalAtiva
+		Where ProCod = &ProCod
+		Where ProGraCod = &ProGraCod
+		Where (TabDtaIni <= &HojeData or TabDtaIni.IsEmpty()) and (TabDtaFin >= &HojeData or TabDtaFin.IsEmpty())
+		Where (TabProDtaIni <= &HojeData or TabProDtaIni.IsEmpty()) and (TabProDtaFin >= &HojeData or TabProDtaFin.IsEmpty())
+		
+		If &AuxTabCod <> TabCod
+			prcRetornaColunasIsExiste.Call(EmpCod, TabCod, &Tem1, &Tem2, &Tem3,&Tem4, &Tem5, &Tem6, &Tem7, &Tem8, &Tem9)
+		EndIF
+	
+		if TabPrc1 > 0 and &Tem1 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos             = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.1'
+			&sdtGetProdutosItemPrecos.GUID      = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr     = TabPrc1
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc2 > 0 and &Tem2 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos             = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.2'
+			&sdtGetProdutosItemPrecos.GUID      = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr     = TabPrc2
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc3 > 0 and &Tem3 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos             = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.3'
+			&sdtGetProdutosItemPrecos.GUID      = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr     = TabPrc3
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc4 > 0 and &Tem4 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.4'
+			&sdtGetProdutosItemPrecos.GUID = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr = TabPrc4
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc5 > 0 and &Tem5 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.5'
+			&sdtGetProdutosItemPrecos.GUID = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr = TabPrc5
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc6 > 0 and &Tem6 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.6'
+			&sdtGetProdutosItemPrecos.GUID = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr = TabPrc6
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc7 > 0 and &Tem7 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.7'
+			&sdtGetProdutosItemPrecos.GUID = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr = TabPrc7
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc8 > 0 and &Tem8 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.8'
+			&sdtGetProdutosItemPrecos.GUID = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr = TabPrc8
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)
+		Endif
+		if TabPrc9 > 0 and &Tem9 = 1
+			&sdtGetProdutos.qtdPrc += 1
+			&IsTem = true
+			&sdtGetProdutosItemPrecos = new()
+			&sdtGetProdutosItemPrecos.Tab = trim(TabCod) + '.9'
+			&sdtGetProdutosItemPrecos.GUID = &proguid 
+			&sdtGetProdutosItemPrecos.Vlr = TabPrc9
+			&sdtGetProdutos.precos.Add(&sdtGetProdutosItemPrecos)		
+		Endif
+	EndFor
+EndSub
+
+sub 'GetEstoque'
+	&EstQtd = 0
+	For Each Order EmpCod, FilCod, ProCod, ProGraCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &wwpContext.FilCod
+		Where ProCod = &ProCod
+		Where ProGraCod = &Progracod
+		if EstQtd > 0
+			&EstQtd = EstQtd
+		Endif
+		Exit
+	EndFor
+
+	if &EstQtd < 0
+		&EstQtd = 0
+	Endif
+EndSub
+
+
+Sub 'subException_handler'
+	
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subException_handler','subException_handler')
+	
+EndSub
+
+Sub 'subError_handler'
+	
+	GravaLogDevNew(&wwpContext.EmpCod,&LogGUID,&Pgmname,'subError_handler','subError_handler')
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&inProCod, out:&sdtGetProdutos);
+
+
+Exception_handler('subException_handler');
+
+Error_handler('subError_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="sdtGetProdutos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGetProdutos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutosOFF, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProDtaHorUltMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProDtaHorUltMod</Value></Property><Property><Name>Description</Name><Value>Ultima Modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProDtaHorUltMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HojeData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HojeData</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon052_ServicoDuplicadoVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon052_ServicoDuplicadoVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon053_ProdutoDuplicadoVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon053_ProdutoDuplicadoVenda</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutorizadoDescontoMaximo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutorizadoDescontoMaximo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevTabDtaUltSync">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevTabDtaUltSync</Value></Property><Property><Name>Description</Name><Value>Ultima Sincronizacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevTabDtaUltSync</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGetProdutosItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGetProdutosItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutosOFF.ItemItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProImg180">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProImg180</Value></Property><Property><Name>Description</Name><Value>Pro Img180</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Blob</Value></Property><Property><Name>idATTEXT</Name><Value>jpeg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstQtd</Value></Property><Property><Name>Description</Name><Value>Estoque Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGUID</Value></Property><Property><Name>Description</Name><Value>Pro GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxTabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxTabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem3">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem4">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem5">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem5</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem6">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem7">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem7</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem8">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tem9">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tem9</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGetProdutosItemPrecos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGetProdutosItemPrecos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtProdutosOFF.precosItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevTabAtu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevTabAtu</Value></Property><Property><Name>Description</Name><Value>Atualzia?</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevTabAtu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Maximo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Maximo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSemImagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSemImagem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdMax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdMax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGetProdutosOFF</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="WINJEAN\jeanfae" versionDate="2026-01-07T17:31:58.0000000Z" lastUpdate="2026-01-07T14:19:07.0000000Z" checksum="978babfda251044bef8c264b34b24cf7" fullyQualifiedName="Cancelar_NFSe_Retornos" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="de84bf79-4876-4ede-a218-e6519af75c8b" name="Cancelar_NFSe_Retornos" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Cancelar_NFSe_Retornos" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&LogGUID = GUID.NewGuid()
+
+For Each Order EmpCod, NfsCod
+	Where EmpCod = &SolEmpCod	
+	Where NfsCod = &SolNfeCod
+	
+	&NfsChv = NfsChv
+	Exit
+EndFor
+
+
+	&Nome_retorno_erro = &sdtConfiguracoesPasta.PastaNFSretorno.Trim() + trim(&NfsChv)+'-cannfse.err' 
+	&Nome_retorno_correto = &sdtConfiguracoesPasta.PastaNFSretorno.Trim() + trim(&NfsChv) + '-cannfse.xml'
+	
+	&File.Source = &Nome_retorno_erro
+	if &File.Exists() 
+		&ResultadoAbertura =   DFROpen(&Nome_retorno_erro)    
+		
+		Do while dfrnext() = 0 
+			&ResultadoAbertura = DFRGTxt(&CampoUnico)
+			&conteudo_arquivo += NewLine() + &CampoUnico.Trim()
+		EndDo
+		&ResultadoAbertura = DFRClose()
+		
+		&File.Delete()
+		
+		&Tentativa = 99
+		&SolSts = Status_Solicitacao.Falha
+		&SolMsg = &conteudo_arquivo
+		
+		&File.Delete()
+	else
+		&File.Source = &Nome_retorno_correto
+		&IsDeuErro = false
+		
+		if &File.Exists()
+			&XmlReader.Open(&Nome_retorno_correto)
+			&ret = &XmlReader.ReadType(1, 'temp') 
+			if &ret <> 0
+				&IsDeuErro = true
+				&XmlReader.Read()
+				
+				Do While (&XmlReader.Name <> 'temp' and &XmlReader.Name <> '')
+					Do Case
+						Case &XmlReader.Name = 'erro' or &XmlReader.Name = 'erros'
+							&XMLReader.Read()
+							do 'erroErros'
+					EndCase
+					&XmlReader.Read()							
+					If &XmlReader.EOF = true
+						Exit
+					endif					
+				EndDo
+				
+				&Tentativa = 99
+				&SolSts = Status_Solicitacao.Falha
+				&SolMsg = &SolMsgCod.Trim() + ' ' + &AuxSolMsg + ' ' + &Aux1SolMsg
+				
+				//verifica se ja nao esta cancelada
+				if &SolMsgCod = 'E0840' and (&AuxSolMsg like '%evento de Cancelamento de NFS-e já está vinculado à NFS%' or &AuxSolMsg like '%EVENTO DE CANCELAMENTO%') 
+					
+					&Tentativa = 99
+					&SolSts = Status_Solicitacao.Finalizada
+					&SolMsg = 'NFSe JÁ CANCELADA, Anteriormente'
+					
+					For Each Order EmpCod, NfsCod
+						Where EmpCod = &SolEmpCod	
+						Where NfsCod = &SolNfeCod
+
+						NfsSts = Status_NFe.Cancelada
+						Exit
+					EndFor
+					
+					Commit
+				Endif		
+					
+			Endif	
+			&XmlReader.close()
+			
+			if &IsDeuErro = false
+				&XmlReader.Open(&Nome_retorno_correto)
+				&ret = &XmlReader.ReadType(1, 'e101101') 
+				if &ret <> 0
+					&XmlReader.Read()
+					Do While (&XmlReader.Name <> 'e101101')
+						Do Case
+							Case &XMLReader.Name = 'cMotivo'
+								&NfsMotCan = &XMLReader.Value
+								
+							Case &XMLReader.Name = 'xMotivo'
+								&NfsMotObs = trim(&XMLReader.Value)
+						Endcase
+						
+						&XmlReader.Read()
+						if &XmlReader.EOF = true
+							Exit
+						endif
+					EndDo
+					
+					if not &NfsMotCan.IsEmpty() and not &NfsMotObs.IsEmpty()
+						For Each Order EmpCod, NfsCod
+							Where EmpCod = &SolEmpCod	
+							Where NfsCod = &SolNfeCod
+							NfsMotCan = &NfsMotCan 
+							NfsMotObs = &NfsMotObs
+							NfsSts = Status_NFe.Cancelada
+							Exit
+						EndFor
+						
+						Commit
+						
+						&Tentativa = 99
+						&SolSts = Status_Solicitacao.Finalizada
+						&SolMsg = 'NFSe CANCELADA'
+					Endif
+					
+				Endif
+				
+				&XmlReader.close()
+			EndIF
+		
+			&File.Delete()
+		EndIf
+	EndIf
+
+Sub 'erroErros'
+	Do while (&XmlReader.Name <> 'erro' and &XmlReader.Name <> 'erros')
+		Do Case
+			Case &XMLReader.Name = 'codigo' or &XMLReader.Name = 'Codigo'
+				&SolMsgCod = &XMLReader.Value
+				
+			Case &XMLReader.Name = 'descricao' or &XMLReader.Name = 'Descricao'
+				&AuxSolMsg = trim(&XMLReader.Value)
+				
+			Case &XMLReader.Name = 'complemento' or &XMLReader.Name = 'Complemento'
+				&Aux1SolMsg = trim(&XMLReader.Value)
+		Endcase
+		
+		&XmlReader.Read()							
+		If &XmlReader.EOF = true
+			Exit
+		endif
+	EndDo
+EndSub
+
+
+
+Sub 'Exception_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+Endsub
+
+Sub 'Error_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&SolEmpCod, in:&SolFilCod, in:&SolNfeCod, in:&SolItmCod, in:&SolPesCod, in:&sdtConfiguracoesPasta, inout:&Tentativa, inout:&SolSts, inout:&SolMsg);
+
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolEmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Tabela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolNfeCod</Value></Property><Property><Name>Description</Name><Value>Sequencia Tabela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolItmCod</Value></Property><Property><Name>Description</Name><Value>Sequencia Item </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsChv</Value></Property><Property><Name>Description</Name><Value>Chave NFSe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsMotCan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsMotCan</Value></Property><Property><Name>Description</Name><Value>Motivo Cancelamento 1 - erro 2 - nao prestado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsMotCan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="conteudo_arquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>conteudo_arquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsDeuErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsDeuErro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlReader</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsgCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsgCod</Value></Property><Property><Name>Description</Name><Value>Sol Msg Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsgCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsMotObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsMotObs</Value></Property><Property><Name>Description</Name><Value>Motivo Cancelamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsMotObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxSolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxSolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Aux1SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Aux1SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Cancelar_NFSe_Retornos</Value></Property><Property><Name>Description</Name><Value>Cancelar_NFSe_Retornos</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

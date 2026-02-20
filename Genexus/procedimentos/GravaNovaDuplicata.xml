@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="25fc64b4-f313-4e13-9579-18477a0ed403" user="WINJEAN\jeanfae" versionDate="2026-01-21T14:58:39.0000000Z" lastUpdate="2026-01-20T12:35:51.0000000Z" checksum="2ab8b514f1f20f5fa321814cd476e30c" fullyQualifiedName="GravaNovaDuplicata" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="3d3be70b-3d95-4dd6-9a19-7fbd5e50cd58" name="GravaNovaDuplicata" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Nova Duplicata" parent="Financeiro" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&CreDupNro = &inCreDupNro
+
+//###################### Lança a duplicata para o adiantamento #############################################
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon075_ValidaNroDuplicata, &TCon075_ValidaNroDuplicata)
+
+Do 'GetFilialPgto'	
+	
+UltimoCodigoEmpresa.Call(domParCod.DUPLICATA,&EmpCod, &FilCod,&AuxCreCod)
+Do 'Duplicata'
+commit
+
+//Agora lança uma duplicata sem pgto para ficar de crédito
+Do 'DuplicataCredito'
+commit
+
+
+Sub 'Duplicata'
+	
+	//Retorna a forma padrão de "Dinheiro" no &padFrpPgtoCod
+	RetornaFormasPagamento.Call(&EmpCod, &CreRecPag, '', &PesCod, &TipoPerfil, &padFrpPgtoCod, &sdtFormasPagamento)
+	
+	
+	if &CreDupNro.IsEmpty()
+		&NroCod = str(10000 * Random())
+		&NroCod = trim(&NroCod)
+		&CreDupNro = &NroCod
+	Endif
+
+	If &TCon075_ValidaNroDuplicata <> 'S' //Aceita Repetido? S=SIM N=NAO
+		ValidaNumeroDuplicataRepetido2.Call(&EmpCod,&FilCod,0,&CreCliCod,&CreRecPag,&CreDupNro,&IsErro,&Messagem)
+	EndIf
+	
+	If &IsErro = False
+		
+		New
+			EmpCod = &EmpCod
+			FilCod = &FilCod
+			CreCod = &AuxCreCod
+			if &CreFilPgt.IsEmpty()
+				CreFilPgt = 1
+			Else
+				CreFilPgt = &CreFilPgt
+			Endif
+			//		CreNovCliRaz = &CreNovCliRaz
+			CreDupNro = &CreDupNro
+			CreDtaEms = ServerDate() 
+			CreDtaVct = &CreDtaVct
+			CreFrpPgtoCod = &padFrpPgtoCod
+			CreVlrDup = &CreVlrDup
+			CreVlrSdo = &CreVlrDup
+			CreCliCod = &CreCliCod
+			CreVenCod = &PesCod
+			CreRecPag = &CreRecPag
+			CreCbrCod = 1
+			CreCodBar = ''
+			CreSts    = Status_Duplicata.ATIVO
+			CreOriDup = OrigemDuplicata.AdiantamentoPedido
+			CrePlanCod = &CrePlanCod
+			
+			
+			CreIsPer = False		
+			CreDtaCrt.SetEmpty()
+			CreDtaPrt.SetEmpty()
+			CreDtaAdv.SetEmpty()
+			CreCodBar = ''
+			CreNumConGNRE = ''
+		EndNew
+		
+		Commit
+		&CreCobObs  = ''
+		
+		If &MovItmCpl.Trim().IsEmpty()
+			&CreCobObs = 'Lançamento realizado por adiantamento de pedidos.'
+		Else
+			&CreCobObs = 'Lançamento realizado por adiantamento de pedidos. Obs do financeiro: ' + &MovItmCpl
+		EndIf
+		
+		GravaCobranca.call(&EmpCod,&FilCod,&AuxCreCod,&CreCobObs,0,0,&CrePrmPag, '00:00:00', TipoObservacaoDuplicata.INTERNA)
+		
+		//###################### Lança o pgto da duplicata para o adiantamento #####################################
+		
+		Do 'GravaPgtoDuplicata'
+	Else
+		Msg(&Messagem)
+	EndIf
+
+EndSub
+
+
+
+Sub 'GravaPgtoDuplicata'
+	// Pega Ultimo Código
+	For Each Order EmpCod FilCod,CreCod
+		Where EmpCod  = &EmpCod
+		Where FilCod  = &FilCod
+		Where CreCod  = &auxCreCod		
+		&CreMaxPagCod = CreMaxPagCod
+		Exit
+	EndFor
+	
+	&CreMaxPagCod += 1
+	
+	//Pega ultimo Item
+	Do 'UltimoCodigoMovimentoItem'
+	
+	//Grava o pgto da duplicata
+	New
+		EmpCod       = &EmpCod
+		FilCod       = &FilCod
+		CreCod       = &AuxCreCod		    
+		CrePagCod    = &CreMaxPagCod
+		CrePagDta    = &MovDtaPgt		
+		CrePagVlr    = &CreVlrDup	
+		CrePagTip    = TipoDuplicataBaixa.Total
+		CrePagSts    = Status_Caixa.Lancado
+		CrePagVlrJur = 0
+		CrePagVlrDsc = 0
+		CreMovCod    = &MovCod
+		CreMovItmCod = &MovMaxItm
+	EndNew
+	commit
+	
+	
+	AtualizaSaldoDuplicata.call(&EmpCod, &AuxCreCod, &FilCod)
+	
+	//Lança o item do movimento
+	Do 'LancaMovimentoItem'
+	
+EndSub
+
+sub 'UltimoCodigoMovimentoItem'
+	For Each Order EmpCod,MovCod
+		Where EmpCod  = &EmpCod
+		Where MovCod  = &MovCod
+		&MovMaxItm = MovMaxItm
+		Exit
+	EndFor
+	
+	&MovMaxItm += 1
+EndSub
+
+
+Sub 'LancaMovimentoItem'
+	
+	New
+		EmpCod    = &EmpCod
+		MovCod    = &MovCod
+		MovItmCod = &MovMaxItm
+		MovItmVlr = &CrevlrDup
+		PlanCod   = &CrePlanCod
+		MovFunCod = 0
+		MovItmCpl = 'ADTO Á '+&PesRaz.Trim()+' Ref. '+trim(&MovItmCpl)
+		MovFunAno = 0
+		MovFunMes = 0
+		MovFunSts = Status_AbertoFechado.Aberto
+		MovCreFilCod = &FilCod
+		MovCreCod    = &AuxCreCod 
+		MovCrePagCod = &CreMaxPagCod
+    EndNew
+	
+	commit	
+	PrcAtualizaMovimentoFinanceiro.Call(&EmpCod, &AdtMovCod)
+EndSub
+
+Sub 'GetFilialPgto'
+	For Each Order EmpCod,CtabanCod
+		Where EmpCod = &EmpCod
+		Where CtabanCod = &MovCtaBanCod
+		&CreFilPgt = CtaBanFilCod
+		exit
+	EndFor
+EndSub
+
+
+Sub 'DuplicataCredito'
+	
+//	
+//	//Retorna a forma padrão de "DUPLICIATA" no &padFrpPgtoCod
+//	RetornaFormasPagamento.Call(&EmpCod,&CreRecPag, '', &PesCod, &TipoPerfil, &padFrpPgtoCod, &sdtFormasPagamento)
+	
+	
+	&CreDupNro = 'CREDITO'// +TRIM(STR(&AuxCreCod))
+	
+	If &TCon075_ValidaNroDuplicata <> 'S' //Aceita Repetido? S=SIM N=NAO
+		ValidaNumeroDuplicataRepetido2.Call(&EmpCod,&FilCod,0,&CreCliCod,&CreRecPag,&CreDupNro,&IsErro,&Messagem)
+	EndIf
+	
+	
+	UltimoCodigoEmpresa.Call(domParCod.DUPLICATA,&EmpCod, &FilCod,&ADTCreCod)
+	If &IsErro = False
+		
+		New
+			EmpCod = &EmpCod
+			FilCod = &FilCod
+			CreCod = &ADTCreCod
+			if &CreFilPgt.IsEmpty()
+				CreFilPgt = 1
+			Else
+				CreFilPgt = &CreFilPgt
+			Endif
+			
+			CreDupNro = &CreDupNro
+			CreDtaEms = ServerDate() 
+			CreDtaVct = &CreDtaVct
+			CreFrpPgtoCod = 1
+			CreVlrDup = &CreVlrDup
+			CreVlrSdo = &CreVlrDup
+			CreCliCod = &CreCliCod
+			CreVenCod = &PesCod
+			
+			If &CreRecPag = ReceberPagar.Pagar
+				CreRecPag = ReceberPagar.Receber// Grava o contrario pois ele é um crédito do adiantamento
+			Else
+				CreRecPag = ReceberPagar.Pagar
+			EndIf
+			
+			CreCbrCod = 1
+			CreCodBar = ''
+			CreSts    = Status_Duplicata.ATIVO
+			CreOriDup = OrigemDuplicata.AdiantamentoPedido
+			CrePlanCod = &CrePlanCod
+			CreAdtCreCod = &AuxCreCod //duplicata que gerou movimento no caixa, vinculo para exclusão
+			
+			CreIsPer = False		
+			CreDtaCrt.SetEmpty()
+			CreDtaPrt.SetEmpty()
+			CreDtaAdv.SetEmpty()
+			CreCodBar = ''
+			CreNumConGNRE = ''
+		EndNew
+		
+		Commit
+		&CreCobObs  = ''
+		
+		If &MovItmCpl.Trim().IsEmpty()
+			&CreCobObs = 'Lançamento realizado por adiantamento de pedidos.'
+		Else
+			&CreCobObs = 'Lançamento realizado por adiantamento de pedidos. Obs do financeiro: ' + &MovItmCpl
+		EndIf
+		
+		GravaCobranca.call(&EmpCod,&FilCod,&ADTCreCod,&CreCobObs,0,0,&CrePrmPag, '00:00:00', TipoObservacaoDuplicata.INTERNA)
+		
+	Else
+		Msg(&Messagem)
+	EndIf
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&MovCod,in:&MovCtaBanCod,in:&CreRecPag,in:&MovDtaPgt,in:&MovDtaCon,in:&inCreDupNro,in:&CreCliCod,in:&MovItmCpl,in:&CreDtaVct,in:&CrePlanCod,in:&CrevlrDup,in:&PesCod,in:&TipoPerfil);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AuxCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFilPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFilPgt</Value></Property><Property><Name>Description</Name><Value>Filial de Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreFilPgt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCobObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCobObs</Value></Property><Property><Name>Description</Name><Value>Cobrança Obs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCobObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDupNro</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePlanCod</Value></Property><Property><Name>Description</Name><Value>Plano de Conta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreRecPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreRecPag</Value></Property><Property><Name>Description</Name><Value>Duplicata Receber/Pagar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreRecPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePrmPag">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePrmPag</Value></Property><Property><Name>Description</Name><Value>Prometeu Pagar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePrmPag</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Movimento Conta Bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaPgt</Value></Property><Property><Name>Description</Name><Value>Movimento Data Pgto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaPgt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCpl</Value></Property><Property><Name>Description</Name><Value>Movimento Complemento Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreMaxPagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreMaxPagCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Máximo Código Pgto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreMaxPagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AdtMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AdtMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovMaxItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovMaxItm</Value></Property><Property><Name>Description</Name><Value>Movimento Máximo Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovMaxItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="padFrpPgtoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>padFrpPgtoCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FrpPgtoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtFormasPagamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtFormasPagamento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtFormasPagamento</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoPerfil">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoPerfil</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NroCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NroCod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Messagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Messagem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon075_ValidaNroDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon075_ValidaNroDuplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanFilCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Filial Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ADTCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ADTCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inCreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inCreDupNro</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaNovaDuplicata</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

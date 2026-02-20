@@ -1,0 +1,1137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:36:25.0000000Z" checksum="402bbc4d760873e950410a56ffe33dc8" fullyQualifiedName="prcNovoEFrete_PEF" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="2fc61f68-b0eb-476c-b47c-5b75018e2266" name="prcNovoEFrete_PEF" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Novo EFrete_PEF" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[// O conteúdo da tag Integrador deve ser uma CONSTANTE, pois é ela quem identifica seu sistema de gestão,
+//Suporte e-FRETE:	Seguem credenciais para uso em ambiente de homologação:
+//Integrador:		JASPI SISTEMAS DE INFORMÁTICA
+//CNPJ:				21826923000177
+//Usuário:			usuario@jaspi
+//Senha:			usuario#jaspi
+//Hash:				b754b48e-8c22-4cfc-bb0a-3524a76284c9
+
+LoadWWPContext(&Context)
+//Config do Servidor
+HostWebServiceEfrete.Call(&EmpWebHost, &ExecuteUrl, '', '', &Hash)
+&ExecuteUrl			+= 'Pef/AdicionarOperacaoTransporte'
+
+&HttpClient.Host	= 	&EmpWebHost
+&HttpClient.Secure	= 	1
+		
+//Header do JSON
+&HttpClient.AddHeader(!'Content-Type', !'application/json')
+&HttpClient.AddHeader(!'Accept-Encoding', !'gzip, deflate, br')
+
+Do 'GetOperacaoTransporte'
+
+//Realiza o Envio ao WebService
+&HttpClient.AddString(Trim(&XmlBody))
+&HttpClient.Execute('POST',&ExecuteUrl)
+		
+padraoUsuarioHora.Call('G', '#EFRETEOPERACAO', &Context.PesCod, &Context.EmpCod, &XmlBody, &PadDtaMod, &PadDtaHorMod, 'T')
+	
+If &HttpClient.StatusCode = 200
+	&XmlBody 		= &HttpClient.ToString()
+	&PosicaoSucesso = StrSearch(&XmlBody, '"Sucesso"')
+	&PosicaoSucesso = &PosicaoSucesso + 11
+	
+	&Status = SubStr(&XmlBody, &PosicaoSucesso, 4)
+	
+	If &Status = 'true'
+		&PosicaoSucesso	= StrSearch(&XmlBody, '"CodigoIdentificacaoOperacao"')
+		&PosicaoSucesso = &PosicaoSucesso + 32
+		
+		&PosicaoFinal	= StrSearch(&XmlBody, '"Versao"')
+		&PosicaoFinal	= &PosicaoFinal - &PosicaoSucesso - 6
+		&RetOpeNroCIOT	= SubStr(&XmlBody, &PosicaoSucesso, &PosicaoFinal)
+		
+		Do 'AtualizaSts'
+		&StatusRet	= 200
+	Else	
+		&PosicaoSucesso = StrSearch(&XmlBody, '"Mensagem"')
+		&PosicaoSucesso = &PosicaoSucesso + 13
+		
+		&PosicaoFinal	= StrSearch(&XmlBody, '"Codigo"')
+		&PosicaoFinal	= &PosicaoFinal - &PosicaoSucesso - 8
+		&Status			= SubStr(&XmlBody, &PosicaoSucesso, &PosicaoFinal)
+		
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro Pef-Operação!", 'Ocorreu um erro ao cadastrar a operação. ERRO: '+ Trim(&Status), DVMessageType.error, "", DVMessageBoolean.True,""))
+		&StatusRet 		= 0
+	EndIf
+	padraoUsuarioHora.Call('G', '#EFRETEOPERACAORESPOSTA', &Context.PesCod, &Context.EmpCod, &XmlBody, &PadDtaMod, &PadDtaHorMod, 'T')
+Else
+	Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro Pef-Operação!", &HttpClient.StatusCode.ToString() + ":" + &HttpClient.ErrDescription, DVMessageType.error, "", DVMessageBoolean.True,""))
+EndIf
+
+Sub 'GetOperacaoTransporte'
+	
+	For Each Order EmpCod, FilCod, OpeCod
+		Where EmpCod = &Context.EmpCod
+		Where FilCod = &Context.FilCod
+		Where OpeCod = &parmOpeCod
+		
+		&FilCNPJ	 	= RetornaSoNumeros.Udp(FilCpj)
+		&JSONOpeDtaIni 	= '20'
+		&JSONOpeDtaIni	+= SubStr(ToFormattedString(OpeDtaIni), 7, 4) + '-' + SubStr(ToFormattedString(OpeDtaIni), 4, 2) + '-' +  SubStr(ToFormattedString(OpeDtaIni), 1, 2)
+		&JSONOpeDtaFim	= '20'
+		&JSONOpeDtaFim	+= SubStr(ToFormattedString(OpeDtaFim), 7, 4) + '-' + SubStr(ToFormattedString(OpeDtaFim), 4, 2) + '-' +  SubStr(ToFormattedString(OpeDtaFim), 1, 2)
+		&XmlBody	=	'{'
+		
+		&AuxOpeTipvia = OpeTipVia
+		Do Case
+			Case OpeTipVia = PefServiceTipoViagem.Padrao
+				&AuxOpePso	= OpePso
+				&XmlBody	+=	'          "TipoViagem": "Padrao",'
+				&XmlBody	+=	'          "DataInicioViagem": "'		+Trim(&JSONOpeDtaIni)	+'",'
+				&XmlBody	+=	'          "CodigoNCMNaturezaCarga": "'	+Trim(Str(OpeNcm))		+'",'
+				&XmlBody	+=	'          "PesoCarga": "'				+Trim(Str(OpePso))		+'",'
+				&XmlBody	+=	'          "TipoEmbalagem": "'			+Trim(OpeTipEmb)		+'",'
+			OtherWise
+				&XmlBody	+=	'          "TipoViagem": "TAC_Agregado",'
+		EndCase
+		
+		&JSONOpeEmiGra	= OpeEmiGra
+		&JSONOpeNro		= Padl(Str(&Context.EmpCod),6,'0') + Padl(Str(&Context.FilCod),6,'0')+ Padl(Str(&parmOpeCod),6,'0')
+		&XmlBody	+=	'          "EmissaoGratuita": "'	+ &JSONOpeEmiGra.ToString()+'",'
+		&XmlBody	+=	'          "BloquearNaoEquiparado": "True",'
+		
+		If FilFrtAmb = tAmb.Homologacao
+			&XmlBody	+=	'          "MatrizCNPJ": "21826923000177",'
+			&XmlBody	+=	'          "FilialCNPJ": "21826923000177",'
+		Else
+			&XmlBody	+=	'          "MatrizCNPJ": "'+&FilCNPJ+'",'
+			&XmlBody	+=	'          "FilialCNPJ": "'+&FilCNPJ+'",'
+		EndIf
+	
+		&XmlBody	+=	'          "IdOperacaoCliente": "'	+Trim(&JSONOpeNro)+'",'
+		&XmlBody	+=	'          "DataFimViagem": "'		+Trim(&JSONOpeDtaFim)+'",'
+		
+		Do Case
+			Case OpeTipVia = PefServiceTipoViagem.Padrao
+				//VIAGENS
+				&XmlBody	+=	'          "Viagens": ['
+				&XmlBody	+=	'            {'		
+				For Each Order EmpCod, FilCod, OpeCod, OpeViaCod
+					&JSONOpePgtDoc = OpeNroDoc
+					&JSONOpeTipPgt = OpeTipPgt
+					
+					&XmlBody	+=	'              "DocumentoViagem": "'		+ OpeNroDoc 				+'",'
+					&XmlBody	+=	'              "CodigoMunicipioOrigem": "'	+ Trim(Str(OpeOriCidCod))	+'",'
+					&XmlBody	+=	'              "CodigoMunicipioDestino": "'	+ Trim(Str(OpeDstCidCod))	+'",'
+					&XmlBody	+=	'              "CepOrigem": "'				+ OpeOricidCep				+'",'
+					&XmlBody	+=	'              "CepDestino": "'				+ OpeDstCidCep				+'",'
+					Do Case
+						Case OpeTipVia = PefServiceTipoViagem.Padrao
+							&XmlBody	+=	'              "DistanciaPercorrida": "'	+ Trim(Str(OpeViaDstPer))	+'",'
+					EndCase
+					//VIAGENS:Valores
+					For Each Order EmpCod, FilCod, OpeCod, OpeViaCod, OpeValCod
+						&XmlBody	+=	'              "Valores": {'
+						&XmlBody	+=	'                "TotalOperacao": "'				+ Trim(Str(((OpeTotAdi+OpeTotQui+OpeTotCom+OpeTotPed+OpeTotSeg+OpeTotOutCre)-OpeTotOutDeb)))+'",'
+						&XmlBody	+=	'                "TotalViagem": "'					+ Trim(Str((OpeTotAdi+OpeTotQui)))	+'",'
+						&XmlBody	+=	'                "TotalDeAdiantamento": "'			+ Trim(Str(OpeTotAdi))				+'",'
+						&XmlBody	+=	'                "TotalDeQuitacao": "'				+ Trim(Str(OpeTotQui))				+'",'
+						&XmlBody	+=	'                "Combustivel": "'					+ Trim(Str(OpeTotCom))				+'",'
+						&XmlBody	+=	'                "Pedagio": "'						+ Trim(Str(OpeTotPed))				+'",'
+						&XmlBody	+=	'                "OutrosCreditos": "'				+ Trim(Str(OpeTotOutCre))			+'",'
+						&XmlBody	+=	'                "JustificativaOutrosCreditos": "'	+ Trim(OpeTotOutCreJus)				+'",'
+						&XmlBody	+=	'                "Seguro": "'						+ Trim(Str(OpeTotSeg))				+'",'	
+						&XmlBody	+=	'                "OutrosDebitos": "'				+ Trim(Str(OpeTotOutDeb))			+'",'
+						&XmlBody	+=	'                "JustificativaOutrosDebitos": "'	+ OpeTotOutDebJus					+'"'
+						&XmlBody	+=	'              },'
+						exit
+					EndFor
+					&XmlBody	+=	'              "TipoPagamento": "'			+ OpeTipPgt	+'"'
+					
+					//VIAGENS:Notas Fiscais
+					&QtdNFe		= Count(OpeNfeCod)
+					Do 'AcrescentaNotaFiscal'
+				EndFor
+				&XmlBody	+=	'          }'
+				&XmlBody	+=	'          ],'   
+		EndCase
+	
+		&XmlBody	+=	'          "Impostos": {'
+		//IMPOSTOS
+		For each Order EmpCod, FilCod, OpeCod, OpeImpCod
+			&XmlBody	+=	'            "IRRF": "' 			+ Trim(Str(OpeImpIRRF))		+'",'
+			&XmlBody	+=	'            "SestSenat": "'		+ Trim(Str(OpeImpSest))		+'",'
+			&XmlBody	+=	'            "INSS": "'				+ Trim(Str(OpeImpInss))		+'",'
+			&XmlBody	+=	'            "ISSQN": "'			+ Trim(Str(OpeImpIssqn))	+'",'
+			&XmlBody	+=	'            "OutrosImpostos": "'	+ Trim(Str(OpeImpOut))		+'",'
+			&XmlBody	+=	'            "DescricaoOutrosImpostos": ""'
+			Exit
+		EndFor
+		&XmlBody	+=	'          },'
+		
+		Do Case
+			Case OpeTipVia = PefServiceTipoViagem.Padrao
+				&QtdPagamentos	= Count(OpePgtCod)
+				&XmlBody	+=	'          "Pagamentos": ['
+				//PAGAMENTOS
+				For each Order EmpCod, FilCod, OpeCod, OpePgtCod
+					Where OpePgtSit	= Status_AbertoFechado.Aberto
+					&JSONOpeDtaLib	= Trim(Str(Year(OpeDtaLib))) + '-' + Trim(Str(Month(OpeDtaLib))) + '-' + Trim(Str(Day(OpeDtaLib)))
+					
+					&XmlBody	+=	'            {'
+					&XmlBody	+=	'              "IdPagamentoCliente": "'	+ padl(trim(str(OpeCod)),7,'0') +'-'+trim(str(OpePgtCod)) +	'",'
+					&XmlBody	+=	'              "DataDeLiberacao": "'	+ Trim(&JSONOpeDtaLib)	+'",'
+					&XmlBody	+=	'              "Valor": "'				+ Trim(Str(OpePgtVal))	+'",'
+					&XmlBody	+=	'              "TipoPagamento": "'		+ OpePgtTip.Trim()		+'",'
+					&XmlBody	+=	'              "Categoria": "'			+ OpePgtCat	+'",'
+					&XmlBody	+=	'              "Documento": "'			+ Trim(&JSONOpePgtDoc)	+'",'
+					
+					//INFORMAÇÕES BANCÁRIAS
+					&XmlBody	+=	'              "InformacoesBancarias": {'
+					&XmlBody	+=	'                  "InstituicaoBancaria": "'	+ OpePgtBan		+'",'
+					&XmlBody	+=	'                  "Agencia": "'				+ OpePgtAge		+'",'
+					&XmlBody	+=	'                  "Conta": "'					+ OpePgtCon		+'",'
+					&XmlBody	+=	'                  "TipoConta": "'				+ OpePgtConTip	+'"'
+					&XmlBody	+=	'              },'
+					
+					&XmlBody	+=	'              "InformacaoAdicional": "'		+ OpePgtInfAdd	+'"'
+					
+					&QtdPagamentos = &QtdPagamentos - 1
+					If &QtdPagamentos = 0
+						&XmlBody	+=	'            }'
+					Else
+						&XmlBody	+=	'            },'
+					EndIf
+				
+					If OpePgtCat = PefServiceCategoriaPagamento.Quitacao
+						&IsPossuiQuitacao = True
+					EndIf
+				
+				EndFor
+				&XmlBody	+=	'          ],'
+		EndCase
+		
+		//Contratado
+		&JSONOpeConCnpj	= 	RetornaSoNumeros.Udp(OpeConCnpj)
+		&XmlBody	+=	'          "Contratado": {'
+		&XmlBody	+=	'            "CpfOuCnpj": "'	+ &JSONOpeConCnpj				+'",'
+		&XmlBody	+=	'            "RNTRC": "'		+ Trim(Str(OpeConRntrc))		+'"'
+		&XmlBody	+=	'          },'
+
+		//Motorista
+		&JSONOpeMotCnpj		= 	RetornaSoNumeros.Udp(OpeMotCnpj)
+		&XmlBody	+=	'          "Motorista": {'
+		&XmlBody	+=	'            "CpfOuCnpj": "'	+ &JSONOpeMotCnpj	+'",'
+		&XmlBody	+=	'            "CNH": "'			+ OpeMotCnh			+'",'
+		&XmlBody	+=	'            "Celular": {'
+		&XmlBody	+=	'                "DDD": "'		+ OpeMotTelDdd	+'",'
+		&XmlBody	+=	'                "Numero": "'	+ OpeMotTelNro	+'"'
+		&XmlBody	+=	'              }'
+		&XmlBody	+=	'          },'
+		
+		Do Case
+			Case OpeResPgtFrt = PagamentoEfrete.Destinatario
+				&IsJSONDestinatarioResponsavel	= TRUE
+				&IsJSONContratanteResponsavel	= FALSE
+				&IsJSONConsignatarioResponsavel	= FALSE
+				&IsJSONSubContranteResponsavel	= FALSE
+				&IsJSONTomadorResponsavel		= FALSE
+			Case OpeResPgtFrt = PagamentoEfrete.Contratante
+				&IsJSONDestinatarioResponsavel	= FALSE
+				&IsJSONContratanteResponsavel	= TRUE
+				&IsJSONConsignatarioResponsavel	= FALSE
+				&IsJSONSubContranteResponsavel	= FALSE
+				&IsJSONTomadorResponsavel		= FALSE
+			Case OpeResPgtFrt = PagamentoEfrete.Consignatario
+				&IsJSONDestinatarioResponsavel	= FALSE
+				&IsJSONContratanteResponsavel	= FALSE
+				&IsJSONConsignatarioResponsavel	= TRUE
+				&IsJSONSubContranteResponsavel	= FALSE
+				&IsJSONTomadorResponsavel		= FALSE
+			Case OpeResPgtFrt = PagamentoEfrete.SubContratante
+				&IsJSONDestinatarioResponsavel	= FALSE
+				&IsJSONContratanteResponsavel	= FALSE
+				&IsJSONConsignatarioResponsavel	= FALSE
+				&IsJSONSubContranteResponsavel	= TRUE
+				&IsJSONTomadorResponsavel		= FALSE
+			Case OpeResPgtFrt = PagamentoEfrete.Tomador
+				&IsJSONDestinatarioResponsavel	= FALSE
+				&IsJSONContratanteResponsavel	= FALSE
+				&IsJSONConsignatarioResponsavel	= FALSE
+				&IsJSONSubContranteResponsavel	= FALSE
+				&IsJSONTomadorResponsavel		= TRUE
+		EndCase
+	
+		//DESTINATARIO
+		Do Case
+			Case OpeTipVia = PefServiceTipoViagem.Padrao
+				&AuxOpeDesCod		=	OpeDesCod
+				Do 'GetDestinatario'
+		EndCase
+		
+		//CONTRATANTE
+		&XmlBody	+=	'        "Contratante": {'
+		&XmlBody	+=	'           "NomeOuRazaoSocial": "'	+ FilRaz			+'",'
+		If FilFrtAmb = tAmb.Homologacao
+			&XmlBody	+=	'           "CpfOuCnpj": "21826923000177",'
+		Else
+			&XmlBody	+=	'           "CpfOuCnpj": "'+&FilCNPJ+'",'
+		EndIf
+		&XmlBody	+=	'            "Endereco": {'
+		&XmlBody	+=	'                "Bairro": "'			+ FilBai		+'",'
+		&XmlBody	+=	'                "Rua": "'				+ FilLog		+'",'
+		&XmlBody	+=	'                "Numero": "'			+ FilNro		+'",'
+		&XmlBody	+=	'                "CEP": "'				+ FilCep		+'",'
+		&XmlBody	+=	'                "CodigoMunicipio": "'	+ Trim(Str(FilCidUfeIbge))	+'"'
+		&XmlBody	+=	'            },'
+		&XmlBody	+=	'            "EMail": "'				+ FilEml		+'",'
+		&XmlBody	+=	'        "ResponsavelPeloPagamento": "'+&IsJSONContratanteResponsavel.ToString()+'"'
+		&XmlBody	+=	'        },'
+		
+		//SUB-CONTRATANTE
+		If OpeSubCon <> 0
+			&AuxOpeSubCon 	= 	OpeSubCon
+			Do 'Subcontratante'
+		EndIf
+		
+		//CONSIGNATARIO
+		If OpeSigCod <> 0
+			&AuxOpeSigCod = OpeSigCod
+			Do 'Consignatario'
+		EndIf
+		
+		//TOMADOR
+		Do Case
+			Case OpeTipVia = PefServiceTipoViagem.Padrao
+				&AuxOpeTomCod = OpeTomCod
+				Do 'TomadorServico'
+		EndCase
+		
+		//VEICULOS
+		&QtdVeiculos = Count(OpeVeiCod)
+		&XmlBody	+=	'          "Veiculos": ['
+		For Each Order EmpCod, FilCod, OpeCod, OpeVeiCod
+			
+			&JSONOpeVeiPla	= SubStr(OpeVeiPla, 1, 3) + SubStr(OpeVeiPla, 5, 4)
+			&XmlBody	+=	'            {'
+			&XmlBody	+=	'              "Placa": "' + &JSONOpeVeiPla +'"'
+			&QtdVeiculos = &QtdVeiculos - 1
+			If &QtdVeiculos = 0
+				&XmlBody	+=	'            }'
+			Else
+				&XmlBody	+=	'            },'
+			EndIf
+			
+		EndFor
+		&XmlBody	+=	'          ],'
+		If &IsPossuiQuitacao = True
+			&XmlBody	+=	'          "ObservacoesAoCredenciado": ['	
+			&XmlBody	+=	'                     '+Trim(&JSONOpePgtDoc)
+			&XmlBody	+=	'            ],'
+		EndIf
+		&XmlBody	+=	'          "QuantidadeSaques": "'			+ Trim(Str(OpeQtdSaq))	+'",'
+		&XmlBody	+=	'          "QuantidadeTransferencias": "'	+ Trim(Str(OpeQtdTra))	+'",'
+		
+		If OpeTipVia = Efrete_TipoViagem.Padrao
+			&XmlBody	+=	'          "CodigoTipoCarga": "'		+ Trim(OpeTipCar)	+'",'
+			&XmlBody	+=	'          "AltoDesempenho": "'			+ OpeAltDes.ToString() 	+'",'
+			&XmlBody	+=	'          "DestinacaoComercial": "'	+ OpeDesCom.ToString()	+'",'
+			&XmlBody	+=	'          "FreteRetorno": "'			+ OpeFrtRet.ToString()	+'",'
+			
+			If OpeFrtRet = True
+				&XmlBody+=	'          "CepRetorno": "'			+ OpeCepRet	+'",'
+				&XmlBody+=	'          "DistanciaRetorno": "'	+ Trim(Str(OpeDisRet))	+'",'
+			EndIf
+		EndIf
+		
+		If OpeEmiGra = True
+			&XmlBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.TransferenciaBancaria +'",'
+		Else
+			&XmlBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.eFRETE +'",'
+		EndIf
+
+		&XmlBody	+=	'          "Integrador": "'+ &Hash.Trim() +'",'
+		If Not &Token.IsEmpty()
+			&XmlBody	+=	'          "Token": "' + Trim(&Token) + '",'
+		EndIf
+		&XmlBody	+=	'          "Versao": "7"'
+		&XmlBody	+=	'}'
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'AcrescentaNotaFiscal'
+	&PesoTotaldeMercadoriasEmbarcadas = 0
+	&XmlBody	+= 	','
+	&XmlBody	+=	'              "NotasFiscais": ['
+	For each Order EmpCod, FilCod, OpeCod, OpeNfeCod
+		Where EmpCod = &Context.EmpCod
+		Where FilCod = &Context.FilCod
+		Where OpeCod = &parmOpeCod
+		
+		&JSONOpeNfeDta = Trim(Str(Year(OpeNfeDta))) + '-' + Trim(Str(Month(OpeNfeDta))) + '-' + Trim(Str(Day(OpeNfeDta)))
+		
+		&XmlBody	+=	'                {'
+		&XmlBody	+=	'                "Numero": "'							+ Trim(str(OpeNfeNro))		+'",'
+		&XmlBody	+=	'                "Serie": "'							+ OpeNfeSer					+'",'
+		&XmlBody	+=	'                "Data": "'								+ Trim(&JSONOpeNfeDta)		+'",'
+		&XmlBody	+=	'                "ValorTotal": "'						+ Trim(Str(OpeNfeVlrTot))	+'",'
+		&XmlBody	+=	'                "ValorDaMercadoriaPorUnidade": "'		+ Trim(Str(OpeNfeVlrUni))	+'",'
+		&XmlBody	+=	'                "CodigoNCMNaturezaCarga": "'			+ Trim(Str(OpeNfeNcm))		+'",'
+		&XmlBody	+=	'                "UnidadeDeMedidaDaMercadoria": "'		+ OpeNfeUndMed				+'",'
+		&XmlBody	+=	'                "TipoDeCalculo": "'					+ OpeNfeTipCal				+'",'
+		&XmlBody	+=	'                "QuantidadeDaMercadoriaNoEmbarque": "'	+ Trim(Str(OpeNfeQtdMerEmb))+'",'
+		&XmlBody	+=	'                "ToleranciaDePerdaDeMercadoria": {'
+		&XmlBody	+=	'                        "Tipo": "'						+ OpeNfeTolPerTip			+'",'
+		&XmlBody	+=	'                        "Valor": "'					+ Trim(Str(OpeNfeTolPerVlr))+'"'
+		&XmlBody	+=	'                        }'	
+		
+		&QtdNfe 	-= 1
+		If &QtdNfe 	= 0
+			&XmlBody+=	'                        }'	
+		Else
+			&XmlBody+=	'                        },'	
+		EndIf
+		
+	EndFor
+	&XmlBody	+=	'              ]'
+
+EndSub
+
+Sub 'Subcontratante'
+	
+	For each Order EmpCod, PesCod
+		Where EmpCod = &Context.EmpCod
+		Where PesCod = &AuxOpeSubCon
+		
+		If PesTip = TipoPessoa.JURIDICA
+			&JSONSubConCPFCNPJ	= RetornaSoNumeros.Udp(PesCnpj)
+		Else
+			&JSONSubConCPFCNPJ	= RetornaSoNumeros.Udp(PesCpf)
+		EndIF
+		
+		&XmlBody	+=	'        "Subcontratante": {'
+		&XmlBody	+=	'           "NomeOuRazaoSocial": "'		+ PesRaz			+'",'
+		&XmlBody	+=	'           "CpfOuCnpj": "'				+ &JSONSubConCPFCNPJ+'",'
+		&XmlBody	+=	'            "Endereco": {'
+		&XmlBody	+=	'                "Bairro": "'			+ PesBai			+'",'
+		&XmlBody	+=	'                "Rua": "'				+ PesLog			+'",'
+		&XmlBody	+=	'                "Numero": "'			+ PesNro			+'",'
+		&XmlBody	+=	'                "CEP": "'				+ PesCep			+'",'
+		&XmlBody	+=	'                "CodigoMunicipio": "'	+ Trim(Str(PesCidIBGE))+'"'
+		&XmlBody	+= 	'            },'
+		&XmlBody	+=	'            "EMail": "'				+ PesPrmEml			+'",'
+		&XmlBody	+=	'        "ResponsavelPeloPagamento": "'+&IsJSONSubContranteResponsavel.ToString()+'"'
+		&XmlBody	+=	'        },'
+		&XmlBody	+=	'        "CodigoIdentificacaoOperacaoPrincipal": "'+ OpeSubConCiot +'",'
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'Consignatario'
+	
+	For each Order EmpCod, PesCod
+		Where EmpCod = &Context.EmpCod
+		Where PesCod = &AuxOpeSigCod
+		
+		If PesTip = TipoPessoa.JURIDICA
+			&JSONConsCPFCNPJ	= RetornaSoNumeros.Udp(PesCnpj)
+		Else
+			&JSONConsCPFCNPJ	= RetornaSoNumeros.Udp(PesCpf)
+		EndIf
+		
+		&XmlBody	+=	'        "Consignatario": {'
+		&XmlBody	+=	'           "NomeOuRazaoSocial": "'		+ PesRaz				+'",'
+		&XmlBody	+=	'           "CpfOuCnpj": "'				+ &JSONConsCPFCNPJ		+'",'
+		&XmlBody	+=	'            "Endereco": {'
+		&XmlBody	+=	'                "Bairro": "'			+ PesBai				+'",'
+		&XmlBody	+=	'                "Rua": "'				+ PesLog				+'",'
+		&XmlBody	+=	'                "Numero": "'			+ PesNro				+'",'
+		&XmlBody	+=	'                "CEP": "'				+ PesCep				+'",'
+		&XmlBody	+=	'                "CodigoMunicipio": "'	+ Trim(Str(PesCidIBGE))	+'"'
+		&XmlBody	+=	'            },'
+		&XmlBody	+=	'            "EMail": "'				+ PesPrmEml				+'",'
+		&XmlBody	+=	'        "ResponsavelPeloPagamento": "'	+ &IsJSONConsignatarioResponsavel.ToString()	+'"'
+		&XmlBody	+=	'        },'
+	
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'TomadorServico'
+	
+	For each Order EmpCod, PesCod
+		Where EmpCod = &Context.EmpCod
+		Where PesCod = &AuxOpeTomCod
+		
+		If PesTip = TipoPessoa.JURIDICA
+			&JSONTomCPFCNPJ	= RetornaSoNumeros.Udp(PesCnpj)
+		Else
+			&JSONTomCPFCNPJ	= RetornaSoNumeros.Udp(PesCpf)
+		EndIF
+		
+		&XmlBody	+=	'       "TomadorServico": {'
+		&XmlBody	+=	'            "NomeOuRazaoSocial": "'	+ PesRaz			+'",'
+		&XmlBody	+=	'            "CpfOuCnpj": "'			+ &JSONTomCPFCNPJ 	+'",'
+		&XmlBody	+=	'            "Endereco": {'
+		&XmlBody	+=	'                "Bairro": "'			+ PesBai			+'",'
+		&XmlBody	+=	'                "Rua": "'				+ PesLog			+'",'
+		&XmlBody	+=	'                "Numero": "'			+ PesNro			+'",'
+		&XmlBody	+=	'                "CEP": "'				+ PesCep			+'",'
+		&XmlBody	+=	'                "CodigoMunicipio": "'	+ Trim(Str(PesCidIBGE))+'"'
+		&XmlBody	+=	'            },'
+		&XmlBody	+=	'            "EMail": "'				+ PesPrmEml			+'",'
+		&XmlBody	+=	'        "ResponsavelPeloPagamento": "'	+ &IsJSONTomadorResponsavel.ToString()	+'"'
+		&XmlBody	+=	'        },'
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'GetDestinatario'
+	
+	For each Order EmpCod, PesCod
+		Where EmpCod = &Context.EmpCod
+		Where PesCod = &AuxOpeDesCod
+		
+		If PesTip = TipoPessoa.JURIDICA
+			&JSONDesCPFCNPJ	= RetornaSoNumeros.Udp(PesCnpj)
+		Else
+			&JSONDesCPFCNPJ	= RetornaSoNumeros.Udp(PesCpf)
+		EndIF
+		
+		&XmlBody	+=	'        "Destinatario": {'
+		&XmlBody	+=	'           "NomeOuRazaoSocial": "'		+ PesRaz			+'",'
+		&XmlBody	+=	'           "CpfOuCnpj": "'				+ &JSONDesCPFCNPJ	+'",'
+		&XmlBody	+=	'            "Endereco": {'
+		&XmlBody	+=	'                "Bairro": "'			+ PesBai			+'",'
+		&XmlBody	+=	'                "Rua": "'				+ PesLog			+'",'
+		&XmlBody	+=	'                "Numero": "'			+ PesNro			+'",'
+		&XmlBody	+=	'                "CEP": "'				+ PesCep			+'",'
+		&XmlBody	+=	'                "CodigoMunicipio": "'	+ Trim(Str(PesCidIBGE))+'"'
+		&XmlBody	+= 	'            },'
+		&XmlBody	+=	'            "EMail": "'				+ PesPrmEml			+'",'
+		&XmlBody	+=	'        "ResponsavelPeloPagamento": "'+&IsJSONDestinatarioResponsavel.ToString()+'"'
+		&XmlBody	+=	'        },'
+		
+		Exit
+	EndFor
+	
+EndSub
+
+Sub 'AtualizaSts'
+	
+	For Each Order EmpCod, FilCod, OpeCod
+		Where EmpCod = &Context.EmpCod
+		Where FilCod = &Context.FilCod
+		Where OpeCod = &parmOpeCod
+		
+		OpeNroCiot		= &RetOpeNroCIOT
+		OpeSts			= Status_Ciot.Autorizado
+		OpeNro			= &JSONOpeNro
+		
+		For Each Order EmpCod, FilCod, OpeCod, OpePgtCod
+			Where OpePgtSit	= Status_AbertoFechado.Aberto
+			
+			OpePgtSit		= Status_AbertoFechado.Fechado
+			
+		EndFor
+				
+		Commit
+		
+		Exit
+	EndFor
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(iN:&Token, In:&parmOpeCod, Out:&StatusRet, Out:&Status);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTipVia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTipVia</Value></Property><Property><Name>Description</Name><Value>Tipo Viagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTipVia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeEmiGra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeEmiGra</Value></Property><Property><Name>Description</Name><Value>Emissão Gratuita?</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeEmiGra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONBloquearNaoEquiparado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONBloquearNaoEquiparado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONMatrizCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONMatrizCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONFilialCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONFilialCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONIdOperacaoCliente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONIdOperacaoCliente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDtaIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDtaFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDtaFin</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDtaFim">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDtaFim</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNcm</Value></Property><Property><Name>Description</Name><Value>NCM Natureza da carga</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePso</Value></Property><Property><Name>Description</Name><Value>Peso Bruto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTipEmb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTipEmb</Value></Property><Property><Name>Description</Name><Value>Tipo Embalagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTipEmb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNroDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNroDoc</Value></Property><Property><Name>Description</Name><Value>Número Documento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNroDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeOriCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeOriCidCod</Value></Property><Property><Name>Description</Name><Value>Municipio Origem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeOriCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCidIBGE</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOriCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOriCidIBGE</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONDstCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONDstCidIBGE</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeOricidCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeOricidCep</Value></Property><Property><Name>Description</Name><Value>CEP Origem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeOricidCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDstCidCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDstCidCep</Value></Property><Property><Name>Description</Name><Value>CEP Destino</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDstCidCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeViaDstPer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeViaDstPer</Value></Property><Property><Name>Description</Name><Value>Distância Percorrida</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeViaDstPer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotOpe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotOpe</Value></Property><Property><Name>Description</Name><Value>Total Operação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotOpe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotVia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotVia</Value></Property><Property><Name>Description</Name><Value>Total Viagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotVia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotAdi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotAdi</Value></Property><Property><Name>Description</Name><Value>Total Adiantamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotAdi</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotQui">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotQui</Value></Property><Property><Name>Description</Name><Value>Total Quitação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotQui</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSON">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSON</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotCom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotCom</Value></Property><Property><Name>Description</Name><Value>Total Combustivel</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotCom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotPed">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotPed</Value></Property><Property><Name>Description</Name><Value>Total Pedágio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotPed</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotOutCre">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotOutCre</Value></Property><Property><Name>Description</Name><Value>Total Outros Créditos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotOutCre</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotOutCreJus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotOutCreJus</Value></Property><Property><Name>Description</Name><Value>Justificação Outros Céditos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotOutCreJus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotSeg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotSeg</Value></Property><Property><Name>Description</Name><Value>Total Seguro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotSeg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotOutDeb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotOutDeb</Value></Property><Property><Name>Description</Name><Value>Total Outros Débitos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotOutDeb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTotOutDebJus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTotOutDebJus</Value></Property><Property><Name>Description</Name><Value>Justificacao Outros Débitos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTotOutDebJus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtTip</Value></Property><Property><Name>Description</Name><Value>Tipo Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtBan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtBan</Value></Property><Property><Name>Description</Name><Value>Banco</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtBan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtAge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtAge</Value></Property><Property><Name>Description</Name><Value>Agência</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtAge</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtCon</Value></Property><Property><Name>Description</Name><Value>Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtConTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtConTip</Value></Property><Property><Name>Description</Name><Value>Tipo Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtConTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeNro</Value></Property><Property><Name>Description</Name><Value>Nro Nota Fiscal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeSer</Value></Property><Property><Name>Description</Name><Value>Série da Nota Fiscal</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeDta</Value></Property><Property><Name>Description</Name><Value>Data da Nota Fiscal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeVlrTot</Value></Property><Property><Name>Description</Name><Value>Valor Total Nota Fiscal</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeVlrUni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeVlrUni</Value></Property><Property><Name>Description</Name><Value>Valor Por Unidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeVlrUni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeNcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeNcm</Value></Property><Property><Name>Description</Name><Value>Código mercadoria  por Ncm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeNcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeUndMed">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeUndMed</Value></Property><Property><Name>Description</Name><Value>Unidade de Medida</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeUndMed</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeTipCal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeTipCal</Value></Property><Property><Name>Description</Name><Value>Tipo de Calculo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeTipCal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeQtdMerEmb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeQtdMerEmb</Value></Property><Property><Name>Description</Name><Value>Quantidade no Embarque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeQtdMerEmb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeTolPerTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeTolPerTip</Value></Property><Property><Name>Description</Name><Value>Tolerancia de Perda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeTolPerTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeTolPerVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeTolPerVlr</Value></Property><Property><Name>Description</Name><Value>Valor Perda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeTolPerVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeDifFrtTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeDifFrtTip</Value></Property><Property><Name>Description</Name><Value>Diferenca Frete Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeDifFrtTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeDifFrtBas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeDifFrtBas</Value></Property><Property><Name>Description</Name><Value>Diferenca Frete Base</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeDifFrtBas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeTolTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeTolTip</Value></Property><Property><Name>Description</Name><Value>Tolerancia de calculo tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeTolTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeTolVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeTolVlr</Value></Property><Property><Name>Description</Name><Value>Tolerancia de calculo Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeTolVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeMarGanTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeMarGanTip</Value></Property><Property><Name>Description</Name><Value>Margem Ganho Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeMarGanTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeMarGanVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeMarGanVlr</Value></Property><Property><Name>Description</Name><Value>Margem Ganho Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeMarGanVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeMarPerTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeMarPerTip</Value></Property><Property><Name>Description</Name><Value>Margem Perca Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeMarPerTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNfeMarPerVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNfeMarPerVlr</Value></Property><Property><Name>Description</Name><Value>Margem Perca Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNfeMarPerVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeImpIRRF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeImpIRRF</Value></Property><Property><Name>Description</Name><Value>Total IRRF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeImpIRRF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeImpSest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeImpSest</Value></Property><Property><Name>Description</Name><Value>Total SEST/SENAT</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeImpSest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeImpInss">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeImpInss</Value></Property><Property><Name>Description</Name><Value>INSS</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeImpInss</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeImpIssqn">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeImpIssqn</Value></Property><Property><Name>Description</Name><Value>ISSQN</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeImpIssqn</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeImpOut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeImpOut</Value></Property><Property><Name>Description</Name><Value>Outros Impostos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeImpOut</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtNro</Value></Property><Property><Name>Description</Name><Value>Identificador de pagamento Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDtaLib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDtaLib</Value></Property><Property><Name>Description</Name><Value>Liberação Saque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtVal</Value></Property><Property><Name>Description</Name><Value>Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONImpostosVarChar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONImpostosVarChar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtCat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtCat</Value></Property><Property><Name>Description</Name><Value>Categoria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtCat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpePgtDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpePgtDoc</Value></Property><Property><Name>Description</Name><Value>Documento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeDesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeDesCod</Value></Property><Property><Name>Description</Name><Value>Destinatario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeConCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeConCnpj</Value></Property><Property><Name>Description</Name><Value>Contratado CPF/CNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeConCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeConRntrc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeConRntrc</Value></Property><Property><Name>Description</Name><Value>Contratado RNTRC </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeConRntrc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeMotCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeMotCnpj</Value></Property><Property><Name>Description</Name><Value>Motorista CPF/CNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeMotCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeMotTelDdd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeMotTelDdd</Value></Property><Property><Name>Description</Name><Value>MOtorista Telefone DDD</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeMotTelDdd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONDesPesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONDesPesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONDesCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONDesCPFCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONDesPesBai">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONDesPesBai</Value></Property><Property><Name>Description</Name><Value>Pessoa Bairro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesBai</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONDesPesPrmFonDD">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONDesPesPrmFonDD</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJSONDestinatarioResponsavel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJSONDestinatarioResponsavel</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJSONContratanteResponsavel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJSONContratanteResponsavel</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJSONConsignatarioResponsavel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJSONConsignatarioResponsavel</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJSONSubContranteResponsavel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJSONSubContranteResponsavel</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJSONTomadorResponsavel">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJSONTomadorResponsavel</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteNomeOuRazaoSocial">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteNomeOuRazaoSocial</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>80</Value></Property><Property><Name>AttMaxLen</Name><Value>80</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteCpfOuCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteCpfOuCnpj</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteBairro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteBairro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteRua">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteRua</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContranteNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContranteNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteCEP">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteCEP</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:CEP</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteEmail</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Email_100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteDDD">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteDDD</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeSubCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeSubCon</Value></Property><Property><Name>Description</Name><Value>Subcontratante</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeSubCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeSigCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeSigCod</Value></Property><Property><Name>Description</Name><Value>Consignatário</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeSigCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeTomCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeTomCod</Value></Property><Property><Name>Description</Name><Value>Tomador</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTomCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeVeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeVeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeVeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeEntDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeEntDoc</Value></Property><Property><Name>Description</Name><Value>Entrega Documentacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeEntDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeQtdSaq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeQtdSaq</Value></Property><Property><Name>Description</Name><Value>Quantidade Saque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeQtdSaq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeQtdTra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeQtdTra</Value></Property><Property><Name>Description</Name><Value>Quantidade Transferencias</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeQtdTra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeAltDes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeAltDes</Value></Property><Property><Name>Description</Name><Value>Alto Desempenho</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeAltDes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDesCom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDesCom</Value></Property><Property><Name>Description</Name><Value>Destinação comercial da Carga</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDesCom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeFrtRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeFrtRet</Value></Property><Property><Name>Description</Name><Value>Frete Retorno</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeFrtRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeCepRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeCepRet</Value></Property><Property><Name>Description</Name><Value>Cep Retorno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCepRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlBody</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdPagamentos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdPagamentos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONConsCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONConsCPFCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONConsPesPrmFonDD">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONConsPesPrmFonDD</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONConsPesPrmFon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONConsPesPrmFon</Value></Property><Property><Name>Description</Name><Value>Primeiro Fone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrmFon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONTomCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONTomCPFCNPJ</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONTomPesPrmFon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONTomPesPrmFon</Value></Property><Property><Name>Description</Name><Value>Primeiro Fone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrmFon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONTomPesPrmFonDD">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONTomPesPrmFonDD</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdVeiculos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdVeiculos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONContratanteCelular">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONContratanteCelular</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoSucesso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoFinal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesoTotaldeMercadoriasEmbarcadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesoTotaldeMercadoriasEmbarcadas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:QuantidadeFormatada3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeTipvia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeTipvia</Value></Property><Property><Name>Description</Name><Value>Tipo Viagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTipVia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpePso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpePso</Value></Property><Property><Name>Description</Name><Value>Peso Bruto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetOpeNroCIOT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetOpeNroCIOT</Value></Property><Property><Name>Description</Name><Value>Nro Ciot</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNroCiot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeNro</Value></Property><Property><Name>Description</Name><Value>Nro Operação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdNFe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdNFe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeTipPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeTipPgt</Value></Property><Property><Name>Description</Name><Value>Tipo Pagamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeTipPgt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CollOpePgtDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CollOpePgtDoc</Value></Property><Property><Name>Description</Name><Value>Documento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtDoc</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsPossuiQuitacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsPossuiQuitacao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONSubConCPFCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONSubConCPFCNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaHorMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaHorMod</Value></Property><Property><Name>Description</Name><Value>Data Hora Modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaHorMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCNPJ">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCNPJ</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CetificadoDigital">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CetificadoDigital</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsEnviarCertificado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsEnviarCertificado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hash</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcNovoEFrete_PEF</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

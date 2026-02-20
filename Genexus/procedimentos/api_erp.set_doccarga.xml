@@ -1,0 +1,828 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="187a4a7f-bd09-43ed-b6cc-bb45b7f907fc" user="SRVORDIG\Administrador" versionDate="2025-10-10T14:22:58.0000000Z" lastUpdate="2025-10-22T12:20:59.0000000Z" checksum="90bc950c03e90e5dd8c2fe3845a413d3" fullyQualifiedName="api_erp.set_doccarga" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="1ee7f4a2-e5f1-444f-adbf-47cb423a04e1" name="set_doccarga" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_doccarga" parent="api_erp.cte" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	For Each ORder EmpCod, FilCod, CteCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		
+		
+		&CteVlrTotPreSer = CteVlrTotPreSer
+		
+		If CteSts = Status_Nfe.Digitando //so altera se tiver digitando
+			Do CAse
+				Case &sdtCte.sts = 'DELUFPERCURSO'
+					For &ufs in &sdtCte.uf
+						CTE_PErcurso.Call('DEL', &wwpContext.EmpCod, &FilCod, &CteCod, &ufs.ufPercCod, '')
+						&outsdtCte.obs = 'sucesso'
+						&outsdtCte.sts = 'J200'
+					EndFor
+					
+					do 'ufs'
+					return
+					
+				Case &sdtCte.sts = 'ADDUFPERCURSO'
+					For &ufs in &sdtCte.uf
+						CTE_Percurso.Call('ADD', &wwpContext.EmpCod, &FilCod, &CteCod, 0, &ufs.ufPerc)
+						&outsdtCte.obs = 'sucesso'
+						&outsdtCte.sts = 'J200'
+					EndFor
+					
+					do 'ufs'
+					return
+					
+					
+				CAse &sdtCte.sts = 'DELDOCORIGINAL'
+					
+					For &Original in &sdtCte.ctes
+						DeletaCteDocAnt.call(&wwpContext.EmpCod,&FilCod,&CteCod, &Original.Cod)
+						&outsdtCte.obs = 'sucesso'
+						&outsdtCte.sts = 'J200'
+						Exit
+					EndFor
+					
+					do 'DocumentosOriginarios'
+					return
+					
+				Case &sdtCte.sts = 'ATUIMPOSTOS'
+					prcAtualizaAliquotaCte.Call(EmpCod, FilCod, CteCod, &sdtCte)
+					&outsdtCte.obs = 'sucesso'
+					&outsdtCte.sts = 'J200'
+					
+					do 'carregaimpostos'
+					Return					
+				
+				CAse &sdtCte.sts = 'ADDDOCORIGINAL'
+					
+					For &Original in &sdtCte.ctes
+						&CteDocAntChv = &Original.Chv
+						&CteDocAntCnpj = &Original.Cnpj
+						ValidaCpfCnpj.Call(&CteDocAntCnpj, &ErroCnpj, 'S')
+						
+						&CteDocAntRaz = &Original.Raz
+						&CteDocAntIns = &Original.Ins
+						&CteDocAntUf = &Original.Uf
+						prcValidaInscricaoEstadual.Call(&CteDocAntIns, &CteDocAntUf, &InsSimNao, &CteDocAntIns)
+						
+						ValidaChaveNotaReturnMsg.Call(&CteDocAntChv, &mensagem)
+						Do Case
+							Case &ErroCnpj = 1
+								&outsdtCte.obs = 'ATENÇÃO! CPF/CNPJ Inválido!'
+								&outsdtCte.sts = 'E998'
+								return
+							Case &InsSimNao = 'N'
+								&outsdtCte.obs = 'Inscrição Estadual Inválida!'
+								&outsdtCte.sts = 'E997'
+								return
+							Case not &mensagem.IsEmpty()
+								&outsdtCte.obs = 'ATENÇÃO! Não foi possível adicionar esta chave de nota pois a mesma não é válida. Verifique!'
+								&outsdtCte.sts = 'E996'
+								return
+							OtherWise
+								
+								GravaCteDocAnt.Call(&wwpContext.EmpCod,&FilCod,&CteCod,&CteDocAntCnpj,&CteDocAntIns,&CteDocAntUf,&CteDocAntRaz,&CteDocAntChv)
+								&outsdtCte.obs = 'sucesso'
+								&outsdtCte.sts = 'J200'
+						EndCase
+						
+						Exit
+					EndFor
+					
+					do 'DocumentosOriginarios'
+					return
+					
+				CAse &sdtCte.sts = 'AVANCADO'
+					
+					&outsdtCte = &sdtCte
+					FormataPLACA.Call(EmpCod, &outsdtCte.CtePla, &outsdtCte.CtePla)
+					FormataPLACA.Call(EmpCod, &outsdtCte.CtePlaTra, &outsdtCte.CtePlaTra)
+					
+					GravarAvancado.Call(EmpCod, FilCod, CteCod, &outsdtCte)
+					
+					&outsdtCte.sts = 'J200'
+					return
+					
+				CAse &sdtCte.sts = 'VALORES'
+					
+					//validar o total duplicatas, com o total detalhamento.
+					//Soma os componentes
+					&CteVlrPreCom = 0
+					For Each Order EmpCod, FilCod, CteCod, CtePreCod
+						&CteVlrPreCom += CteVlrPreCom
+					EndFor
+					
+					//soma as duplicatas
+					&CteDupVlr = 0
+					For Each Order EmpCod, FilCod, CteCod, CteDupCod
+						&CteDupVlr += CteDupVlr
+					EndFor
+					
+					Do Case
+						CAse &CteDupVlr > 0 and &CteVlrPreCom <> &CteDupVlr
+							&outsdtCte.sts = 'J956'
+							&outsdtCte.obs = 'Valores a receber não batem com o valor dos componentes!'
+							return
+							
+						Case &CteVlrPreCom = 0
+							&outsdtCte.sts = 'J955'
+							&outsdtCte.obs = 'Valores a receber não pode ser vazio!'
+							return
+							
+					EndCAse
+					
+					
+					GravarValores.Call(EmpCod, FilCod, CteCod, &sdtCte.CteCfop, &sdtCte.CteImpCst)
+					&outsdtCte.sts = 'J200'
+					return
+					
+				Case &sdtCte.sts = 'DELRECEBIMENTO'
+					For &recebimento in &sdtCte.receb
+						
+						GravaRemoveCteDuplicata.Call(EmpCod, FilCod, CteCod, 0, &recebimento.CteDupCod, &CteDupDtaVct, &CteDupNro, 0)
+						&outsdtCte.sts = 'J200'
+						do 'recebimentos'
+						return
+					EndFor
+					
+					&outsdtCte.sts = 'ERRRDEL'
+					&outsdtCte.obs = 'Não localizado registro recebimento!'
+					return
+					
+				Case &sdtCte.sts = 'ADDRECEBIMENTO'
+					For &recebimento in &sdtCte.receb
+						
+						&CteDupDtaVct.SetEmpty() //Vencimento
+						if &recebimento.CteDupVctTmp > 0
+							timestampToDate.Call(&recebimento.CteDupVctTmp, &CteDupDtaVct)
+						Endif
+						&CteDupVlr.FromString(&recebimento.CteDupVlrVar)
+						
+						&CteDupFrpPgtoTip.FromString(&recebimento.CteDupFrpPgtoTip)
+						do 'FormaPagamento'
+						
+						
+						Do Case
+							CAse &CteDupDtaVct.IsEmpty()
+								&outsdtCte.sts = 'E994'
+								&outsdtCte.obs = 'Data vencimento não informada!'
+								return
+							CAse &CteDupVlr.IsEmpty() 
+								&outsdtCte.sts = 'E993'
+								&outsdtCte.obs = 'Valor recebimento não informado!'
+								return
+						EndCAse
+						
+						GravaRemoveCteDuplicata.Call(EmpCod, FilCod, CteCod, &FrpPgtoCod, &recebimento.CteDupCod, &CteDupDtaVct, &CteDupNro, &CteDupVlr)
+						&outsdtCte.sts = 'J200'
+						do 'recebimentos'
+						return
+					EndFor
+					
+					&outsdtCte.sts = 'ERRRADD'
+					&outsdtCte.obs = 'Não localizado registro recebimento!'
+					return
+					
+				CAse &sdtCte.sts = 'DELCOMPONENTE'
+					
+					For &componentes in &sdtCte.comp
+						GravaCteComponente.Call(EmpCod, FilCod, CteCod, &componentes.CteNomPreCom, 0, &Componentes.CteDesIcmsCom, &Componentes.CtePrePagCom)
+						
+						&outsdtCte.sts = 'J200'
+						do 'dadosvalores'
+						Return
+					EndFor
+					
+					&outsdtCte.sts = 'ERRRDEL'
+					&outsdtCte.obs = 'Não localizado registro Valores!'
+					return
+					
+				CAse &sdtCte.sts = 'ADDCOMPONENTE'
+					
+					For &componentes in &sdtCte.comp
+						&CteVlrPreCom.FromString(&Componentes.CteVlrPreComVar)
+						GravaCteComponente.Call(EmpCod, FilCod, CteCod, &componentes.CteNomPreCom, &CteVlrPreCom, &Componentes.CteDesIcmsCom, &Componentes.CtePrePagCom)
+						
+						&outsdtCte.sts = 'J200'
+						do 'dadosvalores'
+						return
+					EndFor
+					
+					&outsdtCte.sts = 'ERRRADD'
+					&outsdtCte.obs = 'Não localizado registro Valores!'
+					return
+					
+				Case &sdtCte.sts = 'UPDTOT'
+				
+					&CteCarVlrTot.FromString(&sdtCte.CteCarVlrTotVar)
+					&BrtCteDocPes.FromString(&sdtCte.BrtCteDocPesVar)
+					&LiqCteDocPes.FromString(&sdtCte.LiqCteDocPesVar)
+					&CteCarQtd.FromString(&sdtCte.CteCarQtdVar)
+					&M3CteCarQtd.FromString(&sdtCte.M3CteCarQtdVar)
+					
+					//tipo fretamento
+					
+					&CteDtaHorVia.SetEmpty()
+					if &sdtCte.CteDtaHorViaTmp > 0
+						&CteDtaHorVia = timestampToDateTime.Udp(&sdtCte.CteDtaHorViaTmp)
+					EndIf
+				
+					Do CAse
+						Case CteModCod = '57' and (&BrtCteDocPes.IsEmpty() and &LiqCteDocPes.IsEmpty() and &CteCarQtd.IsEmpty() and &M3CteCarQtd.IsEmpty())
+							&outsdtCte.sts = 'J995'
+							&outsdtCte.obs = 'Pelo menos um dos campos é preciso informar, ou Peso Liquido ou Peso Bruto, ou Quantidade ou Volume!'
+							return
+						Case &sdtCte.CteCarProPre.IsEmpty()
+							&outsdtCte.sts = 'J994'
+							if  CteModCod = '57'
+								&outsdtCte.obs = 'Produto Predominante, é obrigatório preenchimento!'
+							Else
+								&outsdtCte.obs = 'Descrição do serviço, é obrigatório preenchimento!'
+							Endif
+						
+							return
+					EndCase
+					
+					For each Order EmpCod,FilCod,CteCod,CteSegCod
+						&CteSegCod= CteSegCod
+						&CteSegRef = CteSegRef 
+						&CteSegNom = CteSegNom 
+						&CteSegApl = CteSegApl 
+						Exit
+					EndFor
+					
+					//Totaliza
+					&CteCarVlrTot = 0
+					For Each Order EmpCod, FilCod, CteCod, CteDocCod
+						&CteCarVlrTot += CteDocVlrTotNtf
+					EndFor
+					
+					&CteTomChvAnaOri = &sdtCte.CteTomChvAnaOri
+					
+					GravaCteCargaApi.Call(EmpCod,FilCod,CteCod,&sdtCte.CteCarProPre,&CteCarVlrTot,CteCarOtrCar,&M3CteCarQtd,&BrtCteDocPes,&LiqCteDocPes,&CteCarQtd,CteFinEms,&CteTomChvAnaOri,CteModCod,&sdtCte.CteCarProPre,&CteCarQtd,&CteTomChvAnaOri,CteTomDtaEmsDec,&CteTomChvAnaOri,CteTomChvAna,CteTomChvEmt,CteTomVlrDoc,CteTomDtaEmsDoc, &sdtCte.CteTipFrt, &CteDtaHorVia)
+					&outsdtCte.sts = 'J200'
+					return
+					
+				Case &sdtCte.sts = 'INSARQNFE'
+					
+					&Extensao = &sdtCte.ext.Replace('.', '')
+					&Extensao = &Extensao.ToLower()
+					&GUID = GUID.NewGuid()
+					
+					RetornaConfiguracoesPastas.Call(&wwpContext.EmpCod, &wwpContext.FilCod, &sdtConfiguracoesPasta)
+					&NomeArquivo = &sdtConfiguracoesPasta.PastaDiretorioTempFis + trim(&GUID.toString()) + '.' + &Extensao
+					
+					&file.Source = &NomeArquivo
+					&file.FromBase64String(&sdtCte.arq)
+					&File.Close()
+					
+					Do Case
+						Case &Extensao = 'xml'
+							GravaCteDocImp.Call(EmpCod, FilCod, CteCod, &NomeArquivo, &mensagem)	
+							if not &mensagem.IsEmpty()
+								&outsdtCte.sts = 'E996'
+								&outsdtCte.obs = &mensagem
+								return
+							Endif
+							&outsdtCte.sts = 'J200'
+							&outsdtCte.obs = ''
+							
+							//Case &Extensao = 'pdf'
+							////GravaCteDocImpCvale_Extrato.Call(&EmpCod,&FilCod,&CteCod, &NomeArquivoXml)	
+							//&outsdtCte.sts = 'ERR'
+							//&outsdtCte.obs = 'Arquivos PDF ainda não disponível'
+							//return
+							
+						Otherwise
+							&outsdtCte.sts = 'ERR'
+							&outsdtCte.obs = &Extensao + ' Formato de arquivo não suportado!'
+							return
+					EndCase
+					
+					do 'dadoscarga'
+					
+				Case &sdtCte.sts = 'INSUPDDOC'
+					For &sdtCtecarga in &sdtCte.carga
+						If &sdtCtecarga.CteDocTip = TipoDocumentoCte.NFe
+							&CteDocChvNfe = &sdtCtecarga.CteDocChvNfe
+							ValidaChaveNota.Call(&CteDocChvNfe, &IsErro)
+							&CteModCod = SubStr(trim(&CteDocChvNfe),21,2) // TEM QUE SER MODELO 55
+							If &CteModCod <> '55' or &IsErro = true
+								&outsdtCte.sts = 'E998'
+								&outsdtCte.obs = 'CHAVE INVÁLIDA! Só é permitido adicionar documento Modelo 55 NF-e.'
+								Return
+							EndIf
+						EndIf
+						
+						&CteDocVlrTotNtf.FromString(&sdtCtecarga.CteDocVlrTotNtf)
+						&CteDocVlrTotPro.FromString(&sdtCtecarga.CteDocVlrTotPro)
+						&CteDocTotPso.FromString(&sdtCtecarga.CteDocTotPso)
+						&CteDocVlrNtf.FromString(&sdtCtecarga.CteDocVlrTotNtf)
+						
+						&CteDocDtaPre.SetEmpty() //dATA previsao
+						if &sdtCtecarga.CteDocDtaPre > 0
+							timestampToDate.Call(&sdtCtecarga.CteDocDtaPre, &CteDocDtaPre)
+							
+							
+							if &CteDocDtaPre < serverdate() and not &sdtCtecarga.CteDocDtaPre.IsEmpty()
+								&outsdtCte.sts = 'E997'
+								&outsdtCte.obs = 'Data previsão não pode ser inferior à data de hoje.'
+								Return
+							Endif
+						Endif
+						
+						GravaCteDoc.call(EmpCod,FilCod,CteCod,&sdtCtecarga.CteDocCod,&sdtCtecarga.CteDocTip,&sdtCtecarga.CteDocNroRom,&sdtCtecarga.CteDocNroPed,&sdtCtecarga.CteDocMod,&sdtCtecarga.CteDocSer,&sdtCtecarga.CteDocNro,&sdtCtecarga.CteDocTipOri,&sdtCtecarga.CteDocDes,&sdtCtecarga.CteDocDta,&sdtCtecarga.CteDocVbc,&sdtCtecarga.CteDocVlrIcm,&sdtCtecarga.CteDocVstIcm,&sdtCtecarga.CteDocVst,&CteDocVlrTotPro,&CteDocVlrTotNtf,&sdtCtecarga.CteDocCfoPre,&sdtCtecarga.CteDocPes,&sdtCtecarga.CteDocChvNfe,&CteDocVlrNtf,&CteDocTotPso,&sdtCtecarga.CteDocPinSuf,&CteDocDtaPre,'')
+						
+						&outsdtCte.sts = 'J200'
+						&outsdtCte.obs = ''
+						Exit
+					EndFor
+					
+					do 'dadoscarga'
+					
+				CASe &sdtCte.sts = 'DELDOC'
+					For &sdtCtecarga in &sdtCte.carga
+						DeletaDocCte.Call(EmpCod,FilCod,CteCod,&sdtCtecarga.CteDocCod)
+						
+						&outsdtCte.sts = 'J200'
+						&outsdtCte.obs = ''
+						Exit
+					EndFor
+					
+					do 'dadoscarga'
+				Otherwise
+					&outsdtCte.sts = 'E875'
+					&outsdtCte.obs = 'Que isso, nada para fazer aqui'
+					return
+			EndCAse
+
+		Else
+			&outsdtCte.sts = 'J200'
+			return
+		Endif
+		
+		Exit
+	When None
+		&outsdtCte.sts = 'J999'
+		&outsdtCte.obs = 'CTe não localizado'
+		return
+	EndFor
+	
+	
+Else
+	&outsdtCte.sts = 'E999'
+	&outsdtCte.obs = 'Nada mais aqui!'
+	return
+Endif
+
+sub 'ufs'
+	For Each Order EmpCod, FilCod, CteCod, CtePerCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		&ufs = new()
+		&ufs.ufPerc = CtePerUfeCod
+		&ufs.ufPercCod = CtePerCod
+		&ufs.UfPercN = retornaNomeEstado.Udp(EmpCod, CtePerUfeCod)
+		&outsdtCte.uf.Add(&ufs)
+	EndFor
+
+EndSub
+
+sub 'DocumentosOriginarios'
+	For Each Order EmpCod, FilCod, CteCod, CteDocAntCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		&Original = new()
+		&Original.Cod = CteDocAntCod
+		&Original.Cnpj = CteDocAntCnpj
+		&Original.Ins = CteDocAntIns
+		&Original.Uf = CteDocAntUf
+		&Original.UfNom = retornaNomeEstado.Udp(EmpCod, CteDocAntUf)
+		&Original.Raz = CteDocAntRaz
+		&Original.Chv = CteDocAntChv
+		&outsdtCte.ctes.Add(&Original)
+	EndFor
+EndSub
+
+sub 'formapagamento'
+	For Each Order EmpCod, FrpPgtoCod, FrpPgtoTip
+		Where EmpCod = &wwpContext.EmpCod
+		Where FrpPgtoTip = &CteDupFrpPgtoTip
+		Where FrpPgtoSts = Status_AtivoInativo.ATIVO
+		&FrpPgtoCod = FrpPgtoCod
+		exit
+	EndFor
+EndSub
+
+sub 'recebimentos'
+	//recebimentos
+	For Each Order EmpCod, FilCod, CteCod, CteDupCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		
+		&recebimento = new()
+		&recebimento.CteDupCod = CteDupCod
+		&recebimento.CteDupFrpPgtoTip = CteDupFrpPgtoTip.ToString()
+		&recebimento.CteDupNro = CteDupNro
+		&recebimento.CteDupVlrVar = trim(toformattedString(CteDupVlr))
+		
+		DateTimeToTimestamp.Call(CteDupDtaVct, &Numeric)
+		&recebimento.CteDupVctTmp = &Numeric
+		
+		&outsdtCte.receb.Add(&recebimento)
+	EndFor
+EndSub
+
+sub 'dadosvalores'
+	For Each Order EmpCod, FilCod, CteCod, CtePreCod
+		wHERE EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		
+		&IsTemValores = true
+		if CteVlrPreCom > 0
+			&IsUmMaiorVazio = true
+			Exit
+		Endif		
+	EndFor
+	
+	if &IsTemValores = false
+		CtePrestaDefault.Call(&wwpContext.EmpCod, &FilCod, &CteCod, 'S')
+	Endif	
+	
+	For Each Order EmpCod, FilCod, CteCod, CtePreCod
+		wHERE EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		&totalMoeda += CteVlrPreCom
+		&componentes = new()
+		&componentes.CteNomPreCom = CteNomPreCom
+		&componentes.CteVlrPreComVar = trim(toformattedString(CteVlrPreCom))
+		&componentes.CteDesIcmsCom = CteDesIcmsCom
+		&componentes.CtePrePagCom = CtePrePagCom
+		&componentes.CteMostrar = false
+		if &IsUmMaiorVazio = false and CteNomPreCom = 'FRETE VALOR'
+			&componentes.CteMostrar = true
+		Endif
+		
+		&outsdtCte.comp.Add(&componentes)
+	EndFor
+	
+	if &totalMoeda.IsEmpty() and &CteVlrTotPreSer > 0
+		for &componentes in &outsdtCte.comp
+			if &componentes.CteNomPreCom = 'FRETE VALOR'
+				&componentes.CteVlrPreComVar = trim(toformattedString(CteVlrTotPreSer))
+				GravaCteComponente.Call(&wwpContext.EmpCod, &FilCod, &CteCod, &componentes.CteNomPreCom, &CteVlrTotPreSer, &Componentes.CteDesIcmsCom, &Componentes.CtePrePagCom)
+			Endif						
+		EndFor					
+	ENdif
+	
+	
+	do 'carregaimpostos'
+	
+EndSub
+
+sub 'carregaimpostos'
+	//carregaimpostos
+	For Each Order EmpCod, FilCod, CteCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod
+		
+		&outsdtCte.CteImpAliVar = trim(toformattedString(CteImpAli))
+		&outsdtCte.CteImpVbcVar = trim(toformattedString(CteImpVbc))
+		&outsdtCte.CteImpVlrVar = trim(toformattedString(CteImpVlr))
+		&outsdtCte.CteImpPerRedVar = trim(toformattedString(CteImpPerRed))
+		&outsdtCte.CteImpVlrCreVar = trim(toformattedString(CteImpVlrCre))
+		
+		//		&outsdtCte.CteImpAliTotTri = CteImpAliTotTri
+		&outsdtCte.CteImpVbcRetVar = '0,00'
+		&outsdtCte.CteImpVstRetVar = '0,00'
+		&outsdtCte.CteImpAliRetVar = trim(toformattedString(CteImpAliRet))
+		if CteImpAliRet > 0
+			&outsdtCte.CteImpVbcRetVar = trim(toformattedString(CteImpVbcRet))
+			&outsdtCte.CteImpVstRetVar = trim(toformattedString(CteImpVstRet))
+		Endif
+		
+		&outsdtCte.CteImpTriAliInssVar = trim(toformattedString(CteImpTriAliInss)) 
+		
+		//		&outsdtCte.CteImpTriVlrPis = CteImpTriVlrPis
+		//		&outsdtCte.CteImpTriVlrCofins = CteImpTriVlrCofins
+		//		&outsdtCte.CteImpTriVlrCsll = CteImpTriVlrCsll
+		&outsdtCte.CteImpTriVlrInssVar = trim(toformattedString(CteImpTriVlrInss))
+		//		&outsdtCte.CteImpTriVlrIr = CteImpTriVlrIr
+		
+		Exit
+	EndFor
+EndSub
+
+
+sub 'dadoscarga'
+	For EAch Order EmpCod,FilCod,CteCod,CteDocCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where CteCod = &CteCod		
+		
+		&Carga = new()
+		&Carga.CteDocChvNfe = CteDocChvNfe
+		&Carga.CteDocCod = CteDocCod
+		&Carga.CteDocTip = CteDocTip
+		&Carga.CteDocVlrTotNtf = trim(toformattedString(CteDocVlrTotNtf))
+		&Carga.CteDocTotPso = trim(toformattedString(CteDocTotPso))
+		
+		&Numeric = 0
+		if not CteDocDtaPre.IsEmpty() and not CteDocDtaPre.IsNull()
+			DateTimeToTimestamp.Call(CteDocDtaPre, &Numeric)
+		Endif	
+		&Carga.CteDocDtaPre = &Numeric
+		
+		&outsdtCte.carga.Add(&Carga)
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&FilCod, in:&CteCod, in:&sdtCte, out:&outsdtCte);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CteCarQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCarQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCarQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocAntChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocAntChv</Value></Property><Property><Name>Description</Name><Value>Documento Anterior Chave</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocAntChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocAntCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocAntCnpj</Value></Property><Property><Name>Description</Name><Value>Documento Anterior Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocAntCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocAntRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocAntRaz</Value></Property><Property><Name>Description</Name><Value>Documento Anterior Razão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocAntRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSegApl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSegApl</Value></Property><Property><Name>Description</Name><Value>Número da Apólice </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSegApl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSegCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSegCod</Value></Property><Property><Name>Description</Name><Value>Seguro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSegCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSegNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSegNom</Value></Property><Property><Name>Description</Name><Value>Nome da Seguradora </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSegNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteSegRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteSegRef</Value></Property><Property><Name>Description</Name><Value>código da seguradora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteSegRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BrtCteDocPes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BrtCteDocPes</Value></Property><Property><Name>Description</Name><Value>Peso total em Kg </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocPes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Carga">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Carga</Value></Property><Property><Name>Description</Name><Value>Cargas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte.cargaItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="componentes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>componentes</Value></Property><Property><Name>Description</Name><Value>componente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte.compItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCarVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCarVlrTot</Value></Property><Property><Name>Description</Name><Value>Valor total da carga </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCarVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocAntIns">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocAntIns</Value></Property><Property><Name>Description</Name><Value>Documento Anterior Ins</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocAntIns</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocAntUf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocAntUf</Value></Property><Property><Name>Description</Name><Value>Documento Anterior Uf</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocAntUf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocChvNfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocChvNfe</Value></Property><Property><Name>Description</Name><Value>Chave Nota Fiscal Eletronica</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocChvNfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocDtaPre">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocDtaPre</Value></Property><Property><Name>Description</Name><Value>Data prevista de entrega </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocDtaPre</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocTotPso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocTotPso</Value></Property><Property><Name>Description</Name><Value>Total peso Bruto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocTotPso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocVlrNtf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocVlrNtf</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocVlrTotNtf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocVlrTotNtf</Value></Property><Property><Name>Description</Name><Value>Valor Total da NF </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocVlrTotNtf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDocVlrTotPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDocVlrTotPro</Value></Property><Property><Name>Description</Name><Value>Valor Total dos Produtos </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocVlrTotPro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDtaHorVia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDtaHorVia</Value></Property><Property><Name>Description</Name><Value>Data e Hora da Viagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDtaHorVia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDupDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDupDtaVct</Value></Property><Property><Name>Description</Name><Value>Data de vencimento da duplicata </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDupDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDupFrpPgtoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDupFrpPgtoCod</Value></Property><Property><Name>Description</Name><Value>Cte Dup Frp Pgto Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDupFrpPgtoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDupFrpPgtoTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDupFrpPgtoTip</Value></Property><Property><Name>Description</Name><Value>TipoPgto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDupFrpPgtoTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDupNro</Value></Property><Property><Name>Description</Name><Value>Número da duplicata </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDupVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDupVlr</Value></Property><Property><Name>Description</Name><Value>Valor da duplicata </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDupVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteModCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteModCod</Value></Property><Property><Name>Description</Name><Value>Modelo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteModCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteTomChvAnaOri">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteTomChvAnaOri</Value></Property><Property><Name>Description</Name><Value>Tomador Chave de acesso do CT-e original a ser anulado e substituído </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteTomChvAnaOri</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteVlrPreCom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteVlrPreCom</Value></Property><Property><Name>Description</Name><Value>Valor Prestação Componente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteVlrPreCom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteVlrTotPreSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteVlrTotPreSer</Value></Property><Property><Name>Description</Name><Value>Valor Total Prestação Serviço</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteVlrTotPreSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Extensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Extensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="file">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>file</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FrpPgtoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FrpPgtoCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FrpPgtoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GUID</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InsSimNao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InsSimNao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTemValores">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTemValores</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsUmMaiorVazio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsUmMaiorVazio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LiqCteDocPes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LiqCteDocPes</Value></Property><Property><Name>Description</Name><Value>Peso total em Kg </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDocPes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="M3CteCarQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>M3CteCarQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCarQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Numeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Numeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Original">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Original</Value></Property><Property><Name>Description</Name><Value>Originals</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte.ctesItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="outsdtCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>outsdtCte</Value></Property><Property><Name>Description</Name><Value>outsdt Ct-e</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaHorMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaHorMod</Value></Property><Property><Name>Description</Name><Value>Data Hora Modificacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaHorMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadObs</Value></Property><Property><Name>Description</Name><Value>Obs com o Padrao Tela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="recebimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>recebimento</Value></Property><Property><Name>Description</Name><Value>recebimentos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte.recebItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCte</Value></Property><Property><Name>Description</Name><Value>sdt Ctes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCtecarga">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCtecarga</Value></Property><Property><Name>Description</Name><Value>sdt Ctecargas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte.cargaItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="totalMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>totalMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ufs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ufs</Value></Property><Property><Name>Description</Name><Value>uf</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCte.ufItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WizardData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WizardData</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:WPCteData</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_doccarga</Value></Property><Property><Name>Description</Name><Value>set_doccarga</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

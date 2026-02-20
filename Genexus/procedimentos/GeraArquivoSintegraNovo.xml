@@ -1,0 +1,1131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="SRVORDIG\Administrador" versionDate="2025-06-02T11:51:35.0000000Z" lastUpdate="2025-06-02T11:29:22.0000000Z" checksum="90d78a1b08cb007e70ac2c418deaa582" fullyQualifiedName="GeraArquivoSintegraNovo" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="5e37392c-1afe-465a-a484-3dea08bd0187" name="GeraArquivoSintegraNovo" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Arquivo Sintegra Novo" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&dia = day(&iniNfeDtaEms)
+&mes = month(&iniNfeDtaEms)
+&Ano = year(&iniNfeDtaEms)
+&InicialData =  ToFormattedString(&Ano)+ ToFormattedString(&mes) + ToFormattedString(&dia)
+
+&dia = day(&finNfeDtaEms)
+&mes = month(&finNfeDtaEms)
+&Ano = year(&finNfeDtaEms)
+&SintegraAno = &Ano
+&SintegraMes = &mes
+&FinalData =  ToFormattedString(&Ano)+ ToFormattedString(&mes) + ToFormattedString(&dia)
+
+&TipoConvenio = '3'
+&CodigoConvenio = '3'
+
+&NomeArquivo = &AuxNomeArquivo.Trim()
+
+&Resultado = DfwOpen(&NomeArquivo,'','', 0, 'ISO-8859-1')
+
+
+For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	
+	//###-------- REGISTRO TIPO 10
+	&ArquivoTXT = '10'
+	
+	&FilCpj = FilCpj
+	retornaSoNumeros.Call(FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	&FilInsEst = FilInsEst
+	retornaSoNumeros.Call(FilInsEst, &SoNumero)
+	If &SoNumero.IsEmpty()
+		&ArquivoTXT += 'ISENTO' + space(8) //03 Inscrição estadual 
+	Else
+		&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	EndIF
+
+    &ArquivoTXT += PadR(Substr(trim(FilRaz),1,35),35, ' ') //(4) (razão social/denominação) do contribuinte
+    &ArquivoTXT += PadR(Substr(trim(FilCidNom),1,30),30, ' ') //(5) Municipio onde esta domiciliado
+	&ArquivoTXT += FilCidUfeCod //(6) Municipio onde esta domiciliado
+	
+	retornaSoNumeros.Call(FilFonNum, &SoNumero)
+	&ArquivoTXT += PadL(Substr(trim(&SoNumero),1,10),10, '0') //(7) Numero do Fax do estabelecimento informante
+	&ArquivoTXT += &InicialData //08 Data inicial
+	&ArquivoTXT += &FinalData   //9 Data final
+	&ArquivoTXT += &TipoConvenio //10 Código da identificação do convênio
+	&ArquivoTXT += &CodigoConvenio //11 Código da identificação da natureza das operações informadas
+	&ArquivoTXT += &Finalidade//12 Código da finalidade do arquivo magnético
+
+	do 'GravaLinha'
+	
+	//###-------- REGISTRO TIPO 11
+	&ArquivoTXT = '11'
+	&ArquivoTXT += PadR(Substr(trim(FilLog),1,34),34, ' ') //02 Logradouro 
+	&ArquivoTXT += PadL(Substr(trim(FilNro),1,5),5, '0') //03 Número 
+	&ArquivoTXT += Space(22) //04 Complemento
+	&ArquivoTXT += PadR(Substr(trim(FilBai),1,15),15, ' ') //05 Bairro
+	
+	retornaSoNumeros.Call(FilCep, &SoNumero)
+	&ArquivoTXT += PadL(Substr(trim(&SoNumero),1,8),8, '0') //06 CEP
+	
+	&ArquivoTXT += PadR(Substr(trim(FilCon),1,28),28, ' ') //07 nome Contato
+	
+	retornaSoNumeros.Call(FilFonNum, &SoNumero)
+	&ArquivoTXT += PadL(Substr(trim(&SoNumero),1,12),12, '0') //08 Telefone
+	
+	do 'GravaLinha'
+	
+	Exit
+EndFor
+	
+
+//###-------- REGISTRO TIPO 50
+&AuxNfeCfoCod = ''
+&AuxNfeCod = 0
+&TotalRegistro90 = 0
+&TotalRegistro50 = 0
+For Each Order EmpCod, FilCod, NfeDtaFat, NfeCod, NfeCfoCod 
+	
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms 
+	//Where not ModCod in ('7','8','9','10','11','57') //Nao pode Conhecimentos de Transportes. Somente Notas Fiscais
+	//Where (NfeSts = Status_NFe.Autorizada )	or (NfeSts <> Status_NFe.Digitando and &SomenteAutorizadas = Status_SimNao.Nao)
+	Where ModCod = '55' //or ModCod = '65'
+	Where NfeProTer = &NfeProTer or (&NfeProTer.IsEmpty() and (NfeProTer = Nota_ProPriaTerceira.PROPRIA or NfeProTer = Nota_ProPriaTerceira.TERCEIROS)) //Notas Propria/Terceiro
+	Where NfeNum <> 0
+	Where NfeSts <> Status_NFe.Digitando or NfeProTer <> Nota_ProPriaTerceira.PROPRIA
+	
+	if &AuxNfeCfoCod <> NfeCfoCod or &AuxNfeCod <> NfeCod
+		
+		&TotalRegistro50 += 1
+		
+		&ArquivoTXT = '50' //01 Tipo ICMS
+		
+		If NfeCliTipPes = TipoPessoa.JURIDICA
+			retornaSoNumeros.Call(NfeCliCnpj, &SoNumero)
+		Else
+			retornaSoNumeros.Call(NfeCliCpf, &SoNumero)
+		EndIF
+		&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+		
+		retornaSoNumeros.Call(NfeCliIns, &SoNumero)
+		if &SoNumero.IsEmpty()
+			&ArquivoTXT += 'ISENTO' + space(8) //03 Inscrição estadual 
+		Else
+			&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+		EndIF
+		
+		&dia = day(NfeDtaFat)
+		&mes = month(NfeDtaFat)
+		&Ano = year(NfeDtaFat)
+			
+		&ArquivoTXT += ToFormattedString(&Ano)+ ToFormattedString(&mes) + ToFormattedString(&dia) //04 Data de Emissao ou recebimento
+		
+		&ArquivoTXT += NfeCliCidUF //05 UF
+		&ArquivoTXT += padL(trim(ModCod),2,'0') //06 modelo
+		&ArquivoTXT += padr(trim(NfeSer),3,' ') //07 serie
+		&ArquivoTXT += padL(Substr(trim(str(NfeNum)),1,6),6,'0') //08 Numero
+		
+		retornaSoNumeros.Call(NfeCfoCod, &SoNumero)
+		&ArquivoTXT += &SoNumero //09 CFOP
+		&ArquivoTXT += NfeProTer //10 Emitente
+		
+		TotalizaIcmsPorCfop.Call(EmpCod, FilCod, NfeCod, NfeCfoCod, &NfeVlrTot, &NfeProbasIcms, &NfeProVlrIcms, &NfeProTaxIcms)
+		
+		&NumericoInteiro = &NfeVlrTot * 100
+		&ArquivoTXT += ToFormattedString(&NumericoInteiro) //11 Valor Total
+		
+		&NumericoInteiro = &NfeProbasIcms * 100
+		&ArquivoTXT += ToFormattedString(&NumericoInteiro) //12 Base de Calculo ICMS
+		
+		&NumericoInteiro = &NfeProVlrIcms * 100
+		&ArquivoTXT += ToFormattedString(&NumericoInteiro) //13 Valor ICMS
+		
+		&NumericoInteiro = 0
+		&ArquivoTXT += ToFormattedString(&NumericoInteiro) //14 isenta ou nao tributada
+		
+		&NumericoInteiro = (&NfeVlrTot - &NfeProbasIcms) * 100
+		If &NumericoInteiro < 0
+			&NumericoInteiro = 0
+		EndIF
+		&ArquivoTXT += ToFormattedString(&NumericoInteiro) //15 outras
+		
+		&Taxa = &NfeProTaxIcms * 100
+		&ArquivoTXT += ToFormattedString(&Taxa) //16 aliquota
+		
+		Do Case
+			Case NfeSts = Status_NFe.Autorizada
+				&ArquivoTXT += 'N' //17 situacao
+			Case NfeSts = Status_NFe.Cancelada
+				&ArquivoTXT += 'S' //17 situacao
+			Case NfeSts = Status_NFe.Denegada
+				&ArquivoTXT += '2' //17 situacao
+			Case NfeSts = Status_NFe.Inutilizada
+				&ArquivoTXT += '4' //17 situacao
+		EndCAse
+		
+		do 'GravaLinha'
+		
+		&AuxNfeCfoCod = NfeCfoCod
+		&AuxNfeCod = NfeCod
+	EndIF
+EndFor
+
+If &TotalRegistro50 > 0
+	&TotalRegistro90 += 1
+EndIF
+
+//###-------- REGISTRO TIPO 53
+//if &NfeProTer = Nota_ProPriaTerceira.PROPRIA or &NfeProTer.IsEmpty()
+	&AuxNfeCfoCod = ''
+	&AuxNfeCod = 0
+	
+	&TotalRegistro53 = 0
+	For Each Order EmpCod, FilCod, NfeDtaFat, NfeCod, NfeCfoCod
+		
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms
+		//Where not ModCod in ('7','8','9','10','11','57') //Nao pode Conhecimentos de Transportes. Somente Notas Fiscais
+		//Where (NfeSts = Status_NFe.Autorizada )	or (NfeSts <> Status_NFe.Digitando and &SomenteAutorizadas = Status_SimNao.Nao and ModCod = '55')
+		Where ModCod = '55' //or ModCod = '65'
+		Where NfeProTer = &NfeProTer or (&NfeProTer.IsEmpty() and (NfeProTer = Nota_ProPriaTerceira.PROPRIA or NfeProTer = Nota_ProPriaTerceira.TERCEIROS))
+		Where NfeNum <> 0
+		Where NfeProVlrImcsSt > 0
+		Where NfeSts <> Status_NFe.Digitando or NfeProTer <> Nota_ProPriaTerceira.PROPRIA
+		
+		if &AuxNfeCfoCod <> NfeCfoCod or &AuxNfeCod <> NfeCod
+			
+			&TotalRegistro53 += 1
+			
+			&ArquivoTXT = '53' //01 Tipo ICMS S.T.
+			
+			If NfeCliTipPes = TipoPessoa.JURIDICA
+				retornaSoNumeros.Call(NfeCliCnpj, &SoNumero)
+			Else
+				retornaSoNumeros.Call(NfeCliCpf, &SoNumero)
+			EndIF
+			&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+			
+			retornaSoNumeros.Call(NfeCliIns, &SoNumero)
+			if &SoNumero.IsEmpty()
+				&ArquivoTXT += 'ISENTO' + space(8) //03 Inscrição estadual 
+			Else
+				&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+			EndIF
+			
+
+			&dia = day(NfeDtaFat)
+			&mes = month(NfeDtaFat)
+			&Ano = year(NfeDtaFat)
+
+			&ArquivoTXT += ToFormattedString(&Ano)+ ToFormattedString(&mes) + ToFormattedString(&dia) //04 Data de Emissao ou recebimento
+			
+			&ArquivoTXT += NfeCliCidUF //05 UF
+			&ArquivoTXT += padL(trim(ModCod),2,'0') //06 modelo
+			&ArquivoTXT += padr(trim(NfeSer),3,' ') //07 serie
+			&ArquivoTXT += padL(Substr(trim(str(NfeNum)),1,6),6,'0') //08 Numero
+			
+			retornaSoNumeros.Call(NfeCfoCod, &SoNumero)
+			&ArquivoTXT += &SoNumero //09 CFOP
+			&ArquivoTXT += NfeProTer //10 Emitente
+			
+			TotalizaIcmsSTporCfop.Call(EmpCod, FilCod, NfeCod, NfeCfoCod, &NfeVlrTot, &NfeProbasIcms, &NfeProVlrIcms, &NfeProTaxIcms)
+			
+			&NumericoInteiro = &NfeProbasIcms * 100
+			&ArquivoTXT += ToFormattedString(&NumericoInteiro) //11 Base de Cálculo do ICMS ST
+			
+			&NumericoInteiro = &NfeProVlrIcms * 100
+			&ArquivoTXT += ToFormattedString(&NumericoInteiro) //12 ICMS retido
+			
+			&NumericoInteiro = 0
+			&ArquivoTXT += ToFormattedString(&NumericoInteiro) //13 Despesas Acessórias
+			
+			Do Case
+				Case NfeSts = Status_NFe.Autorizada
+					&ArquivoTXT += 'N' //14 situacao
+				Case NfeSts = Status_NFe.Cancelada
+					&ArquivoTXT += 'S' //14 situacao
+				Case NfeSts = Status_NFe.Denegada
+					&ArquivoTXT += '2' //14 situacao
+				Case NfeSts = Status_NFe.Inutilizada
+					&ArquivoTXT += '4' //14 situacao
+			EndCAse
+			
+			&ArquivoTXT += ' ' //15  Código da antecipação 
+			&ArquivoTXT += space(29) //16 Brancos
+			do 'GravaLinha'
+			
+			&AuxNfeCfoCod = NfeCfoCod
+			&AuxNfeCod = NfeCod
+		EndIF
+	EndFor
+	
+	If &TotalRegistro53 > 0
+		&TotalRegistro90 += 1
+	EndiF
+//Endif
+
+if &NfeProTer = Nota_ProPriaTerceira.PROPRIA or &NfeProTer.IsEmpty()
+	//###-------- REGISTRO TIPO 54
+	&TotalRegistro54 = 0
+	For Each Order EmpCod, FilCod, NfeCod, NfeItmCod 	
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms
+		//Where not ModCod in ('7','8','9','10','11','57') //Nao pode Conhecimentos de Transportes. Somente Notas Fiscais
+		//Where (NfeSts = Status_NFe.Autorizada )	or (NfeSts <> Status_NFe.Digitando and &SomenteAutorizadas = Status_SimNao.Nao and ModCod = '55')
+		Where ModCod = '55' //or ModCod = '65'
+		Where NfeProTer = Nota_ProPriaTerceira.PROPRIA //&NfeProTer or &NfeProTer.IsEmpty() //Notas Propria/Terceiro
+		Where NfeNum <> 0
+		Where NfeProQtd > 0 and NfeProVlrUnt > 0
+		Where NfeSts <> Status_NFe.Digitando or NfeProTer <> Nota_ProPriaTerceira.PROPRIA
+		
+		&TotalRegistro54 += 1
+		
+		&ArquivoTXT = '54' //01 Tipo PRODUTOS
+		
+		If NfeCliTipPes = TipoPessoa.JURIDICA
+			retornaSoNumeros.Call(NfeCliCnpj, &SoNumero)
+		Else
+			retornaSoNumeros.Call(NfeCliCpf, &SoNumero)
+		EndIF
+		&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ
+		
+		&ArquivoTXT += padL(trim(ModCod),2,'0') //03 modelo
+		&ArquivoTXT += padr(trim(NfeSer),3,' ') //04 serie
+		&ArquivoTXT += padL(Substr(trim(str(NfeNum)),1,6),6,'0') //05 Numero
+		
+		retornaSoNumeros.Call(NfeCfoCod, &SoNumero)
+		&ArquivoTXT += &SoNumero //06 CFOP
+		
+		&ArquivoTXT += padL(trim(NfeSitCod), 3, '0') //07 CST
+		&ArquivoTXT += padL(trim(str(NfeItmCod)), 3, '0') //08 Ordem na NFe
+		&ArquivoTXT += padL(trim(SubStr(NfeProGraRef, 1, 14)), 14, '0') //09 Produto Codigo
+		
+		&Quantidade = round(NfeProQtd, 3)
+		
+		&NumericoInteiro11 = &Quantidade * 1000
+		&ArquivoTXT += toformattedString(&NumericoInteiro11) //10 Quantidade
+		
+		&NumericoInteiro12 = NfeProVlrTot * 100
+		&ArquivoTXT += toformattedString(&NumericoInteiro12) //11 valor Produto
+		
+		&NumericoInteiro12 = NfeProVlrDsc * 100
+		&ArquivoTXT += toformattedString(&NumericoInteiro12) //12 Valor do Desconto
+		
+		&NfeProbasIcms = 0
+		If NfeProVlrIcms > 0
+			&NfeProbasIcms = NfeProBasIcms
+		EndIF
+		&NumericoInteiro12 = &NfeProbasIcms * 100
+		&ArquivoTXT += toformattedString(&NumericoInteiro12) //13 Base de Calculo Icms
+		
+		&NfeProbasIcms = 0
+		If NfeProVlrImcsSt > 0
+			&NfeProbasIcms = NfeProBasIcmsSt
+		EndIF
+		&NumericoInteiro12 = &NfeProbasIcms * 100
+		&ArquivoTXT += toformattedString(&NumericoInteiro12) //14 base de calculo Icms S.T
+		
+		&NumericoInteiro12 = NfeProVlrIpi * 100
+		&ArquivoTXT += toformattedString(&NumericoInteiro12) //15 Valor do IPI
+		
+		&NfeProTaxIcms = 0
+		if NfeProBasIcms > 0 and NfeProVlrIcms > 0
+			&NfeProTaxIcms = round((NfeProVlrIcms * 100) / NfeProBasIcms, 0)
+		EndIF
+		&Taxa = &NfeProTaxIcms * 100
+		&ArquivoTXT += toformattedString(&Taxa) //16 Aliquota do ICMS
+		
+		do 'gravaLinha'
+		
+		&ProGraRef = NfeProGraRef
+		&ProNom = RetiraCaracteresEspeciais.Udp(NfeProNom)
+		&ProNom = &ProNom.Trim()
+		&EmbUnd = NfeEmbUnd.Trim()
+		do 'GravaRegistro75'
+	EndFor
+	
+	If &TotalRegistro54 > 0
+		&TotalRegistro90 += 1
+	EndiF
+Endif
+
+//TIPO 61
+//###-------- REGISTRO TIPO 61
+&TotalRegistro61 = 0
+&inicialNfeNum.SetEmpty()
+&FinalNfeNum.SetEmpty()
+&NfeVlrTot.SetEmpty()
+&NfeProbasIcms.SetEmpty()
+//&AuxData.SetEmpty()
+
+For Each Order EmpCod, FilCod, NfeDtaFat, NfeSer, NfeNum
+	
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms 
+	//Where not ModCod in ('7','8','9','10','11','57') //Nao pode Conhecimentos de Transportes. Somente Notas Fiscais
+	Where (NfeSts = Status_NFe.Autorizada)	//or (NfeSts <> Status_NFe.Digitando and &SomenteAutorizadas = Status_SimNao.Nao)
+	Where ModCod = '65' //or ModCod = '55'
+	Where NfeProTer = Nota_ProPriaTerceira.PROPRIA // or &NfeProTer.IsEmpty() //Notas Propria/Terceiro
+	Where NfeNum <> 0
+	//Where NfeSts <> Status_NFe.Digitando
+	
+//	if (&AuxData <> NfeDtaFat and not &AuxData.IsEmpty()) //and &NfeSer <> NfeSer
+//		do 'addRegistro61'
+//		
+//		&inicialNfeNum.SetEmpty()
+//		&FinalNfeNum.SetEmpty()
+//		&NfeVlrTot.SetEmpty()
+//		&NfeProbasIcms.SetEmpty()
+//	EndIF
+//	&AuxData = NfeDtaFat
+	&dia = day(NfeDtaFat)
+	&mes = month(NfeDtaFat)
+	&Ano = year(NfeDtaFat)
+		
+	&NfeNum = NfeNum
+	
+	&NfeSer = NfeSer
+	if &inicialNfeNum.IsEmpty() or &inicialNfeNum > NfeNum
+		&inicialNfeNum = NfeNum
+		
+	Endif
+	
+	if &FinalNfeNum < NfeNum or &FinalNfeNum.IsEmpty()
+		&FinalNfeNum = NfeNum
+	EndIf	
+	
+	&NfeVlrTot 		+= (NfeProVlrTot + NfeProVlrImcsSt + NfeProVlrIpi + NfeProVlrFrt + NfeProVlrPIS + NfeproVlrCofins + NfeProVlrOutDsp) - NfeProVlrDsc
+	&NfeProbasIcms  +=  (NfeProVlrTot + NfeProVlrImcsSt + NfeProVlrIpi + NfeProVlrFrt + NfeProVlrPIS + NfeproVlrCofins + NfeProVlrOutDsp) - NfeProVlrDsc
+	
+EndFor
+
+if &NfeVlrTot > 0
+	do 'addRegistro61'
+Endif
+//TIPO 61
+
+//TIPO 61R
+//###-------- REGISTRO TIPO 61R
+&NfeVlrTot.SetEmpty()
+&AuxNfeProGraRef.SetEmpty()
+&NfeProbasIcms = 0
+&NfeProQtd = 0
+
+&TotalRegistro61R = 0
+For Each Order EmpCod, FilCod, NfeProCod, NfeProGraCod 	
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where NfeDtaFat >= &iniNfeDtaEms and NfeDtaFat <= &finNfeDtaEms 
+	//Where not ModCod in ('7','8','9','10','11','57') //Nao pode Conhecimentos de Transportes. Somente Notas Fiscais
+	Where (NfeSts = Status_NFe.Autorizada )	//or (NfeSts <> Status_NFe.Digitando and &SomenteAutorizadas = Status_SimNao.Nao)
+	Where ModCod = '65' //or ModCod = '55'
+	Where NfeProTer = Nota_ProPriaTerceira.PROPRIA // &NfeProTer or &NfeProTer.IsEmpty() //Notas Propria/Terceiro
+	Where NfeNum <> 0
+		
+	if &AuxNfeProGraRef <> NfeProGraRef and &AuxNfeProGraRef <> '' and &NfeVlrTot > 0 and &NfeProQtd > 0
+		do 'GravaLinhaRegistro61R'
+		
+		&NfeProbasIcms = 0
+		&NfeVlrTot = 0
+		&NfeProQtd = 0
+	EndIF
+
+	&dia = day(NfeDtaFat)
+	&mes = month(NfeDtaFat)
+	&Ano = year(NfeDtaFat)
+	
+	&NfeVlrTot 		+= (NfeProVlrTot + NfeProVlrImcsSt + NfeProVlrIpi + NfeProVlrFrt + NfeProVlrPIS + NfeproVlrCofins + NfeProVlrOutDsp) - NfeProVlrDsc
+	&NfeProbasIcms  +=  (NfeProVlrTot + NfeProVlrImcsSt + NfeProVlrIpi + NfeProVlrFrt + NfeProVlrPIS + NfeproVlrCofins + NfeProVlrOutDsp) - NfeProVlrDsc
+	
+	&NfeProQtd += NfeProQtd
+	
+	&AuxNfeProGraRef = NfeProGraRef
+	&ProGraRef = NfeProGraRef
+	&ProNom = RetiraCaracteresEspeciais.Udp(NfeProNom)
+	&ProNom = &ProNom.Trim()
+	&EmbUnd = NfeEmbUnd.Trim()
+EndFor
+
+if  &AuxNfeProGraRef <> '' and &NfeVlrTot > 0 and &NfeProQtd > 0
+	do 'GravaLinhaRegistro61R'
+EndIf
+
+&TotalRegistro61R += &TotalRegistro61 
+If &TotalRegistro61R > 0
+	&TotalRegistro90 += 1
+EndiF
+//TIPO 61R
+
+
+&TotalRegistro70 = 0
+if &NotasTransporte = Status_SimNao.Sim //Pegar da Tabela CTe
+	
+	//###-------- REGISTRO TIPO 70
+	For Each Order EmpCod, FilCod, CteDtaEms,CteModCod, CteNum
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where CteDtaEms >= &iniNfeDtaEms and CteDtaEms <= &finNfeDtaEms
+		Where CteNum <> 0
+		//Where (CteSts = Status_NFe.Autorizada )	or (CteSts <> Status_NFe.Digitando and &SomenteAutorizadas = Status_SimNao.Nao and CteModCod = '57')
+		Where CteModCod in ('7','8','9','10','11','57','67')
+		
+		
+		&TotalRegistro70 += 1
+		
+		&ArquivoTXT = '70' //01 Tipo PRODUTOS
+		
+	
+		retornaSoNumeros.Call(FilCpj, &SoNumero)
+		&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ
+		retornaSoNumeros.Call(FilInsEst, &SoNumero)
+		if &SoNumero.IsEmpty()
+			&ArquivoTXT += 'ISENTO' + space(8) //03 Inscrição estadual
+		Else
+			&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual
+		EndIF
+		
+		&dia = day(CteDtaEms)
+		&mes = month(CteDtaEms)
+		&Ano = year(CteDtaEms)
+		&ArquivoTXT += ToFormattedString(&Ano)+ ToFormattedString(&mes) + ToFormattedString(&dia) //04 Data de emissão/ utilização 
+		
+		&ArquivoTXT += padL(FilCidUfeCod, 2, ' ') //05 Unidade da Federação
+		&ArquivoTXT += padL(trim(CteModCod),2,'0') //06 Modelo
+		&ArquivoTXT += padR(str(CteSer),3,' ') //07 Série  //08 Subsérie 
+		&ArquivoTXT += padL(Substr(trim(str(CteNum)),1,6),6,'0')//09 Número 
+		
+		retornaSoNumeros.Call(CteCfop, &SoNumero)
+		&ArquivoTXT += &SoNumero //10 CFOP
+		
+		&NumericoInteiro13 = CteVlrTotPreSer
+		&ArquivoTXT += toformattedString(&NumericoInteiro13) //11 Valor total do documento fiscal
+		
+		&NumericoInteiro14 = 0 //FrtBasCal * 100
+		&ArquivoTXT += padL(toformattedString(&NumericoInteiro14),14,'0')  //12 Base de Cálculo do ICMS
+		
+		&NumericoInteiro14 = 0//FrtVlrImp * 100
+		&ArquivoTXT += padL(toformattedString(&NumericoInteiro14),14,'0') //13 Valor do ICMS 
+		
+		&ArquivoTXT += '00000000000000' //14 Isenta ou não tributada
+		&ArquivoTXT += '00000000000000' //15 Outras 
+		&ArquivoTXT += '0'		
+		&ArquivoTXT += 'N' //17 Situação 
+		
+		do 'gravaLinha'
+	EndFor
+EndIf
+
+If &TotalRegistro70 > 0
+	&TotalRegistro90 += 1
+EndIf
+
+
+&TotalRegistro74 = 0
+If &RegistroInventario = Status_SimNao.Sim
+	//###-------- REGISTRO TIPO 74 (OPCIONAL)
+	
+	For Each Order EmpCod, FilCod, EstTipCod, EstTipAno, EstTipMes, ProCod, ProGraCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where EstTipCod = 1 //ESTOQUE GERENCIAL 1 / ESTOQUE FISCAL 3 , por hora usa o ESTOQUE 1 JDF
+		Where EstTipAno = &SintegraAno
+		Where EstTipMes = &SintegraMes
+		Where EstTipQtd > 0
+		Where EstTipCus > 0
+		Where ProSts = Status_Produto.ATIVO
+				
+		&TotalRegistro74 += 1
+		&ArquivoTXT =  '74'         //01 Tipo "74"
+		
+		&ArquivoTXT += &FinalData   //02 Data do Inventário  Data do Inventário no formato AAAAMMDD
+		&ArquivoTXT += padl(trim(ProGraRef),14,'0') //03 Código do Produto 
+		
+		&NumericoInteiro13 = round(EstTipQtd, 3) * 1000
+		&ArquivoTXT += toformattedString(&NumericoInteiro13) //04 Quantidade
+		
+		&NumericoInteiro13 = round(EstTipCus, 3) * 100
+		&ArquivoTXT += toformattedString(&NumericoInteiro13) //05 Valor do Produto 
+		
+		&ArquivoTXT += '1' //06 Código de Posse das Mercadorias Inventarias
+		&ArquivoTXT += '00000000000000' //07 CNPJ doPossuidor /Proprietário 
+		&ArquivoTXT += space(14) //08 Inscrição Estadual do Possuidor / Proprietário 
+		
+		&ArquivoTXT += FilCidUfeCod //09 UF do Possuidor/ Proprietário  
+		&ArquivoTXT += space(45)//10 Brancos
+		
+		do 'gravaLinha'
+		
+		&ProGraRef = ProGraRef.Trim()
+		&ProNom = RetiraCaracteresEspeciais.Udp(ProNom)
+		&ProNom = &ProNom.Trim()
+		&EmbUnd = ProEmbUnd.Trim()
+		do 'GravaRegistro75'
+		
+	EndFor
+EndIf
+
+If &TotalRegistro74 > 0
+	&TotalRegistro90 += 1
+EndiF
+
+//###-------- REGISTRO TIPO 75
+&TotalRegistro75 = 0
+For &sdtRegistro75Item in &sdtRegistro75
+	
+	&TotalRegistro75 += 1
+	
+	&ArquivoTXT = '75'
+	&ArquivoTXT += &sdtRegistro75Item.DataInicial //02 Data Inicial 
+	&ArquivoTXT += &sdtRegistro75Item.DataFinal //03 Data Fina
+	&ArquivoTXT += padL(trim(&sdtRegistro75Item.ProGraRef), 14, '0') //04 Código da Mercadoria/Produto 
+	&ArquivoTXT += &sdtRegistro75Item.NcmCod //05 Código NCM
+	&ProdutoNome = strReplace(strReplace(&sdtRegistro75Item.ProNom, chr(13), ""), chr(10), "")
+	&ArquivoTXT += PadR(Substr(trim(&ProdutoNome), 1, 53), 53, ' ') //06 Descrição 
+	&ArquivoTXT += PadR(&sdtRegistro75Item.EmbUnd, 6, ' ') //07 Unidade de Medida de Comercialização U
+	&ArquivoTXT += &sdtRegistro75Item.AliqIpi //08 Alíquota do IPI 
+	&ArquivoTXT += &sdtRegistro75Item.AliqIcms //09 Alíquota do ICMS 
+	&ArquivoTXT += &sdtRegistro75Item.RedIcms //10 Redução da Base de Cálculo do ICMS 
+	&ArquivoTXT += &sdtRegistro75Item.BaseIcmsST //11 Base de Cálculo do ICMS de Substituição Tributária
+	
+	do 'gravaLinha'
+EndFor
+
+If &TotalRegistro75 > 0
+	&TotalRegistro90 += 1
+EndiF
+
+//###-------- REGISTRO TIPO 90
+&TotalRegistro90 += 1
+
+if &TotalRegistro50 > 0
+	
+	&ArquivoTXT = '90' //01 Tipo 
+	
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '50' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro50) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	
+	do 'gravaLinha'
+EndIf
+
+If &TotalRegistro53 > 0	
+	
+	&ArquivoTXT = '90' //01 Tipo 
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '53' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro53) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	do 'gravaLinha'	
+EndIF
+
+If &TotalRegistro54 > 0	
+	
+	&ArquivoTXT = '90' //01 Tipo 
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '54' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro54) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	do 'gravaLinha'	
+EndIF
+
+if &TotalRegistro61R > 0
+	
+	&ArquivoTXT = '90' //01 Tipo 
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '61' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro61R) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	do 'gravaLinha'	
+EndIf
+
+If &TotalRegistro70 > 0	
+	
+	&ArquivoTXT = '90' //01 Tipo 
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '70' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro70) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	do 'gravaLinha'	
+EndIF
+
+If &TotalRegistro74 > 0		
+	&ArquivoTXT = '90' //01 Tipo 
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '74' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro74) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	do 'gravaLinha'	
+EndIF
+
+If &TotalRegistro75 > 0	
+	
+	&ArquivoTXT = '90' //01 Tipo 
+	retornaSoNumeros.Call(&FilCpj, &SoNumero)
+	&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+	
+	retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+	&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+	
+	&ArquivoTXT += '75' //04 Tipo a ser totalizado 
+	&ArquivoTXT += toformattedString(&TotalRegistro75) //05 Total de registros 
+	&ArquivoTXT += Space(85)
+	&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+	
+	do 'gravaLinha'	
+EndIF
+
+&TotalRegistro99 = 2 + &TotalRegistro50 + &TotalRegistro53 + &TotalRegistro54 + &TotalRegistro61R + &TotalRegistro70 + &TotalRegistro74 + &TotalRegistro75 + &TotalRegistro90
+
+&ArquivoTXT = '90' //01 Tipo 
+retornaSoNumeros.Call(&FilCpj, &SoNumero)
+&ArquivoTXT += PadL(substr(&SoNumero,1,14),14,'0') //02 CNPJ 
+
+retornaSoNumeros.Call(&FilInsEst, &SoNumero)
+&ArquivoTXT += PadR(substr(&SoNumero,1,14),14,' ') //03 Inscrição estadual 
+
+&ArquivoTXT += '99' //04 Tipo a ser totalizado 
+&ArquivoTXT += toformattedString(&TotalRegistro99) //05 Total de registros 
+&ArquivoTXT += Space(85)
+&ArquivoTXT += toformattedString(&TotalRegistro90) //06 Número de registros tipo 90
+
+do 'gravaLinha'	
+&Resultado = dfwclose()
+
+	
+sub 'GravaRegistro75'
+	&IsAchou75 = false
+	For &sdtRegistro75Item in &sdtRegistro75
+		If &sdtRegistro75Item.ProGraRef = &ProGraRef
+			&IsAchou75 = true
+			&sdtRegistro75Item.ProNom = substr(trim(&ProNom), 1, 53)
+			&sdtRegistro75Item.EmbUnd = &EmbUnd
+			Exit
+		EndIf
+	EndFor
+
+	If &IsAchou75 = false
+		&sdtRegistro75Item = new()
+		&sdtRegistro75Item.DataInicial = '20060101'
+		&sdtRegistro75Item.DataFinal = &FinalData
+		&sdtRegistro75Item.ProGraRef = &ProGraRef
+		&sdtRegistro75Item.NcmCod = space(8)
+		&sdtRegistro75Item.ProNom = substr(trim(&ProNom), 1, 53)
+		&sdtRegistro75Item.EmbUnd = &EmbUnd
+		&sdtRegistro75Item.AliqIpi 		= '00000'
+		&sdtRegistro75Item.AliqIcms 	= '0000'
+		&sdtRegistro75Item.RedIcms 		= '00000'
+		&sdtRegistro75Item.BaseIcmsST 	= '0000000000000'
+		&sdtRegistro75.Add(&sdtRegistro75Item)
+		
+	EndIF
+EndSUb
+
+Sub 'GravaLinha'
+	&Resultado=  dfwptxt(&ArquivoTXT,126)
+    &Resultado = dfwnext()
+EndSub
+
+Sub 'addRegistro61'
+	
+	&TotalRegistro61 += 1
+	
+	&ArquivoTXT = '61' //01 Tipo ICMS
+	&ArquivoTXT += space(14) //02 CNPJ 
+	&ArquivoTXT += space(14) //03 Inscrição estadual 
+	
+	&ArquivoTXT += ToFormattedString(&Ano)+ ToFormattedString(&mes) + ToFormattedString(&dia) //04 Data de Emissao ou recebimento
+	&ArquivoTXT += '65' //06 modelo
+	&ArquivoTXT += '   ' //07 serie
+	&ArquivoTXT += '  '
+	
+//	&ArquivoTXT += padL(Substr(trim(str(&inicialNfeNum)),1,6),6,'0') //08 Numero
+
+	&varchar = padL(trim(str(&inicialNfeNum)), 6, '0')
+	&ArquivoTXT += &varchar //08 Inicial
+	
+	&varchar = padL(trim(str(&FinalNfeNum)), 6, '0')
+	&ArquivoTXT += &varchar //09 Final
+	
+	&NumericoInteiro13 = &NfeVlrTot * 100
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro13) //10 Valor Total
+	
+	&NumericoInteiro13 = &NfeProbasIcms * 100
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro13) //11 Base de Calculo ICMS
+	
+	&NumericoInteiro12 = 0
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro12) //12 Valor ICMS
+	
+	&NumericoInteiro13 = 0
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro13) //13 isenta ou nao tributada
+	
+	&NumericoInteiro13 = (&NfeVlrTot - &NfeProbasIcms) * 100
+	If &NumericoInteiro13 < 0
+		&NumericoInteiro13 = 0
+	EndIF
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro13) //14 outras
+	
+	&Taxa = 0
+	&ArquivoTXT += ToFormattedString(&Taxa) //15 aliquota
+	&ArquivoTXT += ' '
+	
+	do 'GravaLinha'
+EndSub
+
+Sub 'GravaLinhaRegistro61R'	
+	&TotalRegistro61R += 1
+	
+	&ArquivoTXT = '61' //01 Tipo ICMS
+	&ArquivoTXT += 'R'
+	
+	&ArquivoTXT += ToFormattedString(&mes) + ToFormattedString(&Ano)//+ ToFormattedString(&dia) //04 Data de Emissao ou recebimento
+	
+	&ArquivoTXT += padL(trim(&AuxNfeProGraRef), 14, '0')
+	
+	&NumericoInteiro = &NfeProQtd * 1000
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro)
+		
+	&NumericoInteiro16 = &NfeVlrTot * 100
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro16) //11 Valor Total
+	
+	&NumericoInteiro16 = &NfeProbasIcms * 100
+	&ArquivoTXT += ToFormattedString(&NumericoInteiro16) //12 Base de Calculo ICMS
+	
+	&ArquivoTXT += '0000' //ALIQUOTA
+	&ArquivoTXT += Space(54)
+	
+	do 'GravaLinha'	
+	do 'GravaRegistro75'
+EndSUb
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&iniNfeDtaEms, in:&finNfeDtaEms, in:&RegistroInventario, in:&NotasTransporte, in:&Finalidade, in:&NfeProTer, in:&AuxNomeArquivo);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="NfeVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeVlrTot</Value></Property><Property><Name>Description</Name><Value>Total Nfe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoTXT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoTXT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>50000</Value></Property><Property><Name>AttMaxLen</Name><Value>50000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNfeCfoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNfeCfoCod</Value></Property><Property><Name>Description</Name><Value>Cfop</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCfoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CodigoConvenio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CodigoConvenio</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dia</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinalData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinalData</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Finalidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Finalidade</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="InicialData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>InicialData</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property><Property><Name>ControlValues</Name><Value>Janeiro:1,Feveiro:2,Março:3,Abril:4,Maio:5,Junho:6,Julho:7,Agosto:8,Setembro:9,Outubro:10,Novembro:11,Dezembro:12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProbasIcms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProbasIcms</Value></Property><Property><Name>Description</Name><Value>Base Icms</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProBasIcms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProTaxIcms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProTaxIcms</Value></Property><Property><Name>Description</Name><Value>Taxa ICMS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProTaxIcms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProTer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProTer</Value></Property><Property><Name>Description</Name><Value>Propria/Terceira</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProTer</Value></Property><Property><Name>AddEmptyItem</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProVlrIcms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProVlrIcms</Value></Property><Property><Name>Description</Name><Value>Unitario ICMS</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProVlrIcms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NotasTransporte">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NotasTransporte</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumericoInteiro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericoInteiro</Value></Property><Property><Name>Length</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>13</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RegistroInventario">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RegistroInventario</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Resultado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Resultado</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SoNumero">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SoNumero</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Taxa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Taxa</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="TipoConvenio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoConvenio</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Quantidade">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Quantidade</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>12</Value></Property><Property><Name>Decimals</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>12</Value></Property><Property><Name>AttAvgLen</Name><Value>3</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="NumericoInteiro11">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericoInteiro11</Value></Property><Property><Name>Length</Name><Value>11</Value></Property><Property><Name>AttMaxLen</Name><Value>11</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumericoInteiro12">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericoInteiro12</Value></Property><Property><Name>Length</Name><Value>12</Value></Property><Property><Name>AttMaxLen</Name><Value>12</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumericoInteiro13">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericoInteiro13</Value></Property><Property><Name>Length</Name><Value>13</Value></Property><Property><Name>AttMaxLen</Name><Value>13</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SintegraAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SintegraAno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SintegraMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SintegraMes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRegistro75Item">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRegistro75Item</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRegistro75.sdtRegistro75Item</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtRegistro75">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtRegistro75</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtRegistro75</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou75">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou75</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProNom</Value></Property><Property><Name>Description</Name><Value>Produto Descrição</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmbUnd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmbUnd</Value></Property><Property><Name>Description</Name><Value>Und.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmbUnd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilInsEst">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilInsEst</Value></Property><Property><Name>Description</Name><Value>Filial Inscricao Estadual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilInsEst</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro50">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro50</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro90">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro90</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro53">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro53</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro54">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro54</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro70">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro70</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro74">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro74</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro75">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro75</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro99">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro99</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumericoInteiro14">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericoInteiro14</Value></Property><Property><Name>Length</Name><Value>14</Value></Property><Property><Name>AttMaxLen</Name><Value>14</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeProQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeProQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>Length</Name><Value>13</Value></Property><Property><Name>Decimals</Name><Value>3</Value></Property><Property><Name>AttMaxLen</Name><Value>13</Value></Property><Property><Name>AttAvgLen</Name><Value>3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNfeProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNfeProGraRef</Value></Property><Property><Name>Description</Name><Value>Cod.Ref</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NumericoInteiro16">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NumericoInteiro16</Value></Property><Property><Name>Length</Name><Value>16</Value></Property><Property><Name>AttMaxLen</Name><Value>16</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro61R">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro61R</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalRegistro61">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalRegistro61</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property><Property><Name>idNUMNUMBERS</Name><Value>idNUMNUMBERS_ZERO</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Data">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Data</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inicialNfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inicialNfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinalNfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinalNfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeNum</Value></Property><Property><Name>Description</Name><Value>Número NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeSer</Value></Property><Property><Name>Description</Name><Value>Serie</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProdutoNome">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProdutoNome</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:NomeGrande100</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraArquivoSintegraNovo</Value></Property><Property><Name>Description</Name><Value>Gera Arquivo Sintegra Novo</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

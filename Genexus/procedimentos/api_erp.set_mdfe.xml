@@ -1,0 +1,1037 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="187a4a7f-bd09-43ed-b6cc-bb45b7f907fc" user="WINJEAN\jeanfae" versionDate="2025-06-16T20:01:29.0000000Z" lastUpdate="2025-06-16T13:13:12.0000000Z" checksum="8e11600bc9002025cffefc49e025717c" fullyQualifiedName="api_erp.set_mdfe" moduleGuid="c56b15af-cf46-41da-a1f1-2c3f6547aca4" guid="d30f44b2-f9bb-4137-96f9-809c47e8cd6e" name="set_mdfe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="set_mdfe" parent="api_erp.cte" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//verifica id da sessao.
+verificaidsessao.Call(&DevRandon, &IsAcessoConcedido, &IsAtualizaTudo, &wwpContext)
+
+if &IsAcessoConcedido = true //Acesso concedido
+	
+	&mdfecod = &parmdfecod
+	
+	if (&inSdtMdfe.sts = 'INICIO' and &MdfeCod = 0)
+		
+		&WizardData.Mdfe.EmpCod = &wwpContext.EmpCod
+		&WizardData.Mdfe.FilCod = &FilCod
+		&WizardData.Mdfe.MDFeSts = Status_Mdfe.Digitando
+		&WizardData.Mdfe.MDFeAdc = ''
+		&WizardData.Mdfe.MDFeTipEmt = &inSdtMdfe. mdfetipEmt
+		&WizardData.Mdfe.MDFeModCod = '58'
+		&WizardData.Mdfe.MDFeTipMod = TipoModalidade.Rodoviario	
+		&WizardData.Mdfe.MDFeDtaEms = Serverdate()
+		&WizardData.Mdfe.MDFeHorEms = serverTime()
+		&WizardData.Mdfe.MDFeDtaSai = Serverdate()
+		&WizardData.Mdfe.MDFeHorSai = serverTime()
+		&WizardData.Mdfe.MDFeTipTra = &inSdtMdfe.MDFeTipTra
+		
+		&WizardData.Mdfe.MDFeOriUfeCod = &inSdtMdfe.OriUfeCod
+		&WizardData.Mdfe.MDFeCarCidCod = &inSdtMdfe.OriCidCod
+		&WizardData.Mdfe.MDFeLotCarCep = &inSdtMdfe.OriCep
+		
+		&WizardData.Mdfe.MDFeDstUfeCod = &inSdtMdfe.DestUfeCod
+		&WizardData.Percurso.MDFeDesCidCod = &inSdtMdfe.DestCidCod
+		&WizardData.Mdfe.MDFeLotDesCep = &inSdtMdfe.DestCep
+		
+		GravaMDFe.Call(&wwpContext.EmpCod, &FilCod, &mdfecod, &WizardData)
+		
+		&sdtMdfe.c1 = trim(Str(&MdfeCod))
+		//agora segue para o INICIO ABAIXO
+	Endif
+
+
+	Do Case
+		
+		Case &inSdtMdfe.sts = 'AVERBAR'
+			For Each Order EmpCod, FilCod, MDFeCod
+				Where EmpCod = &wwpContext.EmpCod
+				Where FilCod = &FilCod
+				Where MDFeCod = &MDFeCod
+								
+				&SdtAtm.codigoatm = FilAtmCod
+				&SdtAtm.senha   = FilAtmSen
+				&SdtAtm.usuario = FilAtmUsu
+				
+				&FilAtmCod = FilAtmCod
+				&FilAtmUsu = FilAtmUsu
+				&FilAtmSen = FilAtmSen
+				
+				if MDFeArqXml.IsEmpty() or MDFeArqXml.IsNull()
+					&sdtMdfe.obs = 'MDFe não possui xml, Averbação não disponível!'
+					&sdtMdfe.sts = 'E502'
+					return
+				Endif
+			
+				Exit
+			EndFor
+		
+			If not &FilAtmCod.Trim().IsEmpty() and not &FilAtmUsu.Trim().IsEmpty() and not &FilAtmSen.Trim().IsEmpty()
+				&sdtMdfe.obs = 'Não foi Possível transmitir a averbação, pois usuário e senha inválido ou documento não autorizado!'
+				&sdtMdfe.sts = 'E501'
+				return
+			EndIf
+				
+			TransmiteAverbacaoMdfe.call(&wwpContext.EmpCod,&FilCod,&MDFeCod,&SdtAtm,&IsSucesso, &erroMensagem)
+			If &IsSucesso = true
+				&sdtMdfe.sts = 'J200'
+				return
+			Else
+				&sdtMdfe.obs = &erroMensagem
+				&sdtMdfe.sts = 'E550'
+				return
+			Endif
+		
+		
+		Case &inSdtMdfe.sts = 'ENCERRAR'
+			For Each Order EmpCod, FilCod, MDFeCod
+				Where EmpCod = &wwpContext.EmpCod
+				Where FilCod = &FilCod
+				Where MDFeCod = &MDFeCod
+				
+				&MdfeChv = MDFeChv
+				&MDFeProt = MDFeProt
+				
+				Do Case
+					Case MDFeChv.IsEmpty() or MDFeChv.IsNull()
+						&sdtMdfe.obs = 'MDFe não possui a chave da MDFe, só pode cancelar uma MDFe se a Mesma Estiver Autorizada!'
+						&sdtMdfe.sts = 'E701'
+						return
+					Case MDFeProt.IsEmpty() or MDFeProt.IsNull()
+						&sdtMdfe.obs = 'MDFe não possui número do Protocolo, Consulte a MDFe no SEFAZ!'
+						&sdtMdfe.sts = 'E702'
+						return
+				EndCAse
+				Exit
+			EndFor
+		
+			&MDFeDtaEnc = serverdate()
+			&MDFeHorEnc = serverTime()
+			
+			&CidCod = &sdtMdfe.DestCidCod
+			
+			&Guid = GUID.NewGuid()
+			&ProgressId = 'autoMDFe' + trim(&Guid.ToString())
+			&ProgressId = &ProgressId.trim()
+			
+			GeraEncerramentoMDFe.Call(&wwpContext.EmpCod, &FilCod, &MdfeCod, &MDFeDtaEnc, &MDfeHorEnc, &CidCod, &wwpContext.PesCod, &SolCod)
+			RecepcaoNFe.Submit(&ProgressId, &ProgressId, &wwpContext.EmpCod, &FilCod, &MDFeCod, &SolCod)	
+			
+			&sdtMdfe.obs = &ProgressId
+			&sdtMdfe.SolCod = &SolCod
+			&sdtMdfe.sts = 'J200'
+			return
+			
+		Case &inSdtMdfe.sts = 'CANCELAR'
+			&xJust = &inSdtMdfe.obs.Trim()
+			For Each Order EmpCod, FilCod, MDFeCod
+				Where EmpCod = &wwpContext.EmpCod
+				Where FilCod = &FilCod
+				Where MDFeCod = &MDFeCod
+				
+				Do Case
+					Case MDFeChv.IsEmpty() or MDFeChv.IsNull()
+						&sdtMdfe.obs = 'MDFe não possui a chave da MDFe, só pode cancelar uma MDFe se a Mesma Estiver Autorizada!'
+						&sdtMdfe.sts = 'E701'
+						return
+					Case MDFeProt.IsEmpty() or MDFeProt.IsNull()
+						&sdtMdfe.obs = 'MDFe não possui número do Protocolo, Consulte a MDFe no SEFAZ!'
+						&sdtMdfe.sts = 'E702'
+						return
+				EndCAse
+				Exit
+			EndFor
+			
+			&Tamanho = len(&xJust)
+			if &tamanho < 15 or &tamanho > 255
+				&sdtMdfe.obs = 'Tamanho da justificativa tem que ficar entre 15 e 255'
+				&sdtMdfe.sts = 'E704'
+				return
+			else
+				For &Posicao = 1 to &Tamanho
+					if (substr(&xJust,&Posicao,1) < ' '  or (substr(&xJust,&Posicao,1) > 'z'  ))
+						&sdtMdfe.obs = 'Caracter especial: ('+  substr(&xJust,&Posicao,1) + '), Não é permitido'
+						&sdtMdfe.sts = 'E705'
+						return
+					Endif
+				EndFor
+			EndIf
+			
+			&Guid = GUID.NewGuid()
+			&ProgressId = 'autoMDFe' + trim(&Guid.ToString())
+			&ProgressId = &ProgressId.trim()
+			
+			&Datahora = serverDate()
+			GravaXmlCancelamentoMDFe.Call(&wwpContext.EmpCod, &FilCod, &MDFeCod, &xJust, &wwpContext.PesCod,&Datahora, &SolCod)
+			
+			RecepcaoNFe.Submit(&ProgressId, &ProgressId, &wwpContext.EmpCod, &FilCod, &MDFeCod, &SolCod)
+			
+			&sdtMdfe.obs = &ProgressId
+			&sdtMdfe.SolCod = &SolCod
+			&sdtMdfe.sts = 'J200'
+			return
+			
+		Case &inSdtMdfe.sts = 'CLONAR'
+			&auxFilCod.FromString(&inSdtMdfe.obs)
+			&MdfeDtaEms = serverdate()
+			ClonarMdfe.Call(&wwpContext.EmpCod, &FilCod, &MdfeCod, &auxFilCod, &MdfeDtaEms, &NewMdfeCod)
+			&sdtMdfe.sts = 'J200'
+			&sdtMdfe.c1 = trim(str(&auxFilCod))
+			&sdtMdfe.c2 = trim(str(&NewMdfeCod))
+			
+		Case &inSdtMdfe.sts = 'ENVIAREMAIL'
+			set_enviaemailMdfe.Call(&wwpContext.EmpCod, &FilCod, &MdfeCod, &wwpContext.PesCod, &inSdtMdfe, &sdtMdfe)
+			
+		CAse &inSdtMdfe.sts = 'CONSULTAR'
+			&Guid = GUID.NewGuid()
+			&ProgressId = 'autoMDFe' + trim(&Guid.ToString())
+			&ProgressId = &ProgressId.trim()
+			
+			GravaConsultaSefazMDFE.Call(&wwpContext.EmpCod, &FilCod, &MDFeCod, &wwpContext.PesCod, &SolCod)
+			
+			RecepcaoNFe.Submit(&ProgressId, &ProgressId, &wwpContext.EmpCod, &FilCod, &MDFeCod, &SolCod)
+			
+			&sdtMdfe.obs = &ProgressId
+			&sdtMdfe.SolCod = &SolCod
+			&sdtMdfe.sts = 'J200'
+			return
+			
+		CAse &inSdtMdfe.sts = 'TRANSMITIR'
+			Do 'PegaPlacaeValida'
+			If &IsMdfeAberto = True
+				&sdtMdfe.SolCod = &OldMdfeCod
+				&sdtMdfe.sts = 'E998'
+				&sdtMdfe.obs = 'Atenção exite um MDF-e com a mesma placa de veículo ('+Trim(&MDFeVeiPla)+') ainda não encerrado.'
+				return
+				//wpencerramentoMDFeTransmitir.call(&wwpContext.EmpCod,&FilCod,&MdfeCod,&MDFeVeiPla,&OldFilCod,&OldMdfeCod,&WebSessionKey)
+			Else
+				//AUTORIZAR CTE
+				&Guid = GUID.NewGuid()
+				&ProgressId = 'autoMDFe' + trim(&Guid.ToString())
+				&ProgressId = &ProgressId.trim()
+				
+				GeraXmlMdfe.Call(&wwpContext.EmpCod, &FilCod, &MDFeCod, &wwpContext.PesCod, &SolCod)
+				
+				RecepcaoNFe.Submit(&ProgressId, &ProgressId, &wwpContext.EmpCod, &FilCod, &MDFeCod, &SolCod)
+				
+				&sdtMdfe.obs = &ProgressId
+				&sdtMdfe.SolCod = &SolCod
+				&sdtMdfe.sts = 'J200'
+				return
+			Endif
+			
+		Otherwise
+			
+			For Each ORder EmpCod, FilCod, MDFeCod
+				Where EmpCod = &wwpContext.EmpCod
+				Where FilCod = &filcod
+				Where MDFeCod = &mdfecod
+				
+				Do CAse
+					
+					CAse &inSdtMdfe.sts = 'MODAL'
+						//		Do Case 
+						//		Case &MdfeTipEmt = MDFe_TipoEmitente.Prestador and (&MDFeMaxCiot = 0 AND &MdfeConCnpj.Trim().IsEmpty() AND &MdfePedCnpjFor.Trim().IsEmpty())
+						//			MSG('ATENÇÃO! Quando emitente tipo "Prestador de serviço" ao menos uma das informações é obrigatória, sendo elas o "CIOT" , "CONTRATANTE" ou "VALE-PEDÁGIO"')
+						//			//		Case &MdfeTipEmt = MDFe_TipoEmitente.Prestador and &MDFeRNTRC.Trim().IsEmpty() and &MdfeOriUfeCod <> &MdfeDstUfeCod
+						//			//			MSG('ATENÇÃO! Quando emitente tipo "Prestador de serviço" e operação interestadual RNTRC é OBRIGATÓRIO')
+						//		Case &MdfeConCnpj.Trim().IsEmpty()
+						//			Msg('ATENÇÃO! Contratante é obrigatório. Verifique')
+						//		Case &ErroCnpjCon = 1 and not &MdfeConCnpj.Trim().IsEmpty()
+						//			Msg('ATENÇÃO! CNPJ Contratante inválido. Verifique')
+						//		Case &ErroCnpjPag = 1 and not &MdfePedResPag.Trim().IsEmpty()
+						//			Msg('ATENÇÃO! CNPJ Pagador inválido. Verifique')
+						//		Case &MDFeTipMod = TipoModalidade.Rodoviario and &MdfePosVale = Status_SimNao.Sim AND &MdfeCatComVei.IsEmpty()
+						//			Msg('ATENÇÃO! Categoria de combinação veicular é obrigatório para vale pedagio = SIM!')
+						//		Case &MDFePgtFrt = Status_SimNao.Sim and &MdfePgtFrtBanCod.Trim().IsEmpty() and &MdfePgtFrtBanAge.Trim().IsEmpty() and &MdfePgtFrtBanAge.Trim().IsEmpty() and MdfePgtFrtChvPix.Trim().IsEmpty()
+						//			Msg('ATENÇÃO! Para pagamento de frete ao menos 1 das informações bancária é necessária. Verifique!')
+						//			
+						//		Case &MDFePgtFrt = Status_SimNao.Sim and &MdfePgtFrtTot <= 0
+						//			Msg('ATENÇÃO! Valor do contrato é obrigatório!')
+						//			
+						//
+						//	EndCase
+						
+					case &inSdtMdfe.sts = 'ADDCONTR' or &inSdtMdfe.sts = 'TIPPEDA' or  &inSdtMdfe.sts = 'DADOSPED' or &inSdtMdfe.sts = 'RNTRC'
+						
+						Do CAse
+							Case &inSdtMdfe.sts = 'ADDCONTR'
+								//valida cnpjs Fornecedor
+								&Cnpj = &inSdtMdfe.ConCnpj
+								validaCpfCnpj.Call(&Cnpj, &Numeric, 'N')
+								if &Numeric <> 0 or &Cnpj.Length() <> 18
+									&sdtMdfe.sts = 'E800'
+									&sdtMdfe.obs = 'CNPJ Contratante Inválido!'
+									return
+								Endif
+								&sdtMdfe.ConCnpj = &Cnpj
+								
+							Case &inSdtMdfe.sts = 'DADOSPED'
+								
+								//valida cnpjs Fornecedor
+								&Cnpj = &inSdtMdfe.PedCnpjFor
+								validaCpfCnpj.Call(&Cnpj, &Numeric, 'N')
+								if &Numeric <> 0 or &Cnpj.Length() <> 18
+									&sdtMdfe.sts = 'E800'
+									&sdtMdfe.obs = 'CNPJ Fornecedor Inválido!'
+									return
+								Endif
+								&sdtMdfe.PedCnpjFor  =&Cnpj
+								
+								//valida Cnpj Responsavel				
+								&Cnpj = &inSdtMdfe.PedResPag
+								validaCpfCnpj.Call(&Cnpj, &Numeric, 'N')
+								if &Numeric <> 0 or &Cnpj.Length() <> 18
+									&sdtMdfe.sts = 'E801'
+									&sdtMdfe.obs = 'CNPJ Responsável Inválido!'
+									return
+								Endif
+								&sdtMdfe.PedResPag = &Cnpj
+								
+								if &inSdtMdfe.PedNroCom.IsEmpty()
+									&sdtMdfe.sts = 'E802'
+									&sdtMdfe.obs = 'Número do comprovante do Fornecedor obrigatório!'
+									return
+								Endif
+								
+								&MdfePedVlr.FromString(&inSdtMdfe.PedVlrVar)
+								if &MdfePedVlr.IsEmpty()
+									&sdtMdfe.sts = 'E803'
+									&sdtMdfe.obs = 'Valor do Vale não informado!'
+									return
+								Endif
+								&sdtMdfe.PedVlrVar = trim(toFormattedString(&MdfePedVlr))
+								
+								&MdfeCatComVei.FromString(&inSdtMdfe.CatComVei)
+								if &MdfeCatComVei.IsEmpty() or &MdfeCatComVei.ToString() = '00'
+									&sdtMdfe.sts = 'E804'
+									&sdtMdfe.obs = 'CAtegoria de Combinação veicular não selecionada!'
+									return
+								Endif
+						EndCAse
+						
+						set_DadosMdfe.Call(EmpCod, FilCod, MDFeCod, &inSdtMdfe)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						return
+						
+					case &inSdtMdfe.sts = 'DELCIOT'
+						//ADD CIOT
+						&MdfeCiotCod.FromString(&inSdtMdfe.obs)
+						GravaCiotMdfe.Call(EmpCod, FilCod, MDFeCod, &MdfeCiotCod, '', FilCpj)				
+						
+						do 'ciot'
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						return
+						
+					case &inSdtMdfe.sts = 'ADDCIOT'
+						//ADD CIOT
+						GravaCiotMdfe.Call(EmpCod, FilCod, MDFeCod, 0, &inSdtMdfe.obs, FilCpj)				
+						
+						do 'ciot'
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						return				
+						
+					CAse &inSdtMdfe.sts = 'VEICULO'
+						&MDFeVeiPla = &inSdtMdfe.VeiPlaca.Trim()
+						if &MDFeVeiPla.Substring(1,1) = '-'
+							&sdtMdfe.sts = 'E998'
+							&sdtMdfe.obs = 'Placa de Veículo Tração inválida!'
+							return
+						Endif
+						
+						//REMOVE TODOS
+						For Each Order EmpCod, FilCod, MDFeCod, MDFeVeiCod
+							MDFe_Veiculo.Call('DEL', EmpCod, FilCod, MDFeCod, MDFeVeiCod, &MDFeVeiPla)
+						EndFor
+						
+						MDFe_Veiculo.Call('ADD', EmpCod, FilCod, MDFeCod, 0, &inSdtMdfe.VeiPlaca)
+						
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						return
+					CAse &inSdtMdfe.sts = 'DELMOTO'
+						
+						for &Motorista in &inSdtMdfe.Mot
+							MDFE_Motorista.Call('DEL', EmpCod, FilCod, MDFeCod, &Motorista.Cod, &Motorista.Cpf, &Motorista.Nom)
+						EndFor
+						
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						do 'motorista'
+						return
+						
+					CAse &inSdtMdfe.sts = 'ADDMOTO'
+						for &Motorista in &inSdtMdfe.Mot
+							
+							&Cpf = &Motorista.Cpf
+							validaCpfCnpj.Call(&Cpf, &Numeric, 'N')
+							if &Numeric <> 0 or &Cpf.Length() > 14
+								&sdtMdfe.sts = 'E998'
+								&sdtMdfe.obs = 'CPF Inválido'
+								return
+							Endif
+							
+							MDFE_Motorista.Call('ADD', EmpCod, FilCod, MDFeCod, 0, &Cpf, &Motorista.Nom.ToUpper())
+						EndFor
+						
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						do 'motorista'
+						return
+						
+					Case &inSdtMdfe.sts = 'DELREBOQUE'
+						&MdfeRebCod.FromString(&inSdtMdfe.obs)
+						MDFe_Reboque.Call('DEL', EmpCod, FilCod, MDFeCod, &MdfeRebCod, &inSdtMdfe.VeiPlaca)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						
+						do 'reboque'
+						return
+						
+					Case &inSdtMdfe.sts = 'ADDREBOQUE'
+						&MDFeRebPla = &inSdtMdfe.VeiPlaca.Trim()
+						if &MDFeRebPla.Substring(1,1) = '-'
+							&sdtMdfe.sts = 'E998'
+							&sdtMdfe.obs = 'Placa de Veículo Reboque inválida!'
+							return
+						Endif
+						
+						FormataPLACA.Call(EmpCod, &MDFeRebPla, &MDFeRebPla)
+						MDFe_Reboque.Call('ADD', EmpCod, FilCod, MDFeCod, 0, &inSdtMdfe.VeiPlaca)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						
+						do 'reboque'
+						return
+						
+					Case &inSdtMdfe.sts = 'ADDAVERB'
+						GravaAverbacao.Call(EmpCod,FilCod,MDFeCod,1,&inSdtMdfe.MdfeSegRes,&inSdtMdfe.obs)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						
+						do 'averbacao'
+						return
+						
+					Case &inSdtMdfe.sts = 'DELAVERB'				
+						DeletarAverbacao.call(EmpCod,FilCod,MDFeCod,1,&inSdtMdfe.obs)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						
+						do 'averbacao'
+						return
+						
+					Case &inSdtMdfe.sts = 'INICIO' or &inSdtMdfe.sts = 'DOCUMENTOS' or &inSdtMdfe.sts = 'PERCURSO'
+						
+						
+						gravaInicioMdfe.Call(&inSdtMdfe.sts, EmpCod, FilCod, MDFeCod, &inSdtMdfe)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						return
+						
+					Case &inSdtMdfe.sts = 'DELUF'
+						MDFE_PErcurso.Call('DEL', EmpCod, FilCod, MDFeCod, &inSdtMdfe.OriCidCod, &inSdtMdfe.OriUfeCod)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						
+						do 'addUF'				
+						return
+						
+					Case &inSdtMdfe.sts = 'ADDUF'				
+						MDFE_PErcurso.Call('ADD', EmpCod, FilCod, MDFeCod, 0, &inSdtMdfe.OriUfeCod)
+						&sdtMdfe.sts = 'J200'
+						&sdtMdfe.obs = ''
+						
+						do 'addUF'				
+						return
+						
+					Case &inSdtMdfe.sts = 'ADDDOC'
+						
+						For &Docs in &inSdtMdfe.Docs
+							&MDFeCteChv = &Docs.Chv
+							&MDFeCteChv2 = &Docs.Chv2
+							&MDfeCteCidCod = &Docs.CidCod
+							&CidCod = &Docs.CidCod
+							do 'getUfeCod'
+							&MdfeCteUfeCod = &UfeCod
+							&MDFeCteVlrTot.FromString(&Docs.VlrTotVar)
+							&MDfeCtePso.FromString(&Docs.PsoVar)
+							&MDFeNFeItm = &Docs.Itm
+							
+							ValidaChaveNotaReturnMsg.Call(&MDFeCteChv ,&Mensagem)
+							If &Mensagem.IsEmpty()
+								&TipEms = val(Substr(&MDFeCteChv,35,1))
+							Else
+								&sdtMdfe.sts = 'E891'
+								&sdtMdfe.obs = &Mensagem
+								return
+							EndIf
+							
+							Do Case
+								Case (&TipEms = 2 or &TipEms = 5) and not &MDFeCteChv2.IsEmpty()
+									&sdtMdfe.sts = 'E892'
+									&sdtMdfe.obs = 'Seguda Chave de Nfe só deve ser informada, quando Chave NFe principal for modo: MODO EMISSÃO FS!'
+									return
+									
+								OtherWise
+									
+									if &MDFeNFeItm > 0
+										if MDFeTipEmt = MDFe_TipoEmitente.Prestador or MDFeTipEmt = MDFe_TipoEmitente.Globalizado
+											For Each ORder EmpCod, FilCod, MDFeCod, MDFeCteItm
+												Where MDFeCteItm = &MDFeNFeItm
+												&nfeFilCod = MDFeCteFilCod
+												&NfeCod = MDFeCteCod
+												Exit
+											EndFor
+										Else
+											For Each ORder EmpCod, FilCod, MDFeCod, MDFeNFeItm
+												Where MDFeNFeItm = &MDFeNFeItm
+												&nfeFilCod = MDFeNFeFilCod
+												&NfeCod = MDFeNfeCod
+												Exit
+											EndFor
+										Endif
+										
+									Endif
+									
+									if MDFeTipEmt = MDFe_TipoEmitente.NaoPrestador										
+										MDFE_NotaFiscal.Call('ADD', EmpCod, FilCod, MDFeCod,     0,                  0,       0,&MDFeCteChv,&MDFeCteChv2,&CidIbge,&CidNom,&MdfeCteUfeCod,&MDFeCteVlrTot,&MDfeCtePso)
+									Else										
+										MDFE_CTE.Call('ADD', EmpCod, FilCod, MDFeCod, 0, 0, 0,&MDFeCteChv,&MDFeCteChv2,&CidIbge,&CidNom,&MdfeCteUfeCod,&MDFeCteVlrTot,&MDfeCtePso,'','')
+									Endif
+									
+									MDFe_TotalizarNotas.Call(EmpCod, FilCod, MDFeCod, &countCteNumeric, &countNfeNumeric, &totalNumeric, &PesoBrutoMoeda, &TotalMoeda)
+									
+									&MDFeCteChv = ''
+									&MDFeCteVlrTot = 0
+									&MDfeCtePso = 0
+							EndCase
+							
+							
+							if MDFeTipEmt = MDFe_TipoEmitente.Prestador or MDFeTipEmt = MDFe_TipoEmitente.Globalizado
+								do 'addCtes'
+							Else
+								do 'addNotas'
+							Endif
+							
+							&sdtMdfe.sts = 'J200'
+							&sdtMdfe.obs = 'sucesso'
+							Return
+						EndFor
+					Case &inSdtMdfe.sts = 'DELDOC'
+						
+						For &Docs in &inSdtMdfe.Docs
+							&MDFeNFeItm = &Docs.Itm
+							
+							if MDFeTipEmt = MDFe_TipoEmitente.NaoPrestador										
+								MDFE_NotaFiscal.Call('DEL', EmpCod, FilCod, MDFeCod,     &MDFeNFeItm,                  0,       0,&MDFeCteChv,&MDFeCteChv2,&CidIbge,&CidNom,&MdfeCteUfeCod,&MDFeCteVlrTot,&MDfeCtePso)
+							Else										
+								MDFE_CTE.Call('DEL', EmpCod, FilCod, MDFeCod, &MDFeNFeItm, 0, 0,&MDFeCteChv,&MDFeCteChv2,&CidIbge,&CidNom,&MdfeCteUfeCod,&MDFeCteVlrTot,&MDfeCtePso,'','')
+							Endif
+							
+							MDFe_TotalizarNotas.Call(EmpCod, FilCod, MDFeCod, &countCteNumeric, &countNfeNumeric, &totalNumeric, &PesoBrutoMoeda, &TotalMoeda)
+							
+							
+							if MDFeTipEmt = MDFe_TipoEmitente.Prestador or MDFeTipEmt = MDFe_TipoEmitente.Globalizado
+								do 'addCtes'
+							Else
+								do 'addNotas'
+							Endif
+							
+							&sdtMdfe.sts = 'J200'
+							&sdtMdfe.obs = 'sucesso'
+							Return
+						EndFor					
+				EndCAse			
+				
+				Exit
+			When none
+				&sdtMdfe.sts = 'E998'
+				&sdtMdfe.obs = 'MDFe não localizado!'
+				return
+			Endfor
+	EndCase
+Else
+	&sdtMdfe.sts = 'E999'
+	&sdtMdfe.obs = 'Nada mais aqui!'
+	return
+Endif
+
+
+sub 'ciot'
+	For Each ORder EmpCod, FilCod, MDFeCod, MdfeCiotCod
+		Where EmpCod = &wwpContext.EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		&Ciot = new()
+		&Ciot.Cod = MdfeCiotCod
+		&Ciot.Nro = MDFeCIOT
+		&sdtMdfe.Ciot.Add(&Ciot)
+	EndFor
+EndSub
+
+sub 'Motorista'
+	For Each Order EmpCod, FilCod, MDFeCod, MDFeMotCod
+		Where EmpCod = &wwpContext.EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		
+		&Motorista = new()
+		&Motorista.Cod = MDFeMotCod
+		&Motorista.Nom = MDFeMotNom
+		&Motorista.Cpf = MDFeMotCpf
+		
+		&sdtMdfe.Mot.Add(&Motorista)
+	EndFor
+EndSub
+
+sub 'reboque'
+	For Each Order EmpCod, FilCod, MDFeCod, MDFeRebCod
+		Where EmpCod = &wwpContext.EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		
+		&reboque = new()
+		&reboque.Cod = MDFeRebCod
+		&reboque.Placa = MDFeRebPla
+		&reboque.TipCar = MDFeRebTipCar
+		&reboque.TipRod = MDFERebTipRod
+		
+		&sdtMdfe.Reb.Add(&reboque)
+	EndFor
+EndSub
+
+Sub 'averbacao'
+	For Each Order EmpCod, FilCod, MDFeCod, MdfeSegCod, MdfeSegNroAve
+		Where EmpCod = &wwpContext.EmpCod
+		WHere FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		Where MdfeSegCod = 1
+		
+		&Ave = new()
+		&Ave.NroAve = MdfeSegNroAve
+		
+		&sdtMdfe.Ave.Add(&Ave)
+	EndFor
+EndSub
+
+
+sub 'getUfeCod'
+	For Each ORder EmpCod, CidCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where CidCod = &CidCod
+		&CidNom = CidNom
+		&UfeCod = UfeCod
+		&CidIbge = CidIBGE
+		Exit
+	EndFor
+EndSub
+
+Sub 'addUF'
+	For Each Order EmpCod, FilCod, MDFeCod, MDFePerCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		
+		&Ufs = new()
+		&Ufs.UFId = MDFePerCod
+		&Ufs.UFs = MDFePerUfeCod
+		&Ufs.UFNom = retornaNomeEstado.Udp(EmpCod, MDFePerUfeCod)
+		&sdtMdfe.Ufs.Add(&Ufs)
+	EndFor
+EndSub
+
+
+sub 'addNotas'
+	For Each Order EmpCod, FilCod, MDFeCod, MDFeNFeItm
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MdfeCod
+		
+		&Ctes = new()
+		&Ctes.Itm = MDFeNFeItm
+		&Ctes.FilCod = MDFeNFeFilCod
+		&Ctes.Cod = MDFeNfeCod
+		&Ctes.Chv = MDFeNfeChv
+		&Ctes.Chv2 = MDFeNfeChv2
+		&Ctes.CidCod = MDfeNfeCidCod
+		&Ctes.CidNom = MDFeNfeCidNom
+		&Ctes.UfeCod = MdfeNfeUfeCod
+		&Ctes.VlrTotVar = trim(toformattedString(MDFeNfeVlrTot))
+		&Ctes.PsoVar = trim(toformattedString(MDfeNfePso))
+		
+		&sdtMdfe.Docs.Add(&Ctes)
+	EndFor
+	
+EndSub
+
+sub 'addCtes'
+	For Each Order EmpCod, FilCod, MDFeCod, MDFeCteItm
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MdfeCod
+		
+		&Ctes = new()
+		&Ctes.Itm = MDFeCteItm
+		&Ctes.FilCod = MDFeCteFilCod
+		&Ctes.Cod = MDFeCteCod
+		&Ctes.Chv = MDFeCteChv
+		&Ctes.Chv2 = MDFeCteChv2
+		&Ctes.CidCod = MDfeCteCidCod
+		&Ctes.CidNom = MDFeCteCidNom
+		&Ctes.UfeCod = MdfeCteUfeCod
+		&Ctes.VlrTotVar = trim(toformattedString(MDFeCteVlrTot))
+		&Ctes.PsoVar = trim(toformattedString(MDfeCtePso))
+		
+		&sdtMdfe.Docs.Add(&Ctes)
+	EndFor
+
+EndSub
+	
+Sub 'PegaPlacaeValida'
+
+	&MDFeVeiPla = ''
+	&IsMdfeAberto = False
+	For each Order EmpCod,FilCod,MDFeCod, MDFeVeiCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MDFeCod
+		&MDFeVeiPla = MDFeVeiPla
+		Exit
+	EndFor
+	If Not &MDFeVeiPla.IsEmpty()
+		Do 'ValidaMdfeNaoEncerrado'
+	EndIf
+
+EndSub
+
+Sub 'ValidaMdfeNaoEncerrado'
+
+	For each Order EmpCod, MDFeCod
+		Where EmpCod = &wwpContext.EmpCod
+		Where MDFeCod <> &MDFeCod
+		Where MDFeVeiPla = &MDFeVeiPla
+		Where MDFeSts = Status_Mdfe.Autorizado
+		&OldFilCod = FilCod
+		&OldMdfeCod = MDFeCod
+		&IsMdfeAberto = True
+		Exit
+	EndFor
+
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&DevRandon, in:&filcod, in:&parmdfecod, in:&inSdtMdfe, out:&sdtMdfe);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Cnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="countCteNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>countCteNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="countNfeNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>countNfeNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Datahora">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Datahora</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:DataHora</Value></Property></Properties>
+        </Variable>
+        <Variable Name="erroMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>erroMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCatComVei">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCatComVei</Value></Property><Property><Name>Description</Name><Value>Categoria de Combinação Veicular</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeCatComVei</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeChv</Value></Property><Property><Name>Description</Name><Value>Chave MDFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeDtaEnc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeDtaEnc</Value></Property><Property><Name>Description</Name><Value>Encerramento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeDtaEnc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDfeHorEnc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeHorEnc</Value></Property><Property><Name>Description</Name><Value>Encerramento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeHorEnc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeNFeItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeNFeItm</Value></Property><Property><Name>Description</Name><Value>Notas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeNFeItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeProt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeProt</Value></Property><Property><Name>Description</Name><Value>Protocolo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeProt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeRebPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeRebPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeRebPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nfeFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nfeFilCod</Value></Property><Property><Name>Description</Name><Value>Filial Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesoBrutoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesoBrutoMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="totalNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>totalNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:UfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ave">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ave</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.AveItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ciot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ciot</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.CiotItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Cpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Cpf</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ctes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ctes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.DocsItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DevRandon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DevRandon</Value></Property><Property><Name>Description</Name><Value>Dev Randon</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:DevRandon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Docs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Docs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.DocsItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAtmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAtmCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAtmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAtmSen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAtmSen</Value></Property><Property><Name>Description</Name><Value>Senha</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAtmSen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilAtmUsu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilAtmUsu</Value></Property><Property><Name>Description</Name><Value>Uusario</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilAtmUsu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Guid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Guid</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:GUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inSdtMdfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inSdtMdfe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAcessoConcedido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAcessoConcedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAtualizaTudo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAtualizaTudo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsMdfeAberto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsMdfeAberto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSucesso</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsValido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsValido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCiotCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCiotCod</Value></Property><Property><Name>Description</Name><Value>Ciot</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeCiotCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCteChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCteChv</Value></Property><Property><Name>Description</Name><Value>MDFe Cte Chv</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCteChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCteChv2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCteChv2</Value></Property><Property><Name>Description</Name><Value>Segundo Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCteChv2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDfeCteCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeCteCidCod</Value></Property><Property><Name>Description</Name><Value>MDfe Cte Cid Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDfeCteCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDfeCtePso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeCtePso</Value></Property><Property><Name>Description</Name><Value>MDfe Cte Pso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDfeCtePso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCteUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCteUfeCod</Value></Property><Property><Name>Description</Name><Value>Mdfe Cte Ufe Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfeCteUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCteVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCteVlrTot</Value></Property><Property><Name>Description</Name><Value>MDFe Cte Vlr Tot</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCteVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfePedVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfePedVlr</Value></Property><Property><Name>Description</Name><Value>Valor do Vale-Pedagio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MdfePedVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeRebCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeRebCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeRebCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeVeiPla">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeVeiPla</Value></Property><Property><Name>Description</Name><Value>Placa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeVeiPla</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Motorista">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Motorista</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.MotItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewMdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewMdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Numeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Numeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OldFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OldFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OldMdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OldMdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmdfecod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmdfecod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="reboque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>reboque</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.RebItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtAtm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtAtm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtAtm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMdfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMdfe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tamanho">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tamanho</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ufs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ufs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMdfe.UfsItem, api_erp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WizardData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WizardData</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:WPMDFe01Data</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_LONG</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContext</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xJust">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xJust</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidIbge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidIbge</Value></Property><Property><Name>Description</Name><Value>Cidade IBGE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CidNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CidNom</Value></Property><Property><Name>Description</Name><Value>Cidade Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CidNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Posicao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Posicao</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>set_mdfe</Value></Property><Property><Name>Description</Name><Value>set_mdfe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="86cf8388-bbd0-4e8e-b057-1f4f397b01e0" user="SRVORDIG\Administrador" versionDate="2024-07-16T15:02:21.0000000Z" lastUpdate="2024-06-25T20:05:29.0000000Z" checksum="82bbb653d9252d26f48be0e835ad2a12" fullyQualifiedName="GravaItemCatalagoProduto" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="730adfc5-38a9-4d15-9bc5-4029b8bfb4d9" name="GravaItemCatalagoProduto" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Item Catalago Produto" parent="prcLojas" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&ProTipDef.SetEmpty()
+
+if not &inProGraRef.IsEmpty()
+	
+	&PedQtd = &AddPedqtd
+
+	&auxPedQtd = &PedQtd
+	
+	&IsAchouProduto = false
+	&ProCod = 0
+	RetornaProdutoReferencia.Call(&EmpCod, &inProGraRef, &ProCod, &ProGraCod, &ProNom, &IsAchouProduto, &ProReqVlr, &ProReqQtd, &ProBarQtd, &Mensagem)
+	if not &Mensagem.IsEmpty()
+		do 'SonsErro'
+	EndIF
+	
+	if &IsAchouProduto = true 
+		do 'GetDadosProdutoGrade'
+		&PedQtd += &AuxPedQtd
+		if &PedQtd < 0
+			&PedQtd = 0
+		EndIF
+		
+		If &PedQtd <> &OLDPedQtd
+			&PedQtdCan = &PedQtdCan + (&OLDPedQtd - &PedQtd)
+		EndIF
+	
+		If &SelPedVlrUntTot > 0				
+			If (&ProGraCod > 1 and &ProIsGra = true) or (&ProIsGra <> true and &ProGraCod = 1)
+				do 'GravaItemPDV'				
+			Else
+				&Mensagem ='Produto com Variação, é preciso inserir o Código da Variação!'
+				do 'sonsERRO'
+			Endif
+		Else				
+			&Mensagem = 'Produto não cadastrado na tabela de Preço!'
+			do 'sonsERRO'
+		EndIf
+	EndIF
+EndiF
+
+
+Sub 'GravaItemPDV'
+	
+	&oldPedItmCod = &PedItmCod
+	GravaItemPedidoVenda.Call(&EmpCod, &FilCod, &PedCod, &PedItmCod, &ProCod, &ProGraCod, &PedQtd, &PedQtdCan, 0, &SelPedVlrUntTot, &PedVlrTab, &PedItmDsc, &PedItmCmp, &PedItmVenCod, &PedCodOciRefItm, &MensagemInserida, &MensagemAlterado, &wwpContextUserName)
+	
+	if &oldPedItmCod = 0 and &PedItmCod = 1
+		pdv_AtualizaEmissao.call(&EmpCod, &FilCod, &PedCod)
+	Endif
+
+	if &PedQtd <= 0
+		DeletaItemPedidoCompra.Call(&EmpCod, &FilCod, &PedCod, &PedItmCod)
+	Endif
+EndSub
+
+
+Sub 'GetDadosProdutoGrade'
+	
+    Do 'GetProduto'
+	&PedQtd = 0
+	Do 'GetProdutoPedidoItem'
+	
+	if &inPedItmCmp <> 'NADA'
+		&PedItmCmp = &inPedItmCmp
+	Endif
+
+EndSub
+
+
+Sub 'GetProduto'
+	
+	&ErroProduto = 0
+	&ErroInativo = 0
+	
+    For Each Order EmpCod, ProCod
+		Where EmpCod = &EmpCod
+	    Where ProCod = &ProCod
+		where ProSts <> Status_Produto.EXCLUIDO
+		
+		&ProIsGra = ProIsGra
+		&ProRepItm = ProRepItm
+		&ProVlrCus = ProVlrCus
+		&ProQtdEmb = ProQtdEmb
+		&ProQtdVol = ProQtdVol
+		&ProTipDef = ProTipDef
+		
+		//DESCONTO
+		&ProDesMax = ProDesMax
+		&GrupDscMax = GrupDscMax
+		
+		RetornaEstoquePedido.Call(&EmpCod, &FilCod, &ProCod, &ProGraCod, &PedSts, &EstLoc, &EstQtd, &EstSdo, &Mensagem)
+		if not &Mensagem.IsEmpty()
+			&Mensagem = 'Produto em Balanço, não pode ser Alterado!'
+			do 'sonsERRO'
+		EndIF
+		
+		If ProSts = Status_Produto.INATIVO and &EstQtd <= 0 and &AddPedqtd > 0
+			&Mensagem = 'Produto Inativo com Estoque Zero! Produto:' + trim(ProRef)
+			do 'sonsERRO'
+		EndIf
+		
+	    Exit
+	When none
+           &Mensagem = 'Produto código: ' +trim(&inProGraRef) + ' não localizado!'
+		do 'sonsERRO'
+    EndFor
+EndSub
+
+
+Sub 'GetProdutoPedidoItem'
+
+	If &ErroProduto <> 1
+		For Each Order EmpCod, FilCod, PedCod, (PedItmCod)
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where PedCod = &PedCod
+			Where PedItmCod = &PedItmCod When &AddPedqtd > 0
+			
+			Where PedQtd > 0 When &AddPedqtd <= 0
+			Where ProCod = &ProCod When &AddPedqtd <= 0
+			Where ProGraCod = &ProGraCod  When &AddPedqtd <= 0
+			
+			if &AddPedqtd <= 0
+				&PedItmCod = PedItmCod 
+			Endif
+		
+			&PedQtd = PedQtd
+			&OldPedQtd = PedQtd
+			&PedQtdCan = PedQtdCan
+			//&PedVlrUnt = PedVlrUnt
+			
+			&PedVlrTab = PedVlrTab
+			&PedItmDsc = PedItmDsc
+			
+			&PedItmCmp = PedItmCmp
+		
+			Exit
+		EndFor	
+		
+		if &AddPedqtd > 0
+			do 'GetPreco'
+			Do 'GetDesconto'
+		Endif
+	EndIF
+
+EndSub
+
+Sub 'GetPreco'
+
+	Do Case
+		Case &LctRetCus = Status_SimNao.Sim and &PedVlrUnt <= 0
+			//&PedVlrUnt = &ProVlrCus
+			&PedVlrTab = RetornaPrecoUnitarioVenda.UDP(&EmpCod, &TabCod, &TabPrmCod, &ProCod, &ProGraCod, &TabColCod, &PedDtaEms, &PedDtaVct)
+			
+		Case (&LctInfPrc = Status_SimNao.Nao and &ProReqVlr <> true) or &PedVlrUnt <= 0
+			&PedVlrTab = RetornaPrecoUnitarioVenda.UDP(&EmpCod, &TabCod, &TabPrmCod, &ProCod, &ProGraCod, &TabColCod, &PedDtaEms, &PedDtaVct)
+			//&PedVlrTab = &PedVlrUnt
+	EndCase
+
+EndSub
+
+Sub 'GetDesconto'
+	&PedItmPrm = RetornaPrecoUnitarioTipo.Udp(&EmpCod, &TabPrmCod, &ProCod, &ProGraCod, &TabColCod, &PedDtaEms, &PedItmDsc)
+EndSub
+
+
+Sub 'sonsERRO'
+	Return
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&pedCod, in:&inProGraRef, in:&SelPedVlrUntTot, in:&PedItmCodRef, in:&PedItmProdComp, 
+	in:&PedSts, in:&LctRetCus ,	in:&TabCod, in:&TabPrmCod, 
+	in:&TabColCod, in:&PedDtaEms, in:&PedPerSrv1 , in:&PedPerSrv2 ,
+	in:&PedPerPrm1 , in:&PedPerPrm2 ,in:&PedPerSpm1, in:&PedPerSpm2 , in:&AddPedqtd, in:&PedItmVenCod,in:&inPedItmCmp,
+	out:&Mensagem, out:&ProTipDef, out:&PedItmCod, in:&wwpContextUserName);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="GrupDscMax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupDscMax</Value></Property><Property><Name>Description</Name><Value>Desconto Máximo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupDscMax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctInfPrc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctInfPrc</Value></Property><Property><Name>Description</Name><Value>Digitar Valor Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctInfPrc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCodOciRefItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCodOciRefItm</Value></Property><Property><Name>Description</Name><Value>Pedido Referenciado Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCodOciRefItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaVct</Value></Property><Property><Name>Description</Name><Value>Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmVenCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmVenCod</Value></Property><Property><Name>Description</Name><Value>Vendedor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmVenCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProDesMax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProDesMax</Value></Property><Property><Name>Description</Name><Value>Desconto Máximo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProDesMax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProQtdEmb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProQtdEmb</Value></Property><Property><Name>Description</Name><Value>Vender em Multiplos de </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProQtdEmb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProQtdVol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProQtdVol</Value></Property><Property><Name>Description</Name><Value>Volume</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProQtdVol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProVlrCus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProVlrCus</Value></Property><Property><Name>Description</Name><Value>Valor Custo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProVlrCus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AddPedqtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AddPedqtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:QuantidadeFormatada6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxPedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxPedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:QuantidadeFormatada6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroInativo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroInativo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroProduto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstLoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstLoc</Value></Property><Property><Name>Description</Name><Value>Estoque Locação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstLoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstQtd</Value></Property><Property><Name>Description</Name><Value>Estoque Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EstSdo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EstSdo</Value></Property><Property><Name>Description</Name><Value>Estoque Saldo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EstSdo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inProGraRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inProGraRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchouProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchouProduto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LctRetCus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LctRetCus</Value></Property><Property><Name>Description</Name><Value>Retorna o Custo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LctRetCus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MensagemAlterado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MensagemAlterado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MensagemInserida">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MensagemInserida</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OldPedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OldPedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCodRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCodRef</Value></Property><Property><Name>Description</Name><Value>Relacionado ao Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCodRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmDsc</Value></Property><Property><Name>Description</Name><Value>Descontos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmPrm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmPrm</Value></Property><Property><Name>Description</Name><Value>Produto Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmPrm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmProdComp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmProdComp</Value></Property><Property><Name>Description</Name><Value>PRODUTO/COMPLEMENTO</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmProdComp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerPrm1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerPrm1</Value></Property><Property><Name>Description</Name><Value>% Promoção 1</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerPrm1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerPrm2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerPrm2</Value></Property><Property><Name>Description</Name><Value>% Promoção 2</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerPrm2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerSpm1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerSpm1</Value></Property><Property><Name>Description</Name><Value>% Normal 1</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerSpm1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerSpm2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerSpm2</Value></Property><Property><Name>Description</Name><Value>% normal 2</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerSpm2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerSrv1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerSrv1</Value></Property><Property><Name>Description</Name><Value>% Serviço 1</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerSrv1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerSrv2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerSrv2</Value></Property><Property><Name>Description</Name><Value>% Servico 2</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerSrv2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtd</Value></Property><Property><Name>Description</Name><Value>Produto Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:QuantidadeFormatada6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedQtdCan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedQtdCan</Value></Property><Property><Name>Description</Name><Value>Quantidade Cancelada</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedQtdCan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedSts</Value></Property><Property><Name>Description</Name><Value>Pedido Estoque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrTab">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrTab</Value></Property><Property><Name>Description</Name><Value>Valor Tabela Preco</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrTab</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrUnt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrUnt</Value></Property><Property><Name>Description</Name><Value>Produto Valor Unitário Bruto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProCod</Value></Property><Property><Name>Description</Name><Value>Produto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProGraCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProGraCod</Value></Property><Property><Name>Description</Name><Value>Grade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProGraCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProIsGra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProIsGra</Value></Property><Property><Name>Description</Name><Value>Possui Grade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProIsGra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProNom</Value></Property><Property><Name>Description</Name><Value>Produto Descrição</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProRepItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProRepItm</Value></Property><Property><Name>Description</Name><Value>Vender Duplicado</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRepItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProReqQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProReqQtd</Value></Property><Property><Name>Description</Name><Value>Requer Qtd</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProReqQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProReqVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProReqVlr</Value></Property><Property><Name>Description</Name><Value>Reque Vlr</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProReqVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProTipDef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProTipDef</Value></Property><Property><Name>Description</Name><Value>Definição</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProTipDef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SelPedVlrUntTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SelPedVlrUntTot</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrUnt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabCod</Value></Property><Property><Name>Description</Name><Value>Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabColCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabColCod</Value></Property><Property><Name>Description</Name><Value>Coluna</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabColCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TabPrmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TabPrmCod</Value></Property><Property><Name>Description</Name><Value>Tabela Promoção</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:TabPrmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedItmCmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedItmCmp</Value></Property><Property><Name>Description</Name><Value>Complemento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCmp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inPedItmCmp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inPedItmCmp</Value></Property><Property><Name>Description</Name><Value>Complemento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCmp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="oldPedItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>oldPedItmCod</Value></Property><Property><Name>Description</Name><Value>Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProBarQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProBarQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade Embalado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProBarQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="wwpContextUserName">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>wwpContextUserName</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:wwpContextUserName</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaItemCatalagoProduto</Value></Property><Property><Name>Description</Name><Value>Grava Item Catalago Produto</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

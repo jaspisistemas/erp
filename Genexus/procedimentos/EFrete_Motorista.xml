@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="53b137e7-b90a-4a25-ac71-d1b9e08320d4" user="LUIZ\LuiZ Henrique" versionDate="2023-06-09T17:19:12.0000000Z" lastUpdate="2023-06-05T11:43:16.0000000Z" checksum="51d6267b398611d50a0288e9985bb5d6" fullyQualifiedName="EFrete_Motorista" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="755abf84-26de-48a4-8cc9-813be388d9e6" name="EFrete_Motorista" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="EFrete_Motorista" parent="Fretemotorista" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//Parametros Para Gravar
+&MotoristasServiceGravarRequest.Integrador = Trim(&FilFrtHash)
+&MotoristasServiceGravarRequest.Token = trim(&Token)
+&MotoristasServiceGravarRequest.Versao = 2
+&Mensg = ''
+&Erro = 0
+
+csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+Do 'GetMotorista'
+
+Do 'GravarMotorista'
+
+Sub 'GravarMotorista'
+	If &MotoristasServiceGravarRequest.Telefones.Celular.Numero.IsEmpty()
+		Msg('Atenção! Telefone Celular é obrigatório no cadastro de Motorista.')
+	Else
+//		HostWebServiceEfrete.Call(&EmpWebHost, &EmpWebBaseUrl, &EmpWebPor,&Isecure)
+		&Location = GetLocation('MotoristasService') //objeto externo onde foi importado o WSDL no GX XEV1 
+		&Location.Host = &EmpWebHost 	     //servidor 
+		&Location.BaseUrl = &EmpWebBaseUrl //diretório virtual do serviço 
+		&Location.Port = &EmpWebPor
+		If &IsSecure = true
+			&Location.Secure = 1
+		ELSE
+			&Location.Secure = 0 //false 
+		EndIf 		       //false 
+		&Location.CancelOnError = 2 	   //tratar exceção do WS 	
+		&MotoristasServiceGravarResponse = &MotoristasService.Gravar(&MotoristasServiceGravarRequest)
+		
+		padraoUsuario.Call('G', '#EFRETEMOTORISTA', &Context.PesCod, &Context.EmpCod, &MotoristasServiceGravarRequest.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+		padraoUsuario.Call('G', '#EFRETEMOTORISTARESPOSTA', &Context.PesCod, &Context.EmpCod, &MotoristasServiceGravarResponse.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+		
+		If GetSOAPErr()= 0 // Resposta do Obter Motorista
+			If &MotoristasServiceGravarResponse.Sucesso = True
+				&Mensg = 'Gravado com Sucesso '+ &MotoristasServiceGravarResponse.Excecao.Mensagem
+				Do 'AtualizaMotorista'
+			Else
+				&Mensg = &MotoristasServiceGravarResponse.Excecao.Mensagem
+			EndIf
+		Else 
+			&Erro = val(str(GetSOAPErr()))
+			&Mensg += 'DESC. ERRO:'+GetSOAPErrMsg() 
+		EndIf
+	EndIf
+EndSub
+
+Sub 'GetMotorista'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		
+		&MotoristasServiceObterRequest.CNH               = val(PesCnh)
+		&MotoristasServiceObterRequest.CPF				 = val(RetornasoNumeros.Udp(PesCpf))
+		&MotoristasServiceGravarRequest.CNH              = VAL(PesCnh)
+		&MotoristasServiceGravarRequest.CPF              = Val(RetornasoNumeros.Udp(PesCpf))
+		&MotoristasServiceGravarRequest.Nome             = trim(PesRaz)
+		&MotoristasServiceGravarRequest.Endereco.Rua     = trim(PesLog)
+		&MotoristasServiceGravarRequest.Endereco.Bairro  = trim(PesBai)
+		&MotoristasServiceGravarRequest.Endereco.CEP     = PesCep
+		&MotoristasServiceGravarRequest.Endereco.Numero  = PesNro
+		&MotoristasServiceGravarRequest.DataNascimento   = PesDtaNas
+		&MotoristasServiceGravarRequest.Endereco.Complemento = trim(PesCpl)
+		&MotoristasServiceGravarRequest.Endereco.CodigoMunicipio = PesCidIBGE
+		&MotoristasServiceGravarRequest.NomeDeSolteiraDaMae = trim(PesMaeNom)
+		
+		For each Order EmpCod,PesCod
+			Do case
+				Case PesFonTpo = TipoTelefone.CELULAR or PesFonTpo = TipoTelefone.CELULAR_WHATS
+					&MotoristasServiceGravarRequest.Telefones.Celular.DDD = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),1,2))
+					&MotoristasServiceGravarRequest.Telefones.Celular.Numero = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),3,20))
+				Case PesFonTpo = TipoTelefone.COMERCIAL or PesFonTpo = TipoTelefone.RESIDENCIAL or PesFonTpo = TipoTelefone.OUTROS
+					&MotoristasServiceGravarRequest.Telefones.Fixo.DDD = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),1,2))
+					&MotoristasServiceGravarRequest.Telefones.Fixo.Numero = val(SubStr(RetornaSoNumeros.Udp(PesFonNum),3,20)) 
+			EndCase
+		EndFor
+		exit
+	EndFor
+EndSub
+
+Sub 'AtualizaMotorista'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		PesStsEfr = Status_EFrete.Homologado
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&PesCod,&Token,in:&FilFrtHash,out:&Mensg,out:&Erro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotoristasServiceGravarRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotoristasServiceGravarRequest</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:MotoristasServiceGravarRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtHash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtHash</Value></Property><Property><Name>Description</Name><Value>Hash</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtHash</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeMotCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeMotCpf</Value></Property><Property><Name>Description</Name><Value>CPF </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeMotCpf</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotoristasServiceObterRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotoristasServiceObterRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:MotoristasServiceObterRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Location">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Location</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:Location</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotoristasService">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotoristasService</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:MotoristasService</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotoristasServiceObterResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotoristasServiceObterResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:MotoristasServiceObterResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensg</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotoristasServiceGravarResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotoristasServiceGravarResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:MotoristasServiceGravarResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="oquefazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>oquefazer</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:OqueFazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="fazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>fazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MotoristasServiceGravarRequestTelefones">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MotoristasServiceGravarRequestTelefones</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:MotoristasServiceGravarRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFonNum</Value></Property><Property><Name>Description</Name><Value>Pessoa Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidIBGE</Value></Property><Property><Name>Description</Name><Value>cidade IBGE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidCod</Value></Property><Property><Name>Description</Name><Value>Cidade</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSecure">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSecure</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Isecure">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Isecure</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LoadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EFrete_Motorista</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

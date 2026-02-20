@@ -1,0 +1,345 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="79134caf-dd65-4892-b93c-b8eac180f3c8" user="SRVORDIG\Administrador" versionDate="2024-05-08T13:57:25.0000000Z" lastUpdate="2024-05-07T17:47:56.0000000Z" checksum="c959071b0a9b329c9718e023ebb5cbce" fullyQualifiedName="RecalcularListaAbc" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="11b5622b-4063-495f-84e7-e01069273ac1" name="RecalcularListaAbc" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Recalcular Lista Abc" parent="CurvaAbc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+//&B_Curva = &B_Curva + &A_Curva
+
+For Each Order EmpCod, CrvCod //CurvaABC ( EmpCod,  CrvCod )
+	Where EmpCod = &EmpCod
+//	Where CrvCod <> &CrvCod
+	
+	For Each Order EmpCod, CrvCod, CrvProCod //CurvaABCproduto ( EmpCod,  CrvCod )
+		delete
+	EndFor
+	
+	delete
+When none
+	New
+		EmpCod = &EmpCod
+		CrvCod = &CrvCod
+	EndNew
+EndFor
+
+Commit
+
+//contagem 
+
+For Each Order EmpCod, ProCod, ProGraRef //PRODUTO GRADE
+	Where EmpCod = &EmpCod
+	Where GrupCod in &ColGrupCod when &GrupHie <> ''
+	Where ProPadForCod = &ProPadForCod When &ProPadForCod <> 0
+	Where ProSts = Status_Produto.ATIVO or &IncluirProdutosInativos = Status_SimNao.Sim
+	where ProSts <> Status_Produto.EXCLUIDO when &IncluirProdutosInativos = Status_SimNao.Nao
+	&PercentualTotal +=1
+EndFor
+
+// Inicio
+
+&Percentual = 0
+&ProgressIni = serverNow()
+&PerCount = 0
+do 'Atualiza'
+
+&ValorTotalVenda = 0
+&ValorTotalCusto = 0
+
+if not &GrupHie.IsEmpty()
+	retornaCollGrupoProduto.Call(&EmpCod, &GrupHie, &ColGrupCod)
+EndIF
+
+For Each 
+	Order EmpCod, ProCod, ProGraRef //PRODUTO GRADE
+	
+	Where EmpCod = &EmpCod
+	Where GrupCod in &ColGrupCod when &GrupHie <> ''
+	Where ProPadForCod = &ProPadForCod When &ProPadForCod <> 0
+	Where ProSts = Status_Produto.ATIVO or &IncluirProdutosInativos = Status_SimNao.Sim
+	where ProSts <> Status_Produto.EXCLUIDO when &IncluirProdutosInativos = Status_SimNao.Nao
+	
+	&CrvPedQtd = 0
+	&CrvPedQtdCan = 0
+	&CrvVlrTotItm = 0
+	&CrvVlrTotCus = 0
+	&IsOk = false
+	&CrvEstLoc.SetEmpty()
+	&CrvEstQtd = 0
+	
+	For Each Order EmpCod, FilCod, PedSts, LctAtuEst, PedDtaFat, ProCod, ProGraCod  //PEDIDO
+		Where FilCod = &FilCod
+		where PedSts = Status_Pedido.FECHADO
+		Where LctAtuEst = Status_EntradaSaida.Saida
+		where LctAtuSal = Status_EntradaSaida.Saida
+		Where PedDtaFat >= &iniPedDtaFat and PedDtaFat <= &finPedDtaFat
+		Where PedQtd > 0
+		Where LctGerFin = Status_SimNao.Sim or &IncluirPedidosSemFinanceiro = Status_SimNao.Sim
+		Where PedCliEntUfeCod = &RecUfeCod when not &RecUfeCod.IsEmpty()
+		//Where PedCidCod = &CidCod or &CidCod = 0 
+		//Where PedCliUdfeCod = &UfeCod or &UfeCod = ''
+		
+		&IsOk = true
+		&CrvPedQtd += PedQtd
+		&CrvPedQtdCan += PedQtdCan
+		&CrvVlrTotItm += PedVlrItm
+		&CrvVlrTotCus += PedVlrItmCus
+	EndFor
+
+	For Each Order EmpCod, FilCod, ProCod, ProGraCod //estoque
+		Where FilCod = &FilCod
+		
+		&CrvEstLoc = EstLoc
+		&CrvEstQtd = EstQtd
+		
+        If EstQtd > 0
+			&IsOk = true
+		EndIF
+	
+		If &AtualizarCurvaCadastro = Status_SimNao.Sim	
+			if &CalcularListarTipoCurva = 'R' 
+				EstABC_Ren = 'D'
+			Else
+				EstABC_Qtd = 'D'
+			EndIf
+		EndIF
+    EndFor
+	
+	&X +=1
+	If &X = 250
+		&PerCount += 249
+		&X=0
+		Do 'Percentual'
+	EndIf
+	
+	If &IsOk = true
+		For Each Order EmpCod, CrvCod, CrvProCod
+			Where CrvCod = &CrvCod
+			Where CrvProCod = ProCod
+			
+			CrvPedQtd += &CrvPedQtd
+			CrvPedQtdCan += &CrvPedQtdCan
+			CrvVlrTotItm += &CrvVlrTotItm
+			CrvVlrTotCus += &CrvVlrTotCus
+			CrvVlrTotRen = CrvVlrTotItm - CrvVlrTotCus
+	    when none
+	        New
+				EmpCod = EmpCod
+				CrvCod = &CrvCod
+				CrvProCod = ProCod
+				CrvProRef = ProRef
+				CrvProNom = ProNom.Trim()
+				CrvEstLoc = &CrvEstLoc
+				CrvPedQtd = &CrvPedQtd
+				CrvEstQtd = &CrvEstQtd
+				CrvPedQtdCan = &CrvPedQtdCan
+				CrvVlrTotItm = &CrvVlrTotItm
+				CrvVlrTotCus = &CrvVlrTotCus
+				CrvVlrTotRen = &CrvVlrTotItm - &CrvVlrTotCus
+			EndNew
+		EndFor
+	EndIF
+EndFor
+
+Commit
+
+
+&PerCount += &X
+Do 'Percentual'
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+
+	commit
+EndSub
+
+sub 'Percentual'
+	&PerCount += 1
+	If &PerCount > 0
+		&Percentual = round((&PerCount / &PercentualTotal) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId,in:&EmpCod, in:&FilCod, in:&CrvCod, in:&iniPedDtaFat, in:&finPedDtaFat, in:&ProPadForCod, in:&GrupHie, in:&IncluirPedidosSemFinanceiro, in:&AtualizarCurvaCadastro, in:&IncluirProdutosInativos, in:&CalcularListarTipoCurva, in:&ImprimirProdutosSemVenda, in:&RecListarEstoque, in:&RecUfeCod);
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AtualizarCurvaCadastro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AtualizarCurvaCadastro</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CalcularListarTipoCurva">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CalcularListarTipoCurva</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvCod</Value></Property><Property><Name>Description</Name><Value>Cod.Curva</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finPedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finPedDtaFat</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GrupHie">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GrupHie</Value></Property><Property><Name>Description</Name><Value>Hierarquia</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupHie</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImprimirProdutosSemVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImprimirProdutosSemVenda</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IncluirPedidosSemFinanceiro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IncluirPedidosSemFinanceiro</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IncluirProdutosInativos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IncluirProdutosInativos</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniPedDtaFat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniPedDtaFat</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedDtaFat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProPadForCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProPadForCod</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProPadForCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecListarEstoque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecListarEstoque</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RecUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RecUfeCod</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:UfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="A_Curva">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>A_Curva</Value></Property></Properties>
+        </Variable>
+        <Variable Name="B_Curva">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>B_Curva</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColGrupCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColGrupCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GrupCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvEstLoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvEstLoc</Value></Property><Property><Name>Description</Name><Value>Locacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvEstLoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvEstQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvEstQtd</Value></Property><Property><Name>Description</Name><Value>Qtd Estoque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvEstQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvPedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvPedQtd</Value></Property><Property><Name>Description</Name><Value>Qtd</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvPedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvPedQtdCan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvPedQtdCan</Value></Property><Property><Name>Description</Name><Value>Qtd Cancelada</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvPedQtdCan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvVlrTotCus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvVlrTotCus</Value></Property><Property><Name>Description</Name><Value>Total Custo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvVlrTotCus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrvVlrTotItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrvVlrTotItm</Value></Property><Property><Name>Description</Name><Value>Total Venda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrvVlrTotItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="inB_Curva">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>inB_Curva</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsOk">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsOk</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdProdutos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdProdutos</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorTotalCusto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorTotalCusto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorTotalVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorTotalVenda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PercentualTotal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PercentualTotal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>RecalcularListaAbc</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

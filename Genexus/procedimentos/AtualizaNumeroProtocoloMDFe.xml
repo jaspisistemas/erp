@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="1f511dc0-9418-490a-9e03-11ca2b7eb20a" user="SRVORDIG\Administrador" versionDate="2025-05-08T21:01:52.0000000Z" lastUpdate="2025-05-08T19:49:17.0000000Z" checksum="d66c458db522c61cd129c84f73dbd15b" fullyQualifiedName="AtualizaNumeroProtocoloMDFe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="9a3976ac-d2d7-4a23-ad75-7f071ad4d464" name="AtualizaNumeroProtocoloMDFe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Atualiza Numero Protocolo MDFe" parent="EnviaEmailNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	&FilEnvEml = FilEnvEml
+	Exit	
+EndFor
+
+Do CAse
+	Case &OqueFazer = 'AUTORIZA_NFE' //AUTORIZA NFE
+		For Each Order EmpCod, FilCod, MDFeCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where MDFeCod = &MDFeCod
+			Where MDFeSts <> &MDfeSts
+			
+			If not &MDfeProt.IsEmpty()
+				MDFeProt = &MDfeProt
+			EndIF
+			
+			MDFeSts = &MDfeSts
+			
+			Do  'CarregaEmail_CTE_NFE'
+			
+			//carrega e-mail do parâmetro
+			RetornaConfSistema.Call(EmpCod, FilCod, domConfSistema.TCon162_EmailEnviarNotas, &TCon162_EmailEnviarNotas)
+			
+			if not &TCon162_EmailEnviarNotas.Trim().IsEmpty()
+				&IsJahTem = false
+				For &itemSdtEmail in &SdtEmail
+					If &itemSdtEmail.EmlUrl = &TCon162_EmailEnviarNotas
+						&IsJahTem = true
+						Exit
+					EndIF	
+				EndFor
+				
+				If &IsJahTem = false
+					&itemSdtEmail = new()
+					&itemSdtEmail.EmlUrl = &TCon162_EmailEnviarNotas
+					&SdtEmail.Add(&itemSdtEmail)
+				EndIf
+			EndIf
+			
+			If &SdtEmail.Count > 0			
+				GravaEnvioEmail.Call(EmpCod, FilCod, MDFeCod, 0, TipoContaEmail.Email_Faturamento, &EmlAss, TipoSolicitacao.Envia_MDFe, &PesCod, '', &SdtEmail, &sdtBoleto)
+			EndIf
+		
+			Exit
+		EndFor
+		
+	Case &OqueFazer = 'CANCELA_NFE' //CANCELA NFE
+		For Each Order EmpCod, FilCod, MDFeCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where MDFeCod = &MDFeCod
+			Where MDFeSts <> &MDfeSts
+			
+			If not &MDfeProt.IsEmpty()
+				MDFeProt = &MDfeProt
+			EndIF
+			
+			MDFeSts = &MDfeSts
+			
+			Exit
+		EndFor
+	Case &OqueFazer = 'ENCERRA_MDFE' //ENCERRA
+		For Each Order EmpCod, FilCod, MDFeCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where MDFeCod = &MDFeCod
+			Where MDFeSts <> &MDfeSts
+			
+			If not &MDfeProt.IsEmpty()
+				MDFeProt = &MDfeProt
+			EndIF
+			
+			MDFeSts = &MDfeSts
+			
+			Exit
+		EndFor
+EndCase
+
+commit
+
+Sub 'CarregaEmail_CTE_NFE'
+	//################################# BUSTA E-MAIL DO CTE #################
+	&SdtEmail.Clear()
+	For Each Order EmpCod, FilCod,MDFeCod, MDFeCteItm
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MdfeCod
+		&FilFonNum = FilFonNum		
+		&MdfeNum = MDFeNum
+		&EmlAss = 'MDF-e - Manifesto de Conhecimento de Transporte ' + trim(toformattedString(&MdfeNum)) + ' da ' + trim(FilFan)
+		&PesRaz = FilRaz
+		&MDFeCteCod = MDFeCteCod
+		&MDFeCteFilCod = MDFeCteFilCod
+		
+		Do 'CarregaCte'
+	EndFor
+	
+	//################################# BUSTA E-MAIL DO NFE #################
+	For Each Order EmpCod, FilCod,MDFeCod,MDFeNFeItm
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		Where MDFeCod = &MdfeCod
+		&FilFonNum = FilFonNum		
+		&MdfeNum = MDFeNum
+		&EmlAss = 'MDF-e - Manifesto de Conhecimento de Transporte ' + trim(toformattedString(&MdfeNum)) + ' da ' + trim(FilFan)
+		&PesRaz = FilRaz
+		&MdfeNfeCod = MDFeNfeCod
+		&MDFeNFeFilCod = MDFeNFeFilCod
+		Do 'CarregaNfe'
+	EndFor
+EndSub
+
+Sub 'carregacte'
+	For each order EmpCod,FilCod,CteCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &MDFeCteFilCod
+		Where CteCod = &MDFeCteCod
+		
+		Do Case
+			Case &FilEnvEml = EmailEnvolvidosCte.SomenteRemetente
+				//REMETENTE
+				RetornaEmailFaturamento.Call(EmpCod, CteRemCod, &SdtEmail)
+			Case &FilEnvEml = EmailEnvolvidosCte.Somentedestinatario
+				//DESTINATÁRIO
+				RetornaEmailFaturamento.Call(EmpCod, CteDesCod, &SdtEmail)
+			Case &FilEnvEml = EmailEnvolvidosCte.SomenteTomador
+				//TOMADOR
+				RetornaEmailFaturamento.Call(EmpCod, CteTomCod, &SdtEmail)	
+			Case &FilEnvEml = EmailEnvolvidosCte.RemetenteDestinatario
+				//REMETENTE
+				RetornaEmailFaturamento.Call(EmpCod, CteRemCod, &SdtEmail)
+				//DESTINATÁRIO
+				RetornaEmailFaturamento.Call(EmpCod, CteDesCod, &SdtEmail)
+			Case &FilEnvEml = EmailEnvolvidosCte.RemetenteTomador
+				//REMETENTE
+				RetornaEmailFaturamento.Call(EmpCod, CteRemCod, &SdtEmail)
+				//TOMADOR
+				RetornaEmailFaturamento.Call(EmpCod, CteTomCod, &SdtEmail)	
+			Case &FilEnvEml = EmailEnvolvidosCte.DestinatarioTomador
+				//DESTINATÁRIO
+				RetornaEmailFaturamento.Call(EmpCod, CteDesCod, &SdtEmail)
+				//TOMADOR
+				RetornaEmailFaturamento.Call(EmpCod, CteTomCod, &SdtEmail)	
+			Case &FilEnvEml = EmailEnvolvidosCte.Todos
+				//REMETENTE
+				RetornaEmailFaturamento.Call(EmpCod, CteRemCod, &SdtEmail)
+				//DESTINATÁRIO
+				RetornaEmailFaturamento.Call(EmpCod, CteDesCod, &SdtEmail)
+				//TOMADOR
+				RetornaEmailFaturamento.Call(EmpCod, CteTomCod, &SdtEmail)
+		EndCase			
+		
+		Exit
+	EndFor
+
+EndSub
+
+
+Sub 'CarregaNfe'
+
+	For each order EmpCod,FilCod,NfeCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &MDFeNFeFilCod
+		Where NfeCod = &MdfeNfeCod
+		RetornaEmailFaturamento.call(EmpCod, NfeCliCod, &SdtEmail)
+		exit
+	EndFor
+
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&OqueFazer, in:&EmpCod, in:&FilCod, in:&MDFeCod, in:&NfeAutSts, in:&NfeAutNumLot, in:&NfeAutNumRec, in:&NfeAutDatHorRec, in:&NfeAutMsg, in:&MDfeProt, in:&NfeAutDigVal, in:&MDfeSts, in:&PesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="MDfeProt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeProt</Value></Property><Property><Name>Description</Name><Value>Protocolo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeProt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDfeSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDfeSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutDatHorRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutDatHorRec</Value></Property><Property><Name>Description</Name><Value>Data Hora Recibo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutDigVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutDigVal</Value></Property><Property><Name>Description</Name><Value>Nfe Aut Dig Val</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutDigVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutMsg</Value></Property><Property><Name>Description</Name><Value>msg</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumLot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumLot</Value></Property><Property><Name>Description</Name><Value>Numero do Lote</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumLot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumRec</Value></Property><Property><Name>Description</Name><Value>Recibo da NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueFazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueFazer</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>50</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>50</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilEnvEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilEnvEml</Value></Property><Property><Name>Description</Name><Value>E-mail para envolvidos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilEnvEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtEmail</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEmail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFonNum</Value></Property><Property><Name>Description</Name><Value>Telefone Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlAss">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlAss</Value></Property><Property><Name>Description</Name><Value>Assunto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlAss</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesRaz</Value></Property><Property><Name>Description</Name><Value>Pessoa Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCteCod</Value></Property><Property><Name>Description</Name><Value>Cte</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCteFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCteFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCteFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeNFeFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeNFeFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeNFeFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeNfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeNfeCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeNfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlUrl1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlUrl1</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlUrl2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlUrl2</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlUrl3">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlUrl3</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlUrl4">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlUrl4</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlUrl5">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlUrl5</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlUrl6">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlUrl6</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtBoleto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBoleto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="itemSdtEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>itemSdtEmail</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEmail.sdtEmailItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsJahTem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsJahTem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon162_EmailEnviarNotas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon162_EmailEnviarNotas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>AtualizaNumeroProtocoloMDFe</Value></Property><Property><Name>Description</Name><Value>Atualiza Numero Protocolo MDFe</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

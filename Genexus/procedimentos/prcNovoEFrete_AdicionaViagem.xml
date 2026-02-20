@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:36:01.0000000Z" checksum="cfcf2e4448a9585e0d76706e97587622" fullyQualifiedName="prcNovoEFrete_AdicionaViagem" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="128a3568-1133-4a26-bdd8-a17d39fb6307" name="prcNovoEFrete_AdicionaViagem" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Adicionar Viagem" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[// O conteúdo da tag Integrador deve ser uma CONSTANTE, pois é ela quem identifica seu sistema de gestão,
+//Suporte e-FRETE:	Seguem credenciais para uso em ambiente de homologação:
+//Integrador:		JASPI SISTEMAS DE INFORMÁTICA
+//CNPJ:				21826923000177
+//Usuário:			usuario@jaspi
+//Senha:			usuario#jaspi
+//Hash:				b754b48e-8c22-4cfc-bb0a-3524a76284c9
+
+//PROCEDIMENTO PARA ADICIONAR VIAGEM À OPERAÇÃO TAC_AGREGADO
+
+LoadWWPContext(&Context)
+//Config do Servidor
+HostWebServiceEfrete.Call(&EmpWebHost, &ExecuteUrl, '', '', &Hash)	//RETORNA HOST, URL E HASH INTEGRADOR
+&ExecuteUrl			+= 'Pef/AdicionarViagem'	//FORMATA URL DE EXECUÇÃO
+
+&HttpClient.Host	= 	&EmpWebHost	//HOST
+&HttpClient.Secure	= 	1			//https://
+
+//Header do JSON
+&HttpClient.AddHeader(!'Content-Type', !'application/json')
+&HttpClient.AddHeader(!'Accept-Encoding', !'gzip, deflate, br')
+
+Do 'GetViagens'
+
+//Realiza o Envio ao WebService
+&HttpClient.AddString(Trim(&JSONBody))
+&HttpClient.Execute('POST',&ExecuteUrl)
+		
+padraoUsuarioHora.Call('G', '#EFRETEADICIONARVIAGEM', &Context.PesCod, &Context.EmpCod, &JSONBody, &PadDtaMod, &PadDtaHorMod, 'T')
+		
+If &HttpClient.StatusCode = 200
+	&JSONBody 		= &HttpClient.ToString() //RECEBE A RESPOSTA DA REQUISIÇÃO
+	
+	//VERIFICA SE A REQUISIÇÃO FOI BEM SUCEDIDA
+	&PosicaoSucesso = StrSearch(&JSONBody, '"Sucesso"')
+	&PosicaoSucesso = &PosicaoSucesso + 11
+	
+	&Status 		= SubStr(&JSONBody, &PosicaoSucesso, 4)
+	
+	If &Status 		= 'true'
+		Do 'AtualizaViagem'
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Successo!", 'Operacao retificada com sucesso!', DVMessageType.success, "", DVMessageBoolean.True,""))
+		&StatusCode = 200
+	Else	
+		//SE A REQUISIÇÃO FALHAR TRATA O A MENSAGEM DE ERRO
+		&PosicaoSucesso = StrSearch(&JSONBody, '"Mensagem"')
+		&PosicaoSucesso = &PosicaoSucesso + 13
+		
+		&PosicaoFinal	= StrSearch(&JSONBody, '"Codigo"')
+		&PosicaoFinal	= &PosicaoFinal - &PosicaoSucesso - 8
+		&Status			= SubStr(&JSONBody, &PosicaoSucesso, &PosicaoFinal)
+		
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro Adiciona-Viagem!", 'Ocorreu um erro ao cadastrar a operação. ERRO: '+ Trim(&Status), DVMessageType.error, "", DVMessageBoolean.True,""))
+		&StatusRet 		= 0
+	EndIf
+	padraoUsuarioHora.Call('G', '#EFRETEADICIONARVIAGEMRESPOSTA', &Context.PesCod, &Context.EmpCod, &JSONBody, &PadDtaMod, &PadDtaHorMod, 'T')
+Else
+	Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro Adiciona-Viagem!!", &HttpClient.StatusCode.ToString() + ":" + &HttpClient.ErrDescription, DVMessageType.error, "", DVMessageBoolean.True,""))
+EndIf
+
+Sub 'GetViagens'
+	
+	For Each Order EmpCod, FilCod, OpeCod
+		Where EmpCod	=	&Context.EmpCod
+		Where FilCod	= 	&Context.FilCod
+		Where OpeCod	= 	&parmOpeCod
+		
+		//MONTA ESTRUTURA JSON
+		&JSONBody	=	'{'
+		&JSONBody	+=	'          "CodigoIdentificacaoOperacao": "'+ Trim(OpeNroCiot)+'",'
+		&JSONBody	+=	'            "Viagens": ['
+		&JSONBody	+=	'              {'
+		If OpeEmiGra = True
+			&JSONBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.TransferenciaBancaria +'",'
+		Else
+			&JSONBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.eFRETE +'",'
+		EndIf
+		//PAGAMENTOS
+		For Each Order EmpCod, FilCod, OpeCod, OpePgtCod
+			Where OpePgtSit	= Status_AbertoFechado.Aberto
+			
+			&JSONBody	+=	'                "TipoPagamento": "'+OpePgtTip+'",'
+			&JSONBody	+=	'                "InformacoesBancarias": {'
+			&JSONBody	+=	'                       "InstituicaoBancaria": "'+Trim(OpePgtBan)+'",'
+			&JSONBody	+=	'                       "Agencia": "'+Trim(OpePgtAge)+'",'
+			&JSONBody	+= 	'                       "Conta": "'+Trim(OpePgtCon)+'",'
+			&JSONBody	+=	'                       "TipoConta": "'+OpePgtConTip+'"'
+			&JSONBody	+=	'                },'
+			
+			&OpePgtVal	= OpePgtVal
+			
+		EndFor
+		
+		&QtdNfe	= Count(OpeNfeCod)
+		
+		//VIAGEM
+		For Each Order EmpCod, FilCod, OpeCod, OpeViaCod
+			Where OpeViaCod	= 	&parmOpeViaCod
+			&JSONBody	+=	'                "DocumentoViagem": "'+Trim(OpeNroDoc)+'",'
+			&JSONBody	+=	'                "CodigoMunicipioOrigem": "'+ Trim(Str(OpeOriCidCod))+'",'
+			&JSONBody	+=	'                "CodigoMunicipioDestino": "'+Trim(Str(OpeDstCidCod))+'",'
+			&JSONBody	+=	'                "CepOrigem": "'+Trim(OpeOricidCep)+'",'
+			&JSONBody	+=	'                "CepDestino": "'+Trim(OpeDstCidCep)+'",'
+			&JSONBody	+=	'                "Valores": '
+			
+			For Each Order EmpCod, FilCod, OpeCod, OpeViaCod, OpeValCod
+				&TotalViagem	= (OpeTotAdi + OpeTotOutCre) - (OpeTotQui + OpeTotCom + OpeTotPed + OpeTotSeg + OpeTotOutDeb)
+				
+				&JSONBody	+=	' {'
+				&JSONBody	+=	'                       "TotalOperacao": "'+Trim(Str(&OpePgtVal))+'",'
+				&JSONBody	+=	'                       "TotalViagem": "'+Trim(Str(&TotalViagem))+'",'
+				&JSONBody	+=	'                       "TotalDeAdiantamento": "'+Trim(Str(OpeTotAdi))+'",'
+				&JSONBody	+=	'                       "TotalDeQuitacao": "'+Trim(Str(OpeTotQui))+'",'
+				&JSONBody	+=	'                       "Combustivel": "'+Trim(Str(OpeTotCom))+'",'
+				&JSONBody	+=	'                       "Pedagio": "'+Trim(Str(OpeTotPed))+'",'
+				&jSONBody	+=	'                       "OutrosCreditos": "'+Trim(Str(OpeTotOutCre))+'",'
+				&JSONBody	+=	'                       "JustificativaOutrosCreditos": "'+Trim(OpeTotOutCreJus)+'",'
+				&JSONBody	+=	'                       "Seguro": "'+Trim(Str(OpeTotSeg))+'",'
+				&JSONBody	+=	'                       "OutrosDebitos": "'+Trim(Str(OpeTotOutDeb))+'",'
+				&JSONBody	+=	'                       "JustificativaOutrosDebitos": "'+Trim(Str(OpeTotOutDeb))+'"'
+				&JSONBody	+=	'                },'
+				
+			EndFor
+			Exit
+		EndFor
+		
+		&JSONBody	+=	'                "NotasFiscais": ['
+		For Each Order EmpCod, FilCod, OpeCod, OpeNfeCod
+			&OpeNfeDta = Trim(Str(Year(OpeNfeDta))) + '-' + Trim(Str(Month(OpeNfeDta))) + '-' + Trim(Str(Day(OpeNfeDta)))
+			
+			&JSONBody	+=	'                {'
+			&JSONBody	+=	'                       "Numero": "'+Trim(Str(OpeNfeNro))+'",'
+			&JSONBody	+=	'                       "Serie": "'+Trim(OpeNfeSer)+'",'
+			&JSONBody	+=	'                       "Data": "'+Trim(&OpeNfeDta)+'",'
+			&JSONBody	+=	'                       "CodigoNCMNaturezaCarga": "'+ Trim(Str(OpeNfeNcm))+'",'
+			&JSONBody	+=	'                       "ValorTotal": "'+Trim(Str(OpeNfeVlrTot))+'",'
+			&JSONBody	+=	'                       "ValorDaMercadoriaPorUnidade": "'+Trim(Str(OpeNfeVlrUni))+'",'
+			&JSONBody	+=	'                       "QuantidadeDaMercadoriaNoEmbarque": "'+Trim(Str(OpeNfeQtdMerEmb))+'",'
+			&JSONBody	+=	'                       "UnidadeDeMedidaDaMercadoria": "'+OpeNfeUndMed+'",'
+			&JSONBody	+=	'                       "ToleranciaDePerdaDeMercadoria": {'
+			&JSONBody	+=	'                               "Tipo": "'+OpeNfeTolPerTip+'",'
+			&JSONBody	+=	'                               "Valor": "'+Trim(Str(OpeNfeTolPerVlr))+'"'
+			&JSONBody	+=	'                        }'
+			If &QtdNfe <= 1
+				&JSONBody	+=	'                }'
+			Else
+				&JSONBody	+=	'                },'
+				&QtdNfe		-= 1
+			EndIf
+			
+		EndFor
+		
+		&JSONBody	+=	'                ]'
+		&JSONBody	+=	'              }'
+		&JSONBody	+=	'              ],'
+		If OpeEmiGra = True
+			&JSONBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.TransferenciaBancaria +'",'
+		Else
+			&JSONBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.eFRETE +'",'
+		EndIf
+		&JSONBody	+=	'          "NaoAdicionarParcialmente": "'+&NaoAdicionarParcialmente.ToString()+'",'
+		If Not &Token.IsEmpty()
+			&JSONBody	+=	'          "Token": "'+	Trim(&Token) +'",'
+		EndIf
+		&JSONBody	+=	'          "Integrador": "'+ &Hash.Trim() +'",'
+		&JSONBody	+=	'          "Versao": "3"'
+		&JSONBody	+=	'}'
+		
+	EndFor
+	
+EndSub
+
+Sub 'AtualizaViagem'
+	
+	For Each Order EmpCod, FilCod, OpeCod
+		Where EmpCod	=	&Context.EmpCod
+		Where FilCod	= 	&Context.FilCod
+		Where OpeCod	= 	&parmOpeCod
+		
+		For Each Order EmpCod, FilCod, OpeCod, OpeViaCod
+			Where OpeViaCod	= &parmOpeViaCod
+			
+			OpeViaSts	= Status_Autorizado.AUTORIZADO
+			
+			Exit
+		EndFor
+		
+		For Each Order EmpCod, FilCod, OpeCod, OpePgtCod
+			Where OpePgtSit	= Status_AbertoFechado.Aberto
+			
+			OpePgtSit		= Status_AbertoFechado.Fechado
+			
+		EndFor
+	
+	EndFor
+	Commit
+	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&Token, In:&NaoAdicionarParcialmente, In:&parmOpeCod, In:&parmOpeViaCod, Out:&StatusCode);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONBody</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaHorMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaHorMod</Value></Property><Property><Name>Description</Name><Value>Data Hora Modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaHorMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoSucesso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoFinal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusCode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusCode</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusRet</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeViaCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeViaCod</Value></Property><Property><Name>Description</Name><Value>Ope Via Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeViaCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpePgtVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpePgtVal</Value></Property><Property><Name>Description</Name><Value>Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalViagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalViagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeNfeDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeNfeDta</Value></Property><Property><Name>Description</Name><Value>Data da Nota Fiscal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NaoAdicionarParcialmente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NaoAdicionarParcialmente</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdViagens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdViagens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdNfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdNfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpeEmiGra">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpeEmiGra</Value></Property><Property><Name>Description</Name><Value>Emissão Gratuita?</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeEmiGra</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hash</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcNovoEFrete_AdicionaViagem</Value></Property><Property><Name>Description</Name><Value>Adicionar Viagem</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

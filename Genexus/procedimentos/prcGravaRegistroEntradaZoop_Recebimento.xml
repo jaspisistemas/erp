@@ -1,0 +1,569 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="67d4de63-c61b-4c3e-8d8b-f9627a0a946e" user="WINJEAN\jeanfae" versionDate="2026-01-21T14:58:39.0000000Z" lastUpdate="2026-01-20T12:26:13.0000000Z" checksum="556106d5820afe6a25247a5fe49b8816" fullyQualifiedName="prcGravaRegistroEntradaZoop_Recebimento" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="96c08c98-5949-48dc-9ff5-92a6aef59d14" name="prcGravaRegistroEntradaZoop_Recebimento" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Grava Registro Entrada Zoop_Recebimento" parent="ZoopPagamentos" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&ZoopID = &zoopEvent.transaction
+&ZoopHisId = &zoopEvent.id
+if &ZoopHisId.IsEmpty()
+	return
+endif
+	
+new
+	EmpCod = &EmpCod
+	FilCod = &FIlCod
+	ZoopId = &ZoopID
+	ZoopHisId = &ZoopHisId
+endnew
+Commit
+
+
+//RETORNA DADOS DA TRANSACAO
+For Each Order EmpCod, FilCod, ZoopId
+	Where EmpCod = &EmpCod
+	Where FilCod = &FIlCod
+	Where ZoopId = &ZoopID
+	
+	&ZoopTip = ZoopTip
+	&CreCod = ZoopCreCod
+	&CreFilCod = ZoopFilCod
+	&ZoopQtdPar = ZoopQtdPar
+	&ZoopCardId = ZoopCardId
+	&ZoopCardNSU = ZoopCardNSU
+	&ZoopTax = ZoopTax
+	&auxzoopEvent = new()
+	&auxzoopEvent.fee_details.Clear()
+	&auxzoopEvent.history.Clear()
+	&auxzoopEvent.FromJson(ZoopObs)
+	Do Case
+		Case &CreCod.IsEmpty() and &ZoopTip = 'B' and not ZoopBolId.IsEmpty() //	BOLETO
+			GetDuplicataNro.Call(EmpCod, ZoopBolId.Trim(), '0', &CreFilCod, &CreCod, &IsAchou)
+			ZoopFilCod = &CreFIlCod
+			ZoopCreCod = &CreCod
+		Case &CreCod.IsEmpty() and (&ZoopTip = 'C' or &ZoopTip = 'D') and not &ZoopCardId.IsEmpty() and &ZoopQtdPar <= 1//	CARTAO
+			GetDuplicata_AutorizacaoCArtao.Call(EmpCod, &ZoopCardId.Trim(), &ZoopCardNSU.Trim(), '', &CreFilCod, &CreCod, &IsAchou)
+//			ZoopFilCod = &CreFIlCod
+//			ZoopCreCod = &CreCod	
+
+	EndCase
+	
+	Exit
+EndFor
+Commit
+
+For Each Order EmpCod, FilCod, ZoopId, ZoopHisId
+	Where EmpCod = &EmpCod
+	Where FilCod = &FIlCod
+	Where ZoopId = &ZoopID
+	Where ZoopHisId = &ZoopHisId
+	
+	ZoopHisPar = val(&zoopEvent.installment)
+	&ZoopHisPar = ZoopHisPar
+	
+	if &ZoopHisPar > 0 and (&ZoopTip = 'C') and not &ZoopCardId.IsEmpty()
+		&CreCod = ZoopHisCreCod
+		&CreFilCod = ZoopHisFilCod
+		if &CreCod.IsEmpty()
+			GetDuplicata_AutorizacaoCArtao.Call(EmpCod, &ZoopCardId.Trim(), &ZoopCardNSU.Trim(), trim(str(&ZoopHisPar)), &CreFilCod, &CreCod, &IsAchou)
+			ZoopHisFilCod = &CreFIlCod
+			ZoopHisCreCod = &CreCod
+
+		Endif
+	Endif
+	
+	ZoopHisVlr = val(&zoopEvent.amount)
+	ZoopHisVlrOri = val(&zoopEvent.gross_amount)
+	
+	&created_at = &zoopEvent.expected_on
+	do 'CaptaDados'
+	ZoopHisDta = ymdtoD(&Ano, &Mes, &dia)
+	ZoopHisObs = &zoopEvent.ToJson()
+	
+	Do case
+		CAse &ZoopTip = 'C' or &ZoopTip = 'D' //CREDITO E DEBITO
+			if ZoopHisOpe.IsEmpty() or ZoopHisOpe.IsNull()
+				ZoopHisOpe = 'P'
+			Endif
+			
+			if upper(&zoopEvent.Status) = 'REFUNDED'
+				ZoopHisOpe = 'C'
+				do 'CANCELADO'
+			Else				
+				&DtaOcorrencia  = ZoopHisDta
+				&DataPagamento = ZoopHisDta
+				&ValorLiquido = Val(&zoopEvent.amount)
+				&ValorPagoMoeda = val(&zoopEvent.gross_amount)
+				if &ValorPagoMoeda > &ValorLiquido and &ValorLiquido > 0
+					&ZoopTax = &ValorPagoMoeda - &ValorLiquido
+				Endif
+				do 'BaixaDuplicata'
+			Endif
+			
+		CAse &ZoopTip = 'B' //BOLETO, SE FOR DA PAGO
+			ZoopHisOpe = 'P'
+			&DtaOcorrencia  = ZoopHisDta
+			&DataPagamento = ZoopHisDta
+			&ValorLiquido = Val(&zoopEvent.amount)
+			&ValorPagoMoeda = val(&zoopEvent.gross_amount)
+			//			if &ValorPagoMoeda > &ValorLiquido and &ValorLiquido > 0
+			//				&ZoopTax = &ValorPagoMoeda - &ValorLiquido
+			//			Endif
+			do 'BaixaDuplicata'
+	EndCAse	
+EndFor
+
+Commit
+
+if &IsBaixou = true
+	For Each Order EmpCod, FilCod, ZoopId, ZoopHisId
+		Where EmpCod = &EmpCod
+		Where FilCod = &FIlCod
+		Where ZoopId = &ZoopID
+		Where ZoopHisId = &ZoopHisId
+		ZoopHisOpe = 'L'
+		Exit
+	Endfor
+	Commit
+Endif
+	
+For Each Order EmpCod, FilCod, ZoopId
+	Where EmpCod = &EmpCod
+	Where FilCod = &FIlCod
+	WHere ZoopId = &ZoopID
+	
+	&IsUmPendente = false
+	&IsUmnaoVinculado = false
+	For Each Order EmpCod, FilCod, ZoopId, ZoopHisId
+		if ZoopHisOpe <> 'L'
+			&IsUmPendente = true
+		Endif
+		
+		if ZoopHisCreCod.IsEmpty() or ZoopHisCreCod.IsNull() and ZoopHisOpe <> 'C'
+			&IsUmnaoVinculado = true
+		Endif
+	EndFor
+	
+	Do Case
+		Case &IsUmPendente = false
+			ZoopJaspiSts = 'L'  //LIQUIDADO
+			
+		CAse &IsUmnaoVinculado = false and ( &ZoopTip = 'C' or &ZoopTip = 'D')
+			ZoopJaspiSts = 'V'  //VINCULADO
+			
+		case &IsUmnaoVinculado = true and ( &ZoopTip = 'C' or &ZoopTip = 'D')
+			ZoopJaspiSts = 'P'  //PENDENTE
+	Endcase
+	
+	exit
+EndFor
+commit
+	
+sub 'BaixaDuplicata'
+	//GRAVA BAIXA FINANCEIRO
+	do Case
+		cAse &ZoopTip = 'B' and &CreCod > 0 and &ValorPagoMoeda > 0 and &ZoopTax > 0//BOLETO //DUPLICATA //PAID
+			&IsBaixou = false
+			For Each Order EmpCod, FilCod, CreCod
+				Where EmpCod = &EmpCod
+				Where FilCod = &CreFIlCod
+				Where CreCod = &CreCod
+				Where CreSts <> Status_Duplicata.CANCELADA
+				
+				&IsBaixou = true
+				
+				if CreVlrSdo <= 0
+					Exit
+				Endif
+				
+				if &ValorPagoMoeda > CreVlrDup 
+					&JurosPagosMoeda = &ValorPagoMoeda - CreVlrDup
+				Else
+					&DescontosMoeda = CreVlrDup - &ValorPagoMoeda
+				Endif
+				if &DescontosMoeda < 0
+					&DescontosMoeda = 0
+				Endif
+				if &JurosPagosMoeda < 0
+					&JurosPagosMoeda = 0
+				Endif
+				
+				&CreCbrCod = CreCbrCod
+				&CreCbrCtaBanCod = CreCbrCtaBanCod
+				do 'GetLocalCobranca'
+				
+				&CreplanCod = CrePlanCod
+				do 'buscaOcorrenciaCredito' 
+				DuplicataBaixaLct.Call(EmpCod, FilCod, CreCod, CreSts, &DtaOcorrencia, CreCbrCod, &CreCbrCtaBanCod, '999', '' , &ValorPagoMoeda, 0, 0, &DataPagamento, &DescontosMoeda,&JurosPagosMoeda, CreDupNro, CreCliCod, CreCliRaz, &CreplanCod)
+				
+				&CreCobObs = '#LIQUIDACAO AUTOMATICA WEBSERVICE JASPI#'
+				GravaCObranca.Call(EmpCod, FilCod, CreCod, &CreCobObs, 0,0, serverdate() ,'', TipoObservacaoDuplicata.INTERNA)
+				//TAXAS
+//				if &ZoopTax > 0
+					do 'buscaOcorrenciaTarifa'
+					if &TarifaPlanCod > 0
+						DuplicataBaixaLct.Call(EmpCod, FilCod, CreCod, CreSts, &DtaOcorrencia, CreCbrCod, &CreCbrCtaBanCod, '999', 'TAXA' , 0, &ZoopTax, 0, &DataPagamento, 0, 0, CreDupNro, CreCliCod, CreCliRaz, &TarifaPlanCod)
+					Endif
+//				EndIf
+				
+			 if CreAdmCod > 0 //LIBERA LICENCA
+					&ppJASPI_DuplicatasPagasdtDuplicatasItems = new()
+					&ppJASPI_DuplicatasPagasdtDuplicatasItems.CreCod = CreAdmCod
+					&ppJASPI_DuplicatasPagasdtDuplicatasItems.CliCodSync = CreCliPesEmpSecCod
+					&ppJASPI_DuplicatasPagasdtDuplicatas.Duplicatas.Items.Add(&ppJASPI_DuplicatasPagasdtDuplicatasItems)
+			 	 
+					prcAtualizaStatusLiberado.Call('S', EmpCod, 1, &ppJASPI_DuplicatasPagasdtDuplicatas)
+				Endif
+				
+				Exit
+			EndFor
+			
+		Case (&ZoopTip = 'C' or &ZoopTip = 'D') and &CreCod > 0 //BOLETO //DUPLICATA //PAID //SOMENTE DEBITO
+			&IsBaixou = false
+			For Each Order EmpCod, FilCod, CreCod
+				Where EmpCod = &EmpCod
+				Where FilCod = &CreFIlCod
+				Where CreCod = &CreCod
+				Where  CreSts <> Status_Duplicata.CANCELADA
+			
+				if CreVlrSdo > 0 and &ZoopTax > 0
+					CreCarTax = (&ZoopTax / CreVlrSdo) * 100
+					CreCarTax = &CreCarTax
+				Endif
+				
+				if &ZoopTip = 'D'
+					CreCarCreDeb = 1 //DEBITO
+				Else
+					CreCarCreDeb = 2 //CREDITO
+				Endif
+				
+				if not &DataPagamento.IsEmpty()
+					CreDtaVct = &DataPagamento
+				Else
+					&DataPagamento = CreDtaVct
+				Endif
+				CreCarArqc = &zoopEvent.installment
+				if not &AuxzoopEvent.payment_method.card_brand.IsEmpty()
+					CreCarBanNom = &AuxzoopEvent.payment_method.card_brand
+					CreCarCardNom = &AuxzoopEvent.payment_method.holder_name
+				Endif
+				
+				Commit
+				
+				if CreVlrSdo <= 0
+					&IsBaixou = true
+					Exit
+				Endif
+			
+				if &DataPagamento <= serverdate() and &ValorPagoMoeda > 0 and CreVlrSdo = CreVlrDup and CreVlrSdo > 0
+					&IsBaixou = true
+					
+					&SdtPagamentoDuplicataItem = new()
+					&SdtPagamentoDuplicataItem.CreCod    = CreCod
+					&SdtPagamentoDuplicataItem.FilCod    = FilCod   
+					&SdtPagamentoDuplicataItem.CreCliCod = CreCliCod
+					&SdtPagamentoDuplicataItem.CreCliRaz = CreCliRaz
+					&SdtPagamentoDuplicataItem.CreCliCodRaz = Trim(str(CreCliCod))+'-'+trim(CreCliRaz)
+					&SdtPagamentoDuplicataItem.CreVlrPgt = &ValorPagoMoeda
+					&SdtPagamentoDuplicataItem.CreVlrSdo = CreVlrSdo
+					&SdtPagamentoDuplicataItem.CreCbrCod = CreCbrCod
+					&SdtPagamentoDuplicataItem.CrePedCod = CrePedCod
+					&SdtPagamentoDuplicataItem.CreDupNro = CreDupNro
+					&SdtPagamentoDuplicataItem.CreDtaEms = CreDtaEms
+					&SdtPagamentoDuplicataItem.CreDtaVct = &DataPagamento
+					&SdtPagamentoDuplicataItem.CrePagDta = &DataPagamento
+					&SdtPagamentoDuplicataItem.CreEnvSpc = CreEnvSpc
+					&sdtPagamentoDuplicataItem.MovCpl    = 'CL:' + trim(str(CreCliCod)) + ' - ' + trim(CreCliRaz)
+					&SdtPagamentoDuplicataItem.CreSts    = CreSts	
+					&SdtPagamentoDuplicataItem.Mensagem  = 'CL:' + trim(str(CreCliCod)) + ' - ' + trim(CreCliRaz)
+					&SdtPagamentoDuplicataItem.CreTipBxa = TipoDuplicataBaixa.Total
+					&SdtPagamentoDuplicataItem.CrePagVlrTar = &ZoopTax
+					&SdtPagamentoDuplicataItem.CrePlanCod = CrePlanCod
+					&SdtPagamentoDuplicataItem.CreCarBanCod = CreCarBanCod
+					&SdtPagamentoDuplicataItem.CreCarCreDeb = CreCarCreDeb
+					&SdtPagamentoDuplicataItem.CreCarTax = CreCarTax
+					&SdtPagamentoDuplicata.Add(&SdtPagamentoDuplicataItem)		
+					
+					
+					GravaFinanceiroDuplicataCartao.Call(EmpCod, &DataPagamento, &ValorPagoMoeda, false, &SdtPagamentoDuplicata)
+					
+					&CreCobObs = '#LIQUIDACAO AUTOMATICA WEBSERVICE JASPI#'
+					GravaCObranca.Call(EmpCod, FilCod, CreCod, &CreCobObs, 0,0, serverdate() ,'', TipoObservacaoDuplicata.INTERNA)
+				Endif
+				
+				Exit
+		    EndFor
+	endCAse
+EndSub
+
+Sub 'CANCELADO'
+	For Each Order EmpCod, FilCod, ZoopId
+		Where EmpCod = &EmpCod
+		Where FilCod = &FIlCod
+		WHere ZoopId = &ZoopID
+		ZoopJaspiSts = 'C'  //CANCELADO
+		exit
+	EndFor
+	commit
+EndSub
+
+Sub 'GetLocalCobranca'
+	For Each Order EmpCod, CbrCod
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CreCbrCod
+		if not CbrCtaBanMovFin.IsEmpty() and not CbrCtaBanMovFin.IsNull()
+			&CreCbrCtaBanCod = CbrCtaBanMovFin
+		Endif
+		Exit
+	EndFor
+EndSub
+
+Sub 'buscaOcorrenciaCredito' 
+    For Each Order BanCod,EmpCod,RetBanCod
+		Where BanCod = '999'
+		Where EmpCod = &EmpCod
+    	Where RetBanCod = '01' //LIQUIDACAO NORMAL
+		
+		if RetUtiPlanDup <> true and RetPlanCod <> 0
+			&CreplanCod = RetPlanCod
+		Endif
+	
+		Exit
+    EndFor	
+EndSub
+
+Sub 'buscaOcorrenciaTarifa' 
+    For Each Order BanCod,EmpCod,RetBanCod
+		Where BanCod = '999'
+		Where EmpCod = &EmpCod
+    	Where RetBanCod = '02' //TARIFA BANCARIA'
+		
+		&TarifaPlanCod = RetPlanCod
+		
+		Exit
+    EndFor	
+EndSub
+
+
+Sub 'CaptaDados'
+	&Ano = val(Substr(&created_at, 1,4)) //: "2020-02-17 12:09:09"
+	&Mes = val(Substr(&created_at,6,2)) //MES 
+	&dia = val(Substr(&created_at,9,2)) //dia
+	&Hour = val(Substr(&created_at,12,2)) //Hora
+	&Minutes = val(Substr(&created_at,15,2)) //Minute
+	&Seconds = val(Substr(&created_at,18,2)) //seconds
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FIlCod, in:&zoopEvent, in:&ZoopObs);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="zoopEvent">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>zoopEvent</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:zoopEvent</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopID</Value></Property><Property><Name>Description</Name><Value>Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FIlCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FIlCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopObs</Value></Property><Property><Name>Description</Name><Value>Zoop Obs</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="payment_authorization">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>payment_authorization</Value></Property></Properties>
+        </Variable>
+        <Variable Name="History">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>History</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:zoopEvent.historyItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="created_at">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>created_at</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopTip</Value></Property><Property><Name>Description</Name><Value>Zoop Tip</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaOcorrencia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaOcorrencia</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataPagamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataPagamento</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DescontosMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DescontosMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurosPagosMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurosPagosMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorPagoMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorPagoMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAchou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAchou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFIlCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFIlCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_DuplicatasPagasdtDuplicatas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_DuplicatasPagasdtDuplicatas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_DuplicatasPagasdtDuplicatas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJASPI_DuplicatasPagasdtDuplicatasItems">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJASPI_DuplicatasPagasdtDuplicatasItems</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_DuplicatasPagasdtDuplicatas_Item</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBanRetObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBanRetObs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TarifaPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TarifaPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreplanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreplanCod</Value></Property><Property><Name>Description</Name><Value>Plano de Conta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Seconds">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Seconds</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Minutes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Minutes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hour">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hour</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPagamentoDuplicataItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPagamentoDuplicataItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata.SdtPagamentoDuplicataItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtPagamentoDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtPagamentoDuplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtPagamentoDuplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DataZoopPgtoExp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DataZoopPgtoExp</Value></Property><Property><Name>Description</Name><Value>Pagamento Experado</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopCardId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopCardId</Value></Property><Property><Name>Description</Name><Value>Referencia Cartao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopCardId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopHisId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopHisId</Value></Property><Property><Name>Description</Name><Value>Zoop His Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopHisId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopTax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopTax</Value></Property><Property><Name>Description</Name><Value>Taxas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopTax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ValorLiquido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ValorLiquido</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCobObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCobObs</Value></Property><Property><Name>Description</Name><Value>Cobrança Obs</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCobObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsBaixou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsBaixou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopQtdPar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopQtdPar</Value></Property><Property><Name>Description</Name><Value>Parcelas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopQtdPar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopHisPar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopHisPar</Value></Property><Property><Name>Description</Name><Value>Parcela</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopHisPar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsUmPendente">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsUmPendente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxzoopEvent">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxzoopEvent</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:zoopEvent</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsUmnaoVinculado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsUmnaoVinculado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCarTax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCarTax</Value></Property><Property><Name>Description</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCarTax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ZoopCardNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ZoopCardNSU</Value></Property><Property><Name>Description</Name><Value>NSU</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ZoopCardNSU</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGravaRegistroEntradaZoop_Recebimento</Value></Property><Property><Name>Description</Name><Value>prc Grava Registro Entrada Zoop_Recebimento</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

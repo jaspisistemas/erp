@@ -1,0 +1,735 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="80292957-8069-4246-bbbc-41d8631ada0f" user="WIN-JEAN\jean.fae" versionDate="2023-06-02T13:08:39.0000000Z" lastUpdate="2023-05-29T18:59:56.0000000Z" checksum="ad4a7953ea8f5632aca24c1d8b6fc485" fullyQualifiedName="ControleWPConciliacaoMaquininha" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="b6fbabc1-7778-42e3-a8a5-7b525e20b20c" name="ControleWPConciliacaoMaquininha" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Concilia Cartao NEW" parent="ConciliacaoMaquininha" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[// inicia as variáveis zeradas
+&auxCreCarBanCod    = 0
+&MovItmCod          = 0
+&CreMaxPagCod       = 0
+&MovCod             = 0
+&saldoFinanceiro    = 0
+//&LogGUID            = GUID.NewGuid()
+&percentual         = 0
+&TotalDesconto      = 0
+&sdtConciliacaoItem = &parmSdtConciliacaoItem
+&sdtMensagens.clear()
+&podeContinuar = true
+
+if &podeContinuar
+	do case
+		case &OqueFazer = 'IGNO'
+			do 'IgnoraItem'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento ignorado com sucesso'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			
+		case &OqueFazer = 'JACON'
+			do 'JaConciliado'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento marcado como já conciliado'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			
+		case &OqueFazer = 'DESCO'
+			do 'Desconciliar'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento desconciliado com sucesso'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			
+		case &OqueFazer = 'ATUAP'
+			 do 'AtualizaParaPendente'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento atualizado para pendente'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			
+		case &OqueFazer = 'CONOR'
+			do 'CalculaSomaTotalDuplicatas_e_Diferenca'
+			do 'AtualizaDadosDaDuplicata'
+			do 'Conciliacao'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento conciliado com sucesso'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			
+		case &OqueFazer = 'COJUR'
+			do 'CalculaSomaTotalDuplicatas_e_Diferenca'
+			do 'CalculaValorLancamentoCom_Juros'
+			do 'AtualizaDadosDaDuplicata'
+			do 'Conciliacao'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento conciliado com sucesso'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			
+		case &OqueFazer = 'CODES'
+			do 'CalculaSomaTotalDuplicatas_e_Diferenca'
+			do 'CalculaValorLancamentoCom_Desconto'
+			do 'AtualizaDadosDaDuplicata'
+			do 'Conciliacao'
+			
+			&sdtMensagem = new()
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento conciliado com sucesso'
+			&sdtMensagem.msgtype     = DVMessageType.success
+			&msgType                 = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+	endcase
+	
+	commit
+endif
+
+Sub 'Conciliacao'
+	do 'isConciliado'
+	
+	if &isConciliado = true
+		return
+	endif
+	// inicia as variáveis para o Lança Pagamento
+	&MovTip = TipoMovimento.RecebimentoCartao
+	&MovCreDeb = 'C'
+	
+	do 'GetContaCartao'
+	
+	For &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&CrePagDta = &sdtConciliacaoItem.LanMaqDtaPgto
+		
+		do 'GetUltimoCodigoDePagamentoDuplicata'
+		do 'GravaMovimento'
+		
+		&creditoMovCod = &MovCod
+		&CreVlrPgt     = &sdtDuplicataItemConciliaCartao.CreVlrDup + &sdtDuplicataItemConciliaCartao.CrePagVlrJur - &sdtDuplicataItemConciliaCartao.CrePagVlrDsc
+		&CrePagVlrTar  = 0
+		&PlanCod       = &sdtDuplicataItemConciliaCartao.CrePlanCod
+		&CrePagVlrJur  = &sdtDuplicataItemConciliaCartao.CrePagVlrJur
+		&CrePagVlrDsc  = &sdtDuplicataItemConciliaCartao.CrePagVlrDsc
+		
+		do 'GetUltimoCodigoDeItemMovimento'
+		do 'GravaMovimentoItem'
+		do 'GravaPagamentoDuplicata'
+		do 'AtualizaSaldoDuplicata'
+		do 'GravaRecibo'
+		
+		commit	
+		&saldoFinanceiro += &CreVlrPgt
+	EndFor
+	
+	if &MovCod <> 0
+		PrcAtualizaMovimentoFinanceiro.Call(&Context.EmpCod, &MovCod)
+	Endif
+	
+	// inicia as variáveis para o Lança Despesa
+	&MovCod = 0
+	&MovItmCod = 0
+	&MovTip = TipoMovimento.DespesaCartao
+	&MovCreDeb = 'D'
+	
+	/**
+	lança DESPESA
+	*/
+	For &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&CrePagDta = &sdtConciliacaoItem.LanMaqDtaPgto
+		
+		do 'GetUltimoCodigoDePagamentoDuplicata'
+		do 'GravaMovimento'
+		do 'GetUltimoCodigoDeItemMovimento'
+		
+		&CreVlrPgt    = &sdtDuplicataItemConciliaCartao.CrePagVlrTar
+		&CrePagVlrTar = &sdtDuplicataItemConciliaCartao.CrePagVlrTar
+		&CrePagVlrJur = 0
+		&CrePagVlrDsc = 0
+		
+		do 'GravaMovimentoItem'
+		do 'GravaPagamentoDuplicata'
+		
+		commit	
+		&saldoFinanceiro -= &CreVlrPgt
+	EndFor
+	
+	if &MovCod <> 0
+		PrcAtualizaMovimentoFinanceiro.Call(&Context.EmpCod, &MovCod)
+	Endif
+	
+	if &creditoMovCod <> 0
+		do 'AtualizaSaldoConta'
+	EndIf
+	
+	do 'AtualizaParaConciliado'
+endsub
+
+Sub 'IgnoraItem'
+	do 'isConciliado'
+	
+	if &isConciliado = false
+		For each Order EmpCod,LanMaqCod
+			where EmpCod = &Context.EmpCod
+			where LanMaqCod = &SdtConciliacaoItem.LanMaqCod
+			LanMaqStatus = StatusConciliacao.Ignorar
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento atualizado para ignorar'
+			&sdtMensagem.msgType     = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			exit
+		when none
+			&sdtMensagem.msgTitulo   = 'Ops :('
+			&sdtMensagem.msgMensagem = 'Ocorreu um erro e não consegui encontrar o lançamento para ignorar'
+			&sdtMensagem.msgType     = DVMessageType.error
+			&sdtMensagens.Add(&sdtMensagem)
+		EndFor
+	endif
+EndSub
+
+Sub 'JaConciliado'
+	do 'isConciliado'
+	
+	if &isConciliado = false
+		For each Order EmpCod,LanMaqCod
+			where EmpCod = &Context.EmpCod
+			where LanMaqCod = &SdtConciliacaoItem.LanMaqCod
+			LanMaqStatus = StatusConciliacao.JaConciliado
+			&sdtMensagem.msgTitulo   = 'Feito!'
+			&sdtMensagem.msgMensagem = 'Lançamento atualizado para Já Concilicado'
+			&sdtMensagem.msgType     = DVMessageType.success
+			&sdtMensagens.Add(&sdtMensagem)
+			exit
+		when none
+			&sdtMensagem.msgTitulo   = 'Ops :('
+			&sdtMensagem.msgMensagem = 'Ocorreu um erro e não consegui encontrar o lançamento para conciliar'
+			&sdtMensagem.msgType     = DVMessageType.error
+			&sdtMensagens.Add(&sdtMensagem)
+		EndFor
+	endif
+EndSub
+
+Sub 'Desconciliar'
+	for &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		for each
+			order EmpCod, CrePagCod
+			where EmpCod = &Context.EmpCod
+			where CreCod = &sdtDuplicataItemConciliaCartao.creCod
+			where CrePagSts <> Status_Caixa.Cancelado
+			CrePagSts = Status_Caixa.Cancelado
+			
+		endfor
+		
+		for each
+			order EmpCod, MovCod
+			where EmpCod = &Context.EmpCod
+			where MovCreCod = &sdtDuplicataItemConciliaCartao.creCod
+			where MovSts <> Status_Caixa.Cancelado
+			MovSts = Status_Caixa.Cancelado
+			
+		endfor
+		
+		for each
+			Order EmpCod, MovCod
+			where EmpCod = &Context.EmpCod
+			where MovCreCod = &sdtDuplicataItemConciliaCartao.creCod
+			where MovItmSts <> Status_Caixa.Cancelado
+			MovItmSts = Status_Caixa.Cancelado
+		endfor
+		
+		AtualizaSaldoDuplicata.Call(&Context.EmpCod,&sdtDuplicataItemConciliaCartao.CreCod,&Context.FilCod)
+	EndFor
+	
+	For Each
+		Order EmpCod, LanMaqCod
+		where EmpCod = &Context.EmpCod
+		where LanMaqCod = &sdtConciliacaoItem.LanMaqCod
+		LanMaqStatus = StatusConciliacao.Pendente
+	EndFor
+EndSub
+
+Sub 'AtualizaParaPendente'
+	For Each
+		Order EmpCod, LanMaqCod
+		where EmpCod = &Context.EmpCod
+		where LanMaqCod = &sdtConciliacaoItem.LanMaqCod
+		LanMaqStatus = StatusConciliacao.Pendente
+	EndFor
+EndSub
+
+Sub 'isConciliado'
+	&isConciliado = false
+	for each
+		order EmpCod, LanMaqCod
+		where LanMaqCod = &SdtConciliacaoItem.LanMaqCod
+		where LanMaqStatus <> StatusConciliacao.Pendente
+			and not LanMaqStatus.IsEmpty()
+			and not LanMaqStatus.IsNull()
+		&isConciliado = true
+		&sdtMensagem = new()
+		&sdtMensagem.msgTitulo = 'Lançamento já conciliado!'
+		&sdtMensagem.msgMensagem = 'O lançamento ' + iif(LanMaqNroAut.IsEmpty(), LanMaqNSU, LanMaqNroAut) + ' de R$' + str(LanMaqVlrVenda) + ' já está conciliado'
+		&sdtMensagem.msgType = DVMessageType.information
+		&sdtMensagens.Add(&sdtMensagem)
+		exit
+	endfor
+EndSub
+
+
+Sub 'GravaMovimento'
+	&AntMovVlr = 0
+	if &MovCod = 0 or &CrePagDta <> &CrePagDtaAux
+		&CrePagDtaAux = &CrePagDta
+		for each order EmpCod,MovCod
+			where EmpCod = &Context.EmpCod
+			where MovDtaCon = &CrePagDta
+			//adicionar o wher para ver se é na mesma conta.
+			where MovTip = TipoMovimento.RecebimentoCartao when &MovTip = TipoMovimento.RecebimentoCartao
+			where MovTip = TipoMovimento.DespesaCartao when &MovTip = TipoMovimento.DespesaCartao
+			where MovSts <> Status_Caixa.Cancelado
+			&MovCod = MovCod
+			&AntMovVlr = MovVlr
+			exit
+		when none
+			UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &Context.EmpCod, 0, &MovCod)
+			new
+				EmpCod       = &Context.EmpCod
+				MovCod       = &MovCod
+				MovDta       = &CrePagDta
+				MovDtaPgt    = &CrePagDta
+				MovHor       = &CrePagDta
+				MovCtaBanCod = &BanCarCtaBanCod
+				MovDoc       = trim(str(&MovCod))
+				MovTip       = &MovTip
+				MovDtaCon    = &CrePagDta
+				MovSts       = Status_Caixa.Lancado
+				MovCreDeb    = &MovCreDeb
+				MovCplMan    = 'Conciliação maquininha'
+				MovCplTot    = 'Conciliação maquininha'
+				
+				When duplicate
+					&sdtMensagem = new()
+					&sdtMensagem.msgTitulo   = 'Algo não está certo...'
+					&sdtMensagem.msgMensagem = 'A chave no lançamento já existe. Contate a equipe caso este erro continue aparecendo'
+					&sdtMensagem.msgtype     = DVMessageType.error
+					&msgType                 = DVMessageType.error
+					&sdtMensagens.Add(&sdtMensagem)
+					Return
+			endnew
+		endfor
+	endif
+EndSub
+
+Sub 'GravaMovimentoItem'
+	New
+		EmpCod          = &Context.EmpCod
+		MovCod          = &MovCod // código do movimento obtido tanto no Recebimento quanto no Despesa
+		MovItmCod       = &MovItmCod
+		MovItmVlr       = &CreVlrPgt
+		PlanCod         = &PlanCod                        // pega via sub
+		MovItmCpl       = 'Conciliação maquininha'
+		MovCreFilCod    = &context.FilCod
+		MovCreCod       = &sdtDuplicataItemConciliaCartao.CreCod
+		MovCrePagCod    = &CreMaxPagCod
+		MovItmSts       = Status_Caixa.Lancado
+		MovItmDtaHorLct = &CrePagDta
+		When duplicate
+		&sdtMensagem = new()
+		&sdtMensagem.msgTitulo   = 'Algo não está certo...'
+		&sdtMensagem.msgMensagem = 'A chave no item de lançamento já existe. Contate a equipe caso este erro continue aparecendo'
+		&sdtMensagem.msgtype     = DVMessageType.error
+		&msgType                 = DVMessageType.error
+		&sdtMensagens.Add(&sdtMensagem)
+		return
+	EndNew
+EndSub
+
+/**
+	recibo do pagamento efetuado, ou seja, não gera recibo da despesa da maquininha
+*/
+Sub 'GravaRecibo'
+	UltimoCodigoEmpresa.Call(domParCod.RECIBO, &Context.EmpCod, 0,&RcbCod)
+	New	
+		EmpCod       = &Context.EmpCod
+		RcbCod       = &RcbCod
+		RcbDoc       = &MovCod.ToString()
+		RcbTip       = TipoRecibo.Pagar
+		RcbObs       = &sdtDuplicataItemConciliaCartao.MovCpl
+		RcbVlr       = &CreVlrPgt
+		RcbDstCod    = &sdtDuplicataItemConciliaCartao.CreCliCod
+		RcbDstNom    = &sdtDuplicataItemConciliaCartao.CreCliRaz
+		RcbFilCod    = &context.FilCod
+		RcbMovCod    = &MovCod
+		RcbMovItm    = &MovItmCod
+		RcbCreCod    = &sdtDuplicataItemConciliaCartao.CreCod
+		RcbCrePagCod = &CreMaxPagCod
+		RcbDta       = &CrePagDta
+		RcbHor       = &CrePagDta
+	EndNew
+EndSub
+
+Sub 'GravaPagamentoDuplicata'
+	new
+		EmpCod       = &Context.EmpCod
+		FilCod       = &context.FilCod
+		CreCod       = &sdtDuplicataItemConciliaCartao.CreCod
+		CrePagCod    = &CreMaxPagCod
+		CrePagDta    = &CrePagDta
+		CreMovCod    = &MovCod
+		CreMovItmCod = &MovItmCod
+		CrePagVlr    = &CreVlrPgt
+		CrePagTip    = TipoDuplicataBaixa.Total
+		CrePagVlrJur = &CrePagVlrJur
+		CrePagVlrDsc = &CrePagVlrDsc
+		CrePagVlrTar = &CrePagVlrTar
+		CrePagSts    = Status_Caixa.Lancado
+	EndNew
+EndSub
+
+Sub 'AtualizaSaldoDuplicata'
+	AtualizaSaldoDuplicata.Call(&Context.EmpCod,&sdtDuplicataItemConciliaCartao.CreCod,&context.FilCod)
+EndSub
+
+Sub 'GetUltimoCodigoDePagamentoDuplicata'
+	For Each Order EmpCod, FilCod, CreCod, CrePagCod
+		Where EmpCod = &Context.EmpCod
+		Where FilCod = &context.FilCod
+		Where CreCod = &sdtDuplicataItemConciliaCartao.CreCod
+		&CreMaxPagCod = CreMaxPagCod
+		
+		Exit
+	EndFor
+	&CreMaxPagCod += 1
+EndSub
+
+/*
+	O Movimento precisa ser chamado antes desta Sub
+*/
+Sub 'GetUltimoCodigoDeItemMovimento'
+	if &MovItmCod = 0 
+		For Each Order EmpCod,MovCod, (MovItmCod)
+			Where EmpCod  = &Context.EmpCod
+			Where MovCod  = &MovCod
+			&MovItmCod = MovItmCod
+			Exit
+		EndFor
+	endif
+	&MovItmCod += 1
+EndSub
+
+// pega a conta para usar no movimento. Chama uma vez só
+Sub 'GetContaCartao'
+	For each Order EmpCod
+		Where EmpCod = &Context.EmpCod
+		Where BanCarCod = &BanCarCod
+		&PlanCod = BanCarPlanCod
+		&BanCarCtaBanCod = BanCarCtaBanCod
+		Exit
+	EndFor
+EndSub
+
+Sub 'AtualizaSaldoConta'
+	For each Order EmpCod,MovCod,(MovDtaPgt)
+		Where EmpCod = &Context.EmpCod
+		Where MovCod = &creditoMovCod
+		
+		AtualizaSaldoConta.Call(TrnMode.Insert,EmpCod,MovCtaBanCod,MovDtaCon,MovCreDeb,&saldoFinanceiro,&AntMovDta,0,'')
+		
+		Exit
+	EndFor
+EndSub
+
+Sub 'AtualizaDadosDaDuplicata'
+	
+	For &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&sdtDuplicataItemConciliaCartao.CrePagVlrTar  = &sdtConciliacaoItem.LanMaqVlrVenda * (&sdtConciliacaoItem.LanMaqComissao / 100)
+		
+		For each
+			Order EmpCod, CreCod
+			where EmpCod = &Context.EmpCod
+			where CreCod = &sdtDuplicataItemConciliaCartao.CreCod
+			
+			
+			CreCarNroAut  = &sdtConciliacaoItem.LanMaqNroAut
+			CreCarNroNsu  = &sdtConciliacaoItem.LanMaqNSU
+			CreDtaVct     = &sdtConciliacaoItem.LanMaqDtaPgto
+			
+			CreCarBanCod  = &BanCarCod
+			if &sdtConciliacaoItem.LanMaqCartaoNom.IsEmpty() or &sdtConciliacaoItem.LanMaqCartaoNro.IsEmpty()
+				CreCarCardNom = &sdtConciliacaoItem.LanMaqCartaoNom + &sdtConciliacaoItem.LanMaqCartaoNro
+			else
+				CreCarCardNom = &sdtConciliacaoItem.LanMaqCartaoNom + ' - ' + &sdtConciliacaoItem.LanMaqCartaoNro
+			endif
+			
+			exit
+		EndFor
+	EndFor
+	
+EndSub
+
+Sub 'AtualizaParaConciliado'
+	for each
+		order LanMaqCod
+		where LanMaqCod = &sdtConciliacaoItem.LanMaqCod
+		
+		LanMaqStatus = StatusConciliacao.Conciliado
+		exit
+	endfor
+EndSub
+
+Sub 'CalculaSomaTotalDuplicatas_e_Diferenca'
+	For &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&sdtConciliacaoItem.VlrTotalDuplicatas += &sdtDuplicataItemConciliaCartao.CreVlrDup
+	EndFor
+	&sdtConciliacaoItem.VlrDiferenca = &sdtConciliacaoItem.LanMaqVlrVenda - &sdtConciliacaoItem.VlrTotalDuplicatas
+	
+	if &sdtConciliacaoItem.VlrDiferenca < 0
+		&sdtConciliacaoItem.VlrDiferenca*=-1
+	endif
+
+EndSub
+
+Sub 'CalculaValorLancamentoCom_Juros'
+	&percentual = &sdtConciliacaoItem.VlrDiferenca/&sdtConciliacaoItem.VlrTotalDuplicatas
+	
+	For &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&juro = round(&sdtDuplicataItemConciliaCartao.CreVlrDup * &percentual, 2)
+		&sdtDuplicataItemConciliaCartao.crepagVlrJur = &juro
+		&TotalJuro += &juro
+	EndFor
+	
+	&diferenca = &sdtConciliacaoItem.VlrDiferenca - &TotalJuro
+	
+	if &diferenca < 0
+		&diferenca *= -1
+	endif
+	
+	for &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&sdtDuplicataItemConciliaCartao.crepagVlrJur += &diferenca
+		Exit
+	EndFor
+EndSub
+
+Sub 'CalculaValorLancamentoCom_Desconto'
+	&percentual = &sdtConciliacaoItem.VlrDiferenca/&sdtConciliacaoItem.VlrTotalDuplicatas
+	
+	&TotalDesconto = 0
+	For &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&desconto = round(&sdtDuplicataItemConciliaCartao.CreVlrDup * &percentual, 2)
+		&sdtDuplicataItemConciliaCartao.crepagVlrDsc = &desconto
+		&TotalDesconto += &desconto
+		
+	EndFor
+	
+	&diferenca = &sdtConciliacaoItem.VlrDiferenca - &TotalDesconto
+	if &diferenca < 0
+		&diferenca *= -1
+	endif
+	
+	for &sdtDuplicataItemConciliaCartao in &sdtConciliacaoItem.Duplicatas
+		&sdtDuplicataItemConciliaCartao.crepagVlrDsc += &diferenca
+		Exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Layout>
+          <Bands>
+            <PrintBlock>
+              <Properties><Property><Name>RPT_INTERNAL_NAME</Name><Value>printBlock1</Value></Property><Property><Name>RPT_ID</Name><Value>1</Value></Property><Property><Name>RPT_HEIGHT</Name><Value>19</Value></Property></Properties>
+            </PrintBlock>
+          </Bands>
+          <Properties />
+        </Layout>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(
+	in:&OqueFazer,
+	in:&Context,
+	in:&BanCarCod,
+	in:&parmSdtConciliacaoItem,
+	out:&sdtMensagens,
+	out:&msgType 
+);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AntMovDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntMovDta</Value></Property><Property><Name>Description</Name><Value>Movimento Data</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AntMovVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AntMovVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxCreCarBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxCreCarBanCod</Value></Property><Property><Name>Description</Name><Value>Bandeira</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCarBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCarCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCarCod</Value></Property><Property><Name>Description</Name><Value>Bandeira Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCarCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCarCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCarCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCarCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="creditoMovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>creditoMovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreMaxPagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreMaxPagCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Máximo Código Pgto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreMaxPagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagDta</Value></Property><Property><Name>Description</Name><Value>Data Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagDtaAux">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagDtaAux</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagDta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlrTar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlrTar</Value></Property><Property><Name>Description</Name><Value>Valor Tarifa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrTar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrPgt</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="desconto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>desconto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="diferenca">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>diferenca</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isConciliado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isConciliado</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="juro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>juro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCreDeb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCreDeb</Value></Property><Property><Name>Description</Name><Value>Movimento Crédito Débito</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCreDeb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCod</Value></Property><Property><Name>Description</Name><Value>Movimento Item Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTip</Value></Property><Property><Name>Description</Name><Value>Movimento Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="msgType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>msgType</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OqueFazer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OqueFazer</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:OqueFazer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmSdtConciliacaoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmSdtConciliacaoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConciliacaoMaquininha.sdtConciliacaoMaquininhaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>percentual</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>12</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>12</Value></Property><Property><Name>Signed</Name><Value>True</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="podeContinuar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>podeContinuar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RcbCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RcbCod</Value></Property><Property><Name>Description</Name><Value>Recibo Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RcbCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="saldoFinanceiro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>saldoFinanceiro</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConciliacaoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConciliacaoItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConciliacaoMaquininha.sdtConciliacaoMaquininhaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDuplicataItemConciliaCartao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDuplicataItemConciliaCartao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConciliacaoMaquininha.sdtConciliacaoMaquininhaItem.DuplicatasItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagem</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens.sdtMensagensItem</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtMensagens">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtMensagens</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtMensagens</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDesconto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDesconto</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalJuro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalJuro</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ControleWPConciliacaoMaquininha</Value></Property><Property><Name>Description</Name><Value>Concilia Cartao NEW</Value></Property><Property><Name>IsMain</Name><Value>False</Value></Property><Property><Name>CALL_PROTOCOL</Name><Value>INTERNAL</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

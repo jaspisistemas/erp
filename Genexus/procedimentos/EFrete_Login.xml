@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="8bbfa75a-d1b5-4d42-8680-637dd36a9b5d" user="LUIZ\LuiZ Henrique" versionDate="2023-06-09T17:19:12.0000000Z" lastUpdate="2023-06-05T11:43:15.0000000Z" checksum="318b9cbd3aeae04762c674b1c4815968" fullyQualifiedName="EFrete_Login" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="e802aae9-2472-4e5a-8f13-57c3b25c2acd" name="EFrete_Login" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="EFrete_Login" parent="Fretelogin" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[For each Order EmpCod,FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+
+	&FilFrtAmb = FilFrtAmb  // Tamb.Homologacao
+	&FilFrtHash = 'b754b48e-8c22-4cfc-bb0a-3524a76284c9'
+	// O conteúdo da tag Integrador deve ser uma CONSTANTE, pois é ela quem identifica seu sistema de gestão,
+    // recomendamos não estar disponível sua visualização e/ou edição para o usuário final de seu sistema.
+	// CHAMADO EFRETE https://dev.efrete.com:6061/Suporte/Editar/44decf69-d251-4f73-bf17-a929012c37a5
+	Exit
+EndFor
+
+//	HostWebServiceEfrete.Call(&EmpWebHost, &EmpWebBaseUrl, &EmpWebPor,&IsSecure)
+
+	&HttpClient.Host = &EmpWebHost //servidor
+	&HttpClient.Port = &EmpWebPor
+	&HttpClient.Secure = &IsSecure
+
+	&httpclient.AddHeader(!'Accept-Encoding',!'gzip,deflate')
+	&httpclient.AddHeader(!'Content-type',!'text/xml')
+	&LongVarchar = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:log="http://schemas.ipc.adm.br/efrete/logon" xmlns:obj="http://schemas.ipc.adm.br/efrete/logon/objects">'
+	&LongVarchar +='<soapenv:Body>'
+	&LongVarchar +='<log:Login>'
+	&LongVarchar +='<obj:LoginRequest>'
+	&LongVarchar +='<obj:Integrador>b754b48e-8c22-4cfc-bb0a-3524a76284c9</obj:Integrador>'
+	&LongVarchar +='<obj:Versao>1</obj:Versao>'
+	&LongVarchar +='<obj:Usuario>usuario@jaspi</obj:Usuario>'
+	&LongVarchar +='<obj:Senha>usuario#jaspi</obj:Senha>'
+	&LongVarchar +=' </obj:LoginRequest>'
+	&LongVarchar +='</log:Login>'
+	&LongVarchar +='</soapenv:Body>'
+	&LongVarchar +='</soapenv:Envelope>'
+	&HttpClient.AddString(&LongVarchar)
+	&String = '/Services/LogonService.asmx'
+	csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls;
+	&HttpClient.Execute('POST',&String)
+
+	padraoUsuario.Call('G', '#EFRETELOGIN', &Context.PesCod, &Context.EmpCod, &longvarchar, &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+	&Erro = 0
+	If &HttpClient.ErrCode = 0 //sem erro de comunicação
+		&LongVarchar = ''
+		&longvarchar = &HttpClient.toString()
+		padraoUsuario.Call('G', '#EFRETELOGINRESPOSTA', &Context.PesCod, &Context.EmpCod, &HttpClient.toString(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+		&longvarchar = strReplace(&longvarchar,'<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">','')
+		&longvarchar = strReplace(&longvarchar,'</soap:Envelope>','')
+		&longvarchar = strReplace(&longvarchar,'<soap:Body>','')
+		&longvarchar = strReplace(&longvarchar,'</soap:Body>','')
+		&longvarchar = strReplace(&longvarchar,'</soap:Body>','')
+		&longvarchar = strReplace(&longvarchar,' xmlns="http://schemas.ipc.adm.br/efrete/objects"','')
+		&longvarchar = strReplace(&longvarchar,' xmlns="http://schemas.ipc.adm.br/efrete/logon/objects"','')
+		&longvarchar = strReplace(&longvarchar,' xmlns="http://schemas.ipc.adm.br/efrete/logon"','')
+		&longvarchar = strReplace(&longvarchar,'<LoginResponse>','')
+		&longvarchar = strReplace(&longvarchar,'</LoginResponse>','')
+		&longvarchar = strReplace(&longvarchar,'<?xml version="1.0" encoding="utf-8"?>','')
+		
+		padraoUsuario.Call('G', '#EFRETELOGINRESPOSTA_', &Context.PesCod, &Context.EmpCod, &longvarchar, &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+		padraoUsuario.Call('G', '#EFRETELOGINRESPOSTAXML', &Context.PesCod, &Context.EmpCod, &LoginResult.ToXml(), &PadDtaMod) //GRAVA NO PADRÃO USUARIO PARA FORMAR UM LOG DE CONEXÃO E VERIFICAR ERROS.
+		&LoginResult.FromXml(trim(&longvarchar))
+		If &LoginResult.Sucesso = true
+			&Token = &LoginResult.Token
+			&ProtocoloServico = &LoginResult.ProtocoloServico
+		Else
+			&Erro = 1
+			If not &LoginResult.Excecao.Mensagem.Trim().IsEmpty()
+				&Mensg += 'Comunicado com Sucesso, Porém com Exceção '+ &LoginResult.Excecao.Mensagem.Trim()
+			Else
+				&Mensg += 'Comunicado com Sucesso, Porém com resposta inválida. RESPOSTA: '+ &longvarchar
+			EndIf
+		EndIf			
+	Else
+		&Erro = &HttpClient.ErrCode
+		&Mensg += &HttpClient.ErrDescription
+	EndIf
+
+//Suporte e-FRETE: Seguem credenciais para uso em ambiente de homologação:
+//Integrador: JASPI SISTEMAS DE INFORMÁTICA
+//CNPJ: 21826923000177
+//Usuário: usuario@jaspi
+//Senha: usuario#jaspi
+//Hash: b754b48e-8c22-4cfc-bb0a-3524a76284c9
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,out:&Token,out:&ProtocoloServico,out:&FilFrtHash,out:&Mensg,out:&erro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LoadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DEDElongvarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DEDElongvarchar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpPorta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpPorta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebBaseUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebBaseUrl</Value></Property><Property><Name>Description</Name><Value>Base URl</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebBaseUrl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebPor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebPor</Value></Property><Property><Name>Description</Name><Value>Porta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebPor</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtHash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtHash</Value></Property><Property><Name>Description</Name><Value>Hash</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtHash</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtSen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtSen</Value></Property><Property><Name>Description</Name><Value>Senha</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtSen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtUsu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtUsu</Value></Property><Property><Name>Description</Name><Value>Usuario</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtUsu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LoginRequest">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LoginRequest</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:LoginRequest</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LoginResponse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LoginResponse</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:LoginResponse</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LoginResult">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LoginResult</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:LoginResult</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogonService">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogonService</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:LogonService</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LongVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LongVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensg</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProtocoloServico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProtocoloServico</Value></Property><Property><Name>Length</Name><Value>12</Value></Property><Property><Name>AttMaxLen</Name><Value>12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFrtAmb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFrtAmb</Value></Property><Property><Name>Description</Name><Value>Ambiente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFrtAmb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="String">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>String</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSecure">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSecure</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EFrete_Login</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

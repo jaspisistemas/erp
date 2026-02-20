@@ -1,0 +1,891 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="SRVORDIG\Administrador" versionDate="2025-07-18T20:24:41.0000000Z" lastUpdate="2025-07-18T20:08:01.0000000Z" checksum="ad61cdad395d4cc326ba660cefcaa5e0" fullyQualifiedName="GerarBoleto" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="ab5b2e60-915a-4df6-a267-045de6d8cb0d" name="GerarBoleto" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gerar Boleto" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&SdtBoleto.Clear()
+
+&ErroMensagem = ''
+&IsErro = true //Com Erro
+
+For &sdtGerarBoletoItem in &sdtGerarBoleto
+	&EmpCod = &sdtGerarBoletoItem.CreEmpCod
+	&FilCod = &sdtGerarBoletoItem.creFilCod
+	&CreCod = &sdtGerarBoletoItem.CreCod
+	
+	For each Order EmpCod,FilCod,CreCod,CreRecPag // DUPLICATA
+		Where EmpCod = &EmpCod                   // Empresa Código
+		Where FilCod = &FilCod                   // Filial Código
+		Where CreCod = &CreCod                   // Duplicata Código
+		Where CreRecPag = ReceberPagar.Receber   // Duplicata Tipo
+		
+		&CbrCod = CreCbrCod
+		Do 'LocalCobranca'
+		
+		if FilImg_LogRel.IsEmpty()
+			&FilImg146_50.SetEmpty()
+		Else
+			&FilImg146_50 = FilImg_LogRel
+		EndIF
+	
+		If &CbrTipImp = TipoImpressao.GerarBoleto or (&CbrTipImp = TipoImpressao.ImprimirBoleto and CreBloNro <> '')    // Gerar Boleto = 'S'
+			if  &CbrCtaBanBanCod = '999'
+				
+				&sdtZoop_Duplicata.FromJson(CreArqRetApiEco)
+				
+				Do Case
+					CAse Substr(&sdtZoop_Duplicata.payment_method.barcode, 1, 3) = '341' //ITAU				
+						&CbrCtaBanAgeCod = Substr(&sdtZoop_Duplicata.payment_method.barcode,18,3) + Substr(&sdtZoop_Duplicata.payment_method.barcode,22,1)
+						
+						&SdtBoletoItem.BolCreArqRetApiEco = CreArqRetApiEco
+						
+						&SdtBoletoItem = new()					
+						&SdtBoletoItem.CreFilCod = FilCod
+						&SdtBoletoItem.CreEmpCod = EmpCod
+						
+						&CreCbrCtaBanBanCod = Substr(&sdtZoop_Duplicata.payment_method.barcode, 1, 3)
+						
+						RetornaDadosBanco.Call(EmpCod, &CreCbrCtaBanBanCod, &CbrCtaBanBanImg)
+						&sdtboletoItem.BolMod    = &CbrBolMod
+						&sdtboletoItem.BanImg 	 = &CbrCtaBanBanImg
+						//######## Dados do Beneficiário ###############
+						&SdtBoletoItem.BolBenBanCod = '999' //Boleto Beneficiario banco
+						
+						If &CbrRazSoc.Trim().IsEmpty() or &CbrRazSoc.Trim().Length() <= 5 
+							&SdtBoletoItem.BolBenNom = FilRaz.ToUpper().Trim() //Boleto Beneficiario Nome 
+						Else
+							&SdtBoletoItem.BolBenNom = &CbrRazSoc.ToUpper().Trim() // Boleto Beneficiario Nome
+						EndIF
+						
+						If &CbrCnpj.Trim().IsEmpty()
+							&SdtBoletoItem.BolBenCpf = FilCpj  				 //Boleto Beneficiaro CPF/CNPJ
+						Else
+							&SdtBoletoItem.BolBenCpf = &CbrCnpj  			 //Boleto Beneficiaro CPF/CNPJ
+						EndIf
+						
+						&SdtBoletoItem.BolBenAgeCod = trim(&CbrCtaBanAgeCod)// Boleto Agencia Código
+						&SdtBoletoItem.BolBenAgeDig = trim(&CbrCtaBanAgeDig)// Boleto Agência Dígito
+						&SdtBoletoItem.BolBenCrt    = Trim(&CbrCtaBanCrt)    // Boleto Nro Conta
+						&SdtBoletoItem.BolBenCrtDig = trim(&CbrCtaBanCrtDig) // Boleto Conta Dígito
+						
+						&CbrNroCon = Substr(&sdtZoop_Duplicata.payment_method.barcode,23,7)				
+						&SdtBoletoItem.BolBenCon    = &CbrNroCon.Trim()      // Boleto Nro Convênio
+						&CbrNroConDig = Substr(&sdtZoop_Duplicata.payment_method.barcode,28,1)
+						&SdtBoletoItem.BolBenConDig = &CbrNroConDig.Trim()   // Boleto Convênio Dígito
+						
+						Do 'EndBeneficiario' //Busca Endereço do Beneficiário					
+						&SdtBoletoItem.BolBenEnd    = &BolBenEnd				
+						&SdtBoletoItem.BolBenEndCid = &BolBenEndCid          // Boleto Endereço Cliente
+						
+						//Dados do Boleto
+						&SdtBoletoItem.BolDem    = ''                        // Boleto Demonstrativo
+						&SdtBoletoItem.BolCar    = Substr(&sdtZoop_Duplicata.payment_method.barcode, 5,3)         // Boleto Carteira
+						&SdtBoletoItem.BolAce    = 'N'						 // Boleto Aceite
+						&SdtBoletoItem.BolSpeDoc = 'DM'                      // Boleto Espécie Documento
+						&CreBloNro = Substr(&sdtZoop_Duplicata.payment_method.barcode, 8,2)   +Substr(&sdtZoop_Duplicata.payment_method.barcode, 11,7)              // Boleto Nosso Número
+						&SdtBoletoItem.BolNosNro = &CreBloNro 
+						&SdtBoletoItem.BolNroDoc = &sdtZoop_Duplicata.payment_method.document_number // Boleto Numeor do Documento
+						
+						&DtRegistroVar = &sdtZoop_Duplicata.payment_method.expiration_date
+						&CreDtaVct = yMDtoD(val(substr(&DtRegistroVar,1,4)),val(substr(&DtRegistroVar,6,2)),val(substr(&DtRegistroVar,9,2))) // Boleto Data de Vencimento
+						&SdtBoletoItem.BolDtaVct = &CreDtaVct
+						
+						If &CbrProQtd > 0 //&CbrProAut = 'S'  //Protesta Autamaticamente ?
+							&SdtBoletoItem.BolDtaPts = &CreDtaVct + &CbrProQtd// Boleto Data de Protesto
+						Else
+							&SdtBoletoItem.BolDtaPts = ctod('01/01/1753')    // Boleto Data de Protesto
+						EndIf
+						
+						&DtRegistroVar = &sdtZoop_Duplicata.created_at
+						&CreDtaEms = yMDtoD(val(substr(&DtRegistroVar,1,4)),val(substr(&DtRegistroVar,6,2)),val(substr(&DtRegistroVar,9,2))) // Boleto Data de Vencimento
+						&SdtBoletoItem.BolDtaDoc = &CreDtaEms 				 // Boleto Data Documento
+						&SdtBoletoItem.BolDtaPro = SErverDate()				 // Boleto Data de Processamento
+						
+						&CreVlrDup = val(&sdtZoop_Duplicata.amount)
+						&SdtBoletoItem.BolVlrDoc = &CreVlrDup                 // Boleto Valor do Documento
+						
+						//Descontos - Abatimentos - Juros -  Mora - Multa
+						&SdtBoletoItem.BolQtd    = 0						 // Boleto Quantidade
+						&SdtBoletoItem.BolVlrUni = 0                         // Boleto Valor Unitário
+						&SdtBoletoItem.BolDesAba = 0						 // Boleto Descontos / Abatimentos
+						&SdtBoletoItem.BolOutDed = 0						 // Boleto Outras Deduções
+						&SdtBoletoItem.BolMorMul = 0 						 // Boleto Mora Multa
+						&SdtBoletoItem.BolOutAcr = 0						 // Boleto Outros Acréscimos
+						&sdtboletoItem.BolVlrJur = round((CreVlrDup * &JurTaxDia),2) // Boleto Valor Juros
+						&SdtBoletoItem.BolVlrTot = 0						 // Boleto Valor Total
+						&SdtBoletoItem.BolUsoBan = ''						 // Boleto Uso do Banco
+						&SdtBoletoItem.BolPerMlt = &CbrMltVlr                // Percentual de multa
+						//&SdtBoletoItem.BolDesAnt = &CbrDesAnt				 // Desconto Antecipado
+						//&sdtboletoItem.BolDesDia = &CbrDesDia                // Desconto Pgto em Dia
+						//&sdtboletoItem.BolQtdDiaDesc = &CbrQtdDiaDesc		 // QTD DIAS DESCONTO
+						
+						//Instruções do Boleto
+						&SdtBoletoItem.BolLocCob = &CbrLocPgt.ToUpper().Trim()// Boleto Local de Cobrança
+						&SdtBoletoItem.BolIns1 = &CbrInsBol1.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns2 = &CbrInsBol2.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns3 = &CbrInsBol3.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns4 = &CbrInsBol4.ToUpper().Trim()// Boleto Instrução para boleto
+						
+						//Dados Do Cliente/ Sacado
+						&SdtBoletoItem.BolSacNom = CreCliRaz.ToUpper().Trim()// Boleto Sacado Nome
+						&BolSacCpf = IIF(CreCliTip = TipoPessoa.FISICA,CreCliCpf.Trim(),CreCliCnpj.Trim())
+						&SdtBoletoItem.BolSacCpf = &BolSacCpf          		// Boleto Sacado CPF/CNPJ
+						&SdtBoletoItem.BolSacEnd = CreCliEndCob+' - '+trim(CreCliCobBai)+' - '+CreCliCobCidNom.Trim()+' - '+ FormataCEP.Udp(CreCliCobCep) +' - '+ CreCliCobUfeCod// Boleto Sacado Endereço
+						&SdtBoletoItem.BolSacRef = ''						// Boleto Sacado Referência
+						
+						&Banco = Substr(&sdtZoop_Duplicata.payment_method.barcode,1,3)
+						
+						&CodigoBarras = gerarCodigodeBarras.Udp(&Banco,&CreDtaVct,&CreVlrDup,&CbrCtaBanAgeCod,&CbrCtaBanAgeDig,&CbrNroCon,&SdtBoletoItem.BolCar,&CbrCtaBanCrt,&CbrNroConDig,&CreBloNro)
+						&SdtBoletoItem.BolCodBar = &CodigoBarras            // Boleto Código de Barras
+						&linhadig = &sdtZoop_Duplicata.payment_method.barcode  
+						&SdtBoletoItem.BolLinDig = substr(&linhadig,1,5)+'.'+substr(&linhadig,6,5)+' '+substr(&linhadig,11,5)+'.'+substr(&linhadig,16,6)+' '+substr(&linhadig,22,5)+'.'+substr(&linhadig,27,6)+' '+substr(&CodigoBarras,5,1)+' '+substr(&linhadig,34,16) // Boleto Linha Digitavel 
+						
+					CAse Substr(&sdtZoop_Duplicata.payment_method.barcode,1,3) = '237' //BRADESCO
+						&CbrCtaBanAgeCod = Substr(&sdtZoop_Duplicata.payment_method.barcode,5,4) //+ Substr(&sdtZoop_Duplicata.payment_method.barcode,23,1)
+						//3+1
+						&SdtBoletoItem.BolCreArqRetApiEco = CreArqRetApiEco
+						
+						&SdtBoletoItem = new()					
+						&SdtBoletoItem.CreFilCod = FilCod
+						&SdtBoletoItem.CreEmpCod = EmpCod
+						
+						&CreCbrCtaBanBanCod = Substr(&sdtZoop_Duplicata.payment_method.barcode, 1, 3)
+						
+						RetornaDadosBanco.Call(EmpCod, &CreCbrCtaBanBanCod, &CbrCtaBanBanImg)
+						&sdtboletoItem.BolMod    = &CbrBolMod
+						&sdtboletoItem.BanImg 	 = &CbrCtaBanBanImg
+						//######## Dados do Beneficiário ###############
+						&SdtBoletoItem.BolBenBanCod = '999' //Boleto Beneficiario banco
+						
+						If &CbrRazSoc.Trim().IsEmpty() or &CbrRazSoc.Trim().Length() <= 5 
+							&SdtBoletoItem.BolBenNom = FilRaz.ToUpper().Trim() //Boleto Beneficiario Nome 
+						Else
+							&SdtBoletoItem.BolBenNom = &CbrRazSoc.ToUpper().Trim() // Boleto Beneficiario Nome
+						EndIF
+						
+						If &CbrCnpj.Trim().IsEmpty()
+							&SdtBoletoItem.BolBenCpf = FilCpj  				 //Boleto Beneficiaro CPF/CNPJ
+						Else
+							&SdtBoletoItem.BolBenCpf = &CbrCnpj  			 //Boleto Beneficiaro CPF/CNPJ
+						EndIf
+						
+						&SdtBoletoItem.BolBenAgeCod = trim(&CbrCtaBanAgeCod)// Boleto Agencia Código
+						&SdtBoletoItem.BolBenAgeDig = trim(&CbrCtaBanAgeDig)// Boleto Agência Dígito
+						&SdtBoletoItem.BolBenCrt    = Trim(&CbrCtaBanCrt)    // Boleto Nro Conta
+						&SdtBoletoItem.BolBenCrtDig = trim(&CbrCtaBanCrtDig) // Boleto Conta Dígito
+						
+						&CbrNroCon = Substr(&sdtZoop_Duplicata.payment_method.barcode,24,7)				
+						&SdtBoletoItem.BolBenCon    = &CbrNroCon.Trim()      // Boleto Nro Convênio
+						//&CbrNroConDig = Substr(&sdtZoop_Duplicata.payment_method.barcode,30,1)
+						//&SdtBoletoItem.BolBenConDig = &CbrNroConDig.Trim()   // Boleto Convênio Dígito
+						
+						Do 'EndBeneficiario' //Busca Endereço do Beneficiário					
+						&SdtBoletoItem.BolBenEnd    = &BolBenEnd				
+						&SdtBoletoItem.BolBenEndCid = &BolBenEndCid          // Boleto Endereço Cliente
+						
+						//Dados do Boleto
+						&SdtBoletoItem.BolDem    = ''                        // Boleto Demonstrativo
+						&SdtBoletoItem.BolCar    = Substr(&sdtZoop_Duplicata.payment_method.barcode, 10,2)         // Boleto Carteira
+						&SdtBoletoItem.BolAce    = 'N'						 // Boleto Aceite
+						&SdtBoletoItem.BolSpeDoc = 'DM'                      // Boleto Espécie Documento
+						&CreBloNro = Substr(&sdtZoop_Duplicata.payment_method.barcode, 12,9) +Substr(&sdtZoop_Duplicata.payment_method.barcode, 22,2)              // Boleto Nosso Número
+						&SdtBoletoItem.BolNosNro = &CreBloNro 
+						&SdtBoletoItem.BolNroDoc = &sdtZoop_Duplicata.payment_method.document_number // Boleto Numeor do Documento
+						
+						&DtRegistroVar = &sdtZoop_Duplicata.payment_method.expiration_date
+						&CreDtaVct = yMDtoD(val(substr(&DtRegistroVar,1,4)),val(substr(&DtRegistroVar,6,2)),val(substr(&DtRegistroVar,9,2))) // Boleto Data de Vencimento
+						&SdtBoletoItem.BolDtaVct = &CreDtaVct
+						
+						If &CbrProQtd > 0 //&CbrProAut = 'S'  //Protesta Autamaticamente ?
+							&SdtBoletoItem.BolDtaPts = &CreDtaVct + &CbrProQtd// Boleto Data de Protesto
+						Else
+							&SdtBoletoItem.BolDtaPts = ctod('01/01/1753')    // Boleto Data de Protesto
+						EndIf
+						
+						&DtRegistroVar = &sdtZoop_Duplicata.created_at
+						&CreDtaEms = yMDtoD(val(substr(&DtRegistroVar,1,4)),val(substr(&DtRegistroVar,6,2)),val(substr(&DtRegistroVar,9,2))) // Boleto Data de Vencimento
+						&SdtBoletoItem.BolDtaDoc = &CreDtaEms 				 // Boleto Data Documento
+						&SdtBoletoItem.BolDtaPro = SErverDate()				 // Boleto Data de Processamento
+						
+						&CreVlrDup = val(&sdtZoop_Duplicata.amount)
+						&SdtBoletoItem.BolVlrDoc = &CreVlrDup                 // Boleto Valor do Documento
+						
+						//Descontos - Abatimentos - Juros -  Mora - Multa
+						&SdtBoletoItem.BolQtd    = 0						 // Boleto Quantidade
+						&SdtBoletoItem.BolVlrUni = 0                         // Boleto Valor Unitário
+						&SdtBoletoItem.BolDesAba = 0						 // Boleto Descontos / Abatimentos
+						&SdtBoletoItem.BolOutDed = 0						 // Boleto Outras Deduções
+						&SdtBoletoItem.BolMorMul = 0 						 // Boleto Mora Multa
+						&SdtBoletoItem.BolOutAcr = 0						 // Boleto Outros Acréscimos
+						&sdtboletoItem.BolVlrJur = round((CreVlrDup * &JurTaxDia),2) // Boleto Valor Juros
+						&SdtBoletoItem.BolVlrTot = 0						 // Boleto Valor Total
+						&SdtBoletoItem.BolUsoBan = ''						 // Boleto Uso do Banco
+						&SdtBoletoItem.BolPerMlt = &CbrMltVlr                // Percentual de multa
+						//&SdtBoletoItem.BolDesAnt = &CbrDesAnt				 // Desconto Antecipado
+						//&sdtboletoItem.BolDesDia = &CbrDesDia                // Desconto Pgto em Dia
+						//&sdtboletoItem.BolQtdDiaDesc = &CbrQtdDiaDesc		 // QTD DIAS DESCONTO
+						
+						//Instruções do Boleto
+						&SdtBoletoItem.BolLocCob = &CbrLocPgt.ToUpper().Trim()// Boleto Local de Cobrança
+						&SdtBoletoItem.BolIns1 = &CbrInsBol1.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns2 = &CbrInsBol2.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns3 = &CbrInsBol3.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns4 = &CbrInsBol4.ToUpper().Trim()// Boleto Instrução para boleto
+						
+						//Dados Do Cliente/ Sacado
+						&SdtBoletoItem.BolSacNom = CreCliRaz.ToUpper().Trim()// Boleto Sacado Nome
+						&BolSacCpf = IIF(CreCliTip = TipoPessoa.FISICA,CreCliCpf.Trim(),CreCliCnpj.Trim())
+						&SdtBoletoItem.BolSacCpf = &BolSacCpf          		// Boleto Sacado CPF/CNPJ
+						&SdtBoletoItem.BolSacEnd = CreCliEndCob+' - '+trim(CreCliCobBai)+' - '+CreCliCobCidNom.Trim()+' - '+ FormataCEP.Udp(CreCliCobCep) +' - '+ CreCliCobUfeCod// Boleto Sacado Endereço
+						&SdtBoletoItem.BolSacRef = ''	// Boleto Sacado Referência
+						
+						&Banco = Substr(&sdtZoop_Duplicata.payment_method.barcode,1,3)
+						
+						&CodigoBarras = gerarCodigodeBarras.Udp(&Banco,&CreDtaVct,&CreVlrDup,&CbrCtaBanAgeCod,&CbrCtaBanAgeDig,&CbrNroCon,&SdtBoletoItem.BolCar,&CbrNroCon,&CbrNroConDig,&CreBloNro)
+						&SdtBoletoItem.BolCodBar = &CodigoBarras            // Boleto Código de Barras
+						&linhadig = &sdtZoop_Duplicata.payment_method.barcode  
+						&SdtBoletoItem.BolLinDig = substr(&linhadig,1,5)+'.'+substr(&linhadig,6,5)+' '+substr(&linhadig,11,5)+'.'+substr(&linhadig,16,6)+' '+substr(&linhadig,22,5)+'.'+substr(&linhadig,27,6)+' '+substr(&CodigoBarras,5,1)+' '+substr(&linhadig,34,16) // Boleto Linha Digitavel 
+				EndCAse
+			
+				&SdtBoleto.Add(&SdtBoletoItem)
+				
+			Else //DEMAIS BANCOS				
+				If not &CbrCarCod.Trim().IsEmpty() // Carteira
+					If Not &CbrNroCon.Trim().IsEmpty()   // Convênio
+						
+						//########################################### GERA O NOSSO NÚMERO DO BOLETO #####################################	
+						If CreBloNro.IsEmpty()       // Duplicata Nosso Número
+							&CtaBanNosNro += 1
+							GerarNossoNumero.CALL(&CbrCtaBanBanCod,&CbrNroCon,&CtaBanNosNro,CreDtaEms,&AuxCreBloNro,&Erro)
+							If &Erro = 0
+								CreBloNro = trim(&AuxCreBloNro)
+								Do 'GravaNossoNumero'
+							EndIf
+						EndIf
+						//################################################### FIM NOSSO NÚMERO ##########################################
+						
+						&SdtBoletoItem = new()					
+						&SdtBoletoItem.CreFilCod = FilCod
+						&SdtBoletoItem.CreEmpCod = EmpCod
+						&sdtboletoItem.BolMod    = &CbrBolMod
+						&sdtboletoItem.BanImg 	 = &CbrCtaBanBanImg
+						//######## Dados do Beneficiário ###############
+						&SdtBoletoItem.BolBenBanCod = &CbrCtaBanBanCod        //Boleto Beneficiario banco
+						
+						If &CbrRazSoc.Trim().IsEmpty() or &CbrRazSoc.Trim().Length() <= 5 
+							&SdtBoletoItem.BolBenNom = FilRaz.ToUpper().Trim() //Boleto Beneficiario Nome 
+						Else
+							&SdtBoletoItem.BolBenNom = &CbrRazSoc.ToUpper().Trim() // Boleto Beneficiario Nome
+						EndIF
+						
+						If &CbrCnpj.Trim().IsEmpty()
+							&SdtBoletoItem.BolBenCpf = FilCpj  				 //Boleto Beneficiaro CPF/CNPJ
+						Else
+							&SdtBoletoItem.BolBenCpf = &CbrCnpj  			 //Boleto Beneficiaro CPF/CNPJ
+						EndIf
+						
+						&SdtBoletoItem.BolBenAgeCod = trim(&CbrCtaBanAgeCod)// Boleto Agencia Código
+						&SdtBoletoItem.BolBenAgeDig = trim(&CbrCtaBanAgeDig)// Boleto Agência Dígito
+						&SdtBoletoItem.BolBenCrt    = Trim(&CbrCtaBanCrt)    // Boleto Nro Conta
+						&SdtBoletoItem.BolBenCrtDig = trim(&CbrCtaBanCrtDig) // Boleto Conta Dígito
+						&SdtBoletoItem.BolBenCon    = &CbrNroCon.Trim()      // Boleto Nro Convênio
+						&SdtBoletoItem.BolBenConDig = &CbrNroConDig.Trim()   // Boleto Convênio Dígito
+						
+						Do 'EndBeneficiario' //Busca Endereço do Beneficiário					
+						&SdtBoletoItem.BolBenEnd    = &BolBenEnd				
+						&SdtBoletoItem.BolBenEndCid = &BolBenEndCid          // Boleto Endereço Cliente
+						
+						//Dados do Boleto
+						&SdtBoletoItem.BolDem    = ''                        // Boleto Demonstrativo
+						&SdtBoletoItem.BolCar    = &CbrCarCod.Trim()         // Boleto Carteira
+						&SdtBoletoItem.BolAce    = 'N'						 // Boleto Aceite
+						&SdtBoletoItem.BolSpeDoc = 'DM'                      // Boleto Espécie Documento
+						&SdtBoletoItem.BolNosNro = CreBloNro                 // Boleto Nosso Número
+						&SdtBoletoItem.BolNroDoc = CreDupNro.ToUpper().Trim()// Boleto Numeor do Documento
+						&SdtBoletoItem.BolDtaVct = CreDtaVct        		 // Boleto Data de Vencimento
+						
+						If &CbrProQtd > 0 //&CbrProAut = 'S'  //Protesta Autamaticamente ?
+							&SdtBoletoItem.BolDtaPts = CreDtaVct + &CbrProQtd// Boleto Data de Protesto
+						Else
+							&SdtBoletoItem.BolDtaPts = ctod('01/01/1753')    // Boleto Data de Protesto
+						EndIf
+						
+						&SdtBoletoItem.BolDtaDoc = CreDtaEms 				 // Boleto Data Documento
+						&SdtBoletoItem.BolDtaPro = SErverDate()				 // Boleto Data de Processamento
+						&SdtBoletoItem.BolVlrDoc = CreVlrDup                 // Boleto Valor do Documento
+						
+						//Descontos - Abatimentos - Juros -  Mora - Multa
+						&SdtBoletoItem.BolQtd    = 0						 // Boleto Quantidade
+						&SdtBoletoItem.BolVlrUni = 0                         // Boleto Valor Unitário
+						&SdtBoletoItem.BolDesAba = 0						 // Boleto Descontos / Abatimentos
+						&SdtBoletoItem.BolOutDed = 0						 // Boleto Outras Deduções
+						&SdtBoletoItem.BolMorMul = 0 						 // Boleto Mora Multa
+						&SdtBoletoItem.BolOutAcr = 0						 // Boleto Outros Acréscimos
+						&sdtboletoItem.BolVlrJur = round((CreVlrDup * &JurTaxDia),2) // Boleto Valor Juros
+						&SdtBoletoItem.BolVlrTot = 0						 // Boleto Valor Total
+						&SdtBoletoItem.BolUsoBan = ''						 // Boleto Uso do Banco
+						&SdtBoletoItem.BolPerMlt = &CbrMltVlr                // Percentual de multa
+						//					&SdtBoletoItem.BolDesAnt = &CbrDesAnt				 // Desconto Antecipado
+						&sdtboletoItem.BolDesDia = &CbrDesDia                // Desconto Pgto em Dia
+						&sdtboletoItem.BolQtdDiaDesc = &CbrQtdDiaDesc		 // QTD DIAS DESCONTO
+						//Instruções do Boleto
+						&SdtBoletoItem.BolLocCob = &CbrLocPgt.ToUpper().Trim()// Boleto Local de Cobrança
+						&SdtBoletoItem.BolIns1 = &CbrInsBol1.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns2 = &CbrInsBol2.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns3 = &CbrInsBol3.ToUpper().Trim()// Boleto Instrução para boleto
+						&SdtBoletoItem.BolIns4 = &CbrInsBol4.ToUpper().Trim()// Boleto Instrução para boleto
+						
+						//Dados Do Cliente/ Sacado
+						&SdtBoletoItem.BolSacNom = CreCliRaz.ToUpper().Trim()// Boleto Sacado Nome
+						&BolSacCpf = IIF(CreCliTip = TipoPessoa.FISICA,CreCliCpf.Trim(),CreCliCnpj.Trim())
+						&SdtBoletoItem.BolSacCpf = &BolSacCpf          		// Boleto Sacado CPF/CNPJ
+						&SdtBoletoItem.BolSacEnd = CreCliEndCob+' - '+trim(CreCliCobBai)+' - '+CreCliCobCidNom.Trim()+' - '+ FormataCEP.Udp(CreCliCobCep) +' - '+ CreCliCobUfeCod// Boleto Sacado Endereço
+						&SdtBoletoItem.BolSacRef = ''						// Boleto Sacado Referência
+						
+						//Dados do avalista ## se o avalista estiver vazio  no local de cobrança coloca o beneficiario
+						If not &CbrAvaRaz.Trim().IsEmpty() and not &CbrAvaCnpj.Trim().IsEmpty()
+							&SdtBoletoItem.BolAvaNom = &CbrAvaRaz.ToUpper().Trim() // Boleto Avalista Nome
+							&SdtBoletoItem.BolAvaCnpj = &CbrAvaCnpj  			   // Boleto Avalista CPF/CNPJ
+						else
+							//se o avalista não foi preenchido então coloca o beneficiario
+							If &CbrRazSoc.Trim().IsEmpty() or &CbrRazSoc.Trim().Length() <= 5 
+								&SdtBoletoItem.BolAvaNom = substr(FilRaz.ToUpper().Trim(),1,40) //Boleto Beneficiario Nome 
+							Else
+								&SdtBoletoItem.BolAvaNom = &CbrRazSoc.ToUpper().Trim() // Boleto Beneficiario Nome
+							EndIF
+							
+							If &CbrCnpj.Trim().IsEmpty()
+								&SdtBoletoItem.BolAvaCnpj = FilCpj  				 //Boleto Beneficiaro CPF/CNPJ
+							Else
+								&SdtBoletoItem.BolAvaCnpj = &CbrCnpj  			 //Boleto Beneficiaro CPF/CNPJ
+							EndIf
+						EndIF
+					
+						
+						Do Case
+							Case (CreCbrCtaBanBanCod = '748' and  CreCbrTipBol = tipoBoleto.Hibrido) Or (CreCbrCtaBanBanCod = '077')
+								&CodigoBarras	= CreCodBar
+								&linhadig		= CreLinDig
+							OtherWise
+								&CodigoBarras = gerarCodigodeBarras.Udp(&CbrCtaBanBanCod,CreDtaVct,CreVlrDup,&CbrCtaBanAgeCod,&CbrCtaBanAgeDig,&CbrNroCon,&CbrCarCod,&CbrCtaBanCrt,&CbrNroConDig,CreBloNro)
+								&linhadig     = GerarLinhaDigitavel.Udp(&CodigoBarras)					
+						EndCase
+					
+						&SdtBoletoItem.BolCodBar = &CodigoBarras            // Boleto Código de Barras
+						&SdtBoletoItem.BolLinDig = &linhadig                // Boleto Linha Digitavel 
+						&SdtBoletoItem.BolTXId = CreTxId
+						&SdtBoletoItem.BolQrCode = CreQrCode
+						&sdtBoletoItem.BolImg = &FilImg146_50												
+						&SdtBoleto.Add(&SdtBoletoItem)
+					Else
+						&ErroMensagem = 'ATENÇÃO! O Número do convênio não pode ser vazio. Verifique local Cobrança ' + trim(Str(CreCbrCod)) + '.'
+					EndIf
+					
+				Else
+					&ErroMensagem = 'ATENÇÃO! A carteira não pode ser vazia. Verifique local Cobrança ' + trim(Str(CreCbrCod)) + '.'
+				EndIf
+			Endif
+		Else
+			&ErroMensagem = 'ATENÇÃO! Local de cobrança não gera boleto. Verifique local Cobrança ' + trim(Str(CreCbrCod)) + '.'
+		EndIf
+	When none
+		&ErroMensagem = 'ATENÇÃO! Nenhuma duplicata encontrada para Filial: '+ trim(str(&FilCod))+' e tipo RECEBER. Verifique!'
+	EndFor
+EndFor
+
+
+If &SdtBoleto.Count > 0	and &ErroMensagem = ''
+	&IsErro = false //Com Erro
+	
+	If &IsWebSession = true
+		&WebSession.Set('IMPRIMEBOLETO_PROC_GERABOLETO', &SdtBoleto.ToXml())
+	EndIF	
+Else
+	Msg(&ErroMensagem)
+EndIf
+
+
+//Sub 'CalculaDigitoBARCOD237'   //Módulo 11
+//	&Pos = 43
+//    &Referencia = 2
+//    &TotDig = 0
+//	
+//    Do While &Pos >= 1
+//        &Numero = val(substr(trim(&CodigoBarras),&Pos,1))
+//        &TotDig += &Numero * &Referencia
+//        &Pos -= 1
+//        &Referencia += 1
+//        if &Referencia = 10
+//            &Referencia = 2
+//        Endif
+//    EndDo
+//	
+//    &NumeroDigito = int( (&TotDig / 11))
+//    &TotDigAux = (&NumeroDigito * 11)
+//    &Resto = &TotDig - &TotDigAux
+//    &NumeroDigito = 11-&Resto
+//	
+//    If (&NumeroDigito > 9) Or (&NumeroDigito <= 1)
+//        &digito = '1'
+//    Else
+//        &digito = trim(str(&NumeroDigito))
+//    EndIf
+//	
+//EndSub
+//
+//Sub 'CalculoLinhaBARCOD237'
+//	&PriCampo = substr(&CodigoBarras,1,4)+substr(&CodigoBarras,20,5) // código de Banco, código da moeda, as cinco primeiras posições do campo livre e o dígito verificador deste campo
+//	Do 'CalculaDigitoDAC_1' 
+//	&SegCampo = substr(&CodigoBarras,25,10)
+//	Do 'CalculaDigitoDAC_2' 
+//	&TerCampo = substr(&CodigoBarras,35,10)
+//	Do 'CalculaDigitoDAC_3' 
+//	&QuaCampo = substr(&CodigoBarras,5,1)
+//	&QuiCampo = substr(&CodigoBarras,6,14)
+//	
+//	&linhadig = trim(&PriCampo)+trim(&SegCampo)+trim(&TerCampo)+trim(&QuaCampo)+trim(&QuiCampo)
+//	&linhadig = TRIM(&linhadig)
+//	&linhadig = substr(&linhadig,1,5)+'.'+substr(&linhadig,6,5)+' '+substr(&linhadig,11,5)+'.'+substr(&linhadig,16,6)+' '+substr(&linhadig,22,5)+'.'+substr(&linhadig,27,6)+' '+substr(&CodigoBarras,5,1)+' '+substr(&linhadig,34,16)
+//	&linhadig = TRIM(&linhadig)
+//EndSub
+////################################################### CALCULO DO DAC 1,2,3 ######################################
+//Sub 'CalculaDigitoDAC_1' 
+//	&Posicao = 9
+//    &Referencia = 2
+//    &TotDig = 0
+//	&AUXResto = 0 
+//    Do While &Posicao >= 1
+//        &Numero = val(substr(trim(&PriCampo),&Posicao,1))
+//        &Res = &Numero * &Referencia
+//		If &Res > 9
+//			&X = val(SubStr(Trim(&Res.ToFormattedString()),1,1))
+//			&y = val(SubStr(trim(&Res.ToFormattedString()),2,1))
+//			&z = &X+&y
+//			&TotDig += &z
+//		Else
+//			&TotDig += &Res
+//		EndIf
+//		
+//        &Posicao -= 1
+//        &Referencia += 1
+//        if &Referencia = 3
+//            &Referencia = 1
+//        Endif
+//    EndDo
+//	&Resto = &TotDig
+//	Do while &Resto > 0
+//		&Resto -= 10
+//	EndDo
+//	&AUXResto = (&Resto * (-1))
+//	&PriCampo = Trim(&PriCampo)+trim(str(&AUXResto))
+//EndSub
+//
+//Sub 'CalculaDigitoDAC_2' 
+//	&Posicao = 10
+//    &Referencia = 2
+//    &TotDig = 0
+//	
+//    Do While &Posicao >= 1
+//        &Numero = val(substr(trim(&SegCampo),&Posicao,1))
+//        &Res = &Numero * &Referencia
+//		If &Res > 9
+//			&X = val(SubStr(trim(str(&Res)),1,1))
+//			&y = val(SubStr(trim(str(&Res)),2,1))
+//			&z = &X+&y
+//			&TotDig += &z
+//		Else
+//			&TotDig += &Res
+//		EndIf
+//		
+//        &Posicao -= 1
+//        &Referencia += 1
+//        if &Referencia = 3
+//            &Referencia = 1
+//        Endif
+//    EndDo
+//	&Resto = &TotDig
+//	Do while &Resto > 0
+//		&Resto  -= 10
+//	EndDo
+//	&Resto = &Resto*(-1)
+//	&SegCampo = &SegCampo+trim(str(&Resto))
+//EndSub
+//
+//Sub 'CalculaDigitoDAC_3' 
+//	&Posicao = 10
+//    &Referencia = 2
+//    &TotDig = 0
+//	
+//    Do While &Posicao >= 1
+//        &Numero = val(substr(trim(&TerCampo),&Posicao,1))
+//        &Res = &Numero * &Referencia
+//		If &Res > 9
+//			&X = val(SubStr(trim(str(&Res)),1,1))
+//			&y = val(SubStr(trim(str(&Res)),2,1))
+//			&z = &X+&y
+//			&TotDig += &z
+//		Else
+//			&TotDig += &Res
+//		EndIf
+//		
+//        &Posicao -= 1
+//        &Referencia += 1
+//        if &Referencia = 3
+//            &Referencia = 1
+//        Endif
+//    EndDo
+//	&Resto = &TotDig
+//	Do while &Resto > 0
+//		&Resto  -= 10
+//	EndDo
+//	&Resto = &Resto*(-1)
+//	&TerCampo = &TerCampo+trim(str(&Resto))
+//EndSub
+////###########################################################################################
+
+Sub 'EndBeneficiario'
+	For each Order EmpCod,FilCod
+		Where EmpCod = &EmpCod      //Empresa Código
+		Where FilCod = &FilCod      //Filial Código
+		&BolBenEnd = FilLog.ToUpper().Trim() +', '+ FilNro.ToUpper().Trim()+', '+ FilBai.ToUpper().Trim()
+		&BolBenEndCid = FilCep.Trim()+' - '+ FilCidNom.ToUpper().Trim()+' - '+ FilCidUfeCod.ToUpper().Trim()
+	EndFor
+EndSub
+
+Sub 'LocalCobranca'
+	
+	For Each LocalCobranca Order EmpCod,CbrCod
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CbrCod
+		
+		&CbrTipImp       = CbrTipImp
+		&CbrCarCod       = CbrCarCod 
+		&CbrNroCon       = CbrNroCon
+		&CbrCtaBanCrt    = CbrCtaBanCrt
+		&CbrCtaBanCrtDig = CbrCtaBanCrtDig
+		&CtaBanNosNro    = CtaBanNosNro
+		&CbrCtaBanBanCod = CbrCtaBanBanCod
+						   
+		&CbrCtaBanBanImg = CbrCtaBanBanImg
+	
+		&CbrRazSoc       = CbrRazSoc
+		&CbrCnpj         = CbrCnpj
+		&CbrCtaBanAgeCod = CbrCtaBanAgeCod
+		&CbrCtaBanAgeDig = CbrCtaBanAgeDig
+		&CbrNroConDig    = CbrNroConDig
+		&CbrProAut       = CbrProAut
+		&CbrProQtd 		 = CbrProQtd
+		
+		&CbrLocPgt 		 = CbrLocPgt
+		&CbrInsBol1 	 = CbrInsBol1
+		&CbrInsBol2 	 = CbrInsBol2
+		&CbrInsBol3 	 = CbrInsBol3
+		&CbrInsBol4 	 = CbrInsBol4
+		&CbrMltVlr       = CbrMltVlr
+		//&CbrDesAnt       = CbrDesAnt
+		&CbrDesDia       = CbrDesDia
+		&CbrQtdDiaDesc   = CbrQtdDiaDesc
+		&CbrJurCod       = CbrJurCod
+		&JurTaxDia       = 0
+		&CbrBolMod       = CbrBolMod
+		&CbrAvaCnpj      = CbrAvaCnpj
+		&CbrAvaRaz       = CbrAvaRaz
+		Do 'Juros'
+		Exit
+	EndFor
+EndSub
+
+Sub 'Juros'	
+	For each Order EmpCod,JurCod,(JurAno),(JurMes)
+		Where EmpCod = &EmpCod
+		Where JurCod = &CbrJurCod
+		&JurTax = JurTax
+		&JurTaxDia = JurTaxDia
+		Exit
+	EndFor
+EndSub
+
+Sub 'GravaNossoNumero'
+	AtualisaNossoNumeroTodasContas.Call(&EmpCod,&CbrCod,&CtaBanNosNro)
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&sdtGerarBoleto, in:&IsWebSession, out:&IsErro, out:&SdtBoleto);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanNosNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanNosNro</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Nosso Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtaBanNosNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtBoleto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBoleto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtBoletoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtBoletoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBoleto.SdtBoletoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BolBenEnd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BolBenEnd</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BolBenEndCid">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BolBenEndCid</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BolSacCpf">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BolSacCpf</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Cnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CodigoBarras">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CodigoBarras</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>44</Value></Property><Property><Name>AttMaxLen</Name><Value>44</Value></Property><Property><Name>Signed</Name><Value>False</Value></Property><Property><Name>AUTONUMBER</Name><Value>False</Value></Property><Property><Name>AUTONUMBER_START</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_STEP</Name><Value>1</Value></Property><Property><Name>AUTONUMBER_FORREPLICATION</Name><Value>True</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property><Property><Name>ControlValues</Name><Value /></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanAgeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanAgeCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Agência</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanAgeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="linhadig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>linhadig</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>55</Value></Property><Property><Name>AttMaxLen</Name><Value>55</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTipImp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTipImp</Value></Property><Property><Name>Description</Name><Value>Tipo Impressão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTipImp</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCarCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCarCod</Value></Property><Property><Name>Description</Name><Value>Carteira</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCarCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrNroCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrNroCon</Value></Property><Property><Name>Description</Name><Value>Número Convênio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrNroCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Banco Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrRazSoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrRazSoc</Value></Property><Property><Name>Description</Name><Value>Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrRazSoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCnpj</Value></Property><Property><Name>Description</Name><Value>Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanAgeDig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanAgeDig</Value></Property><Property><Name>Description</Name><Value>Conta Bnacária Dígito</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanAgeDig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrNroConDig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrNroConDig</Value></Property><Property><Name>Description</Name><Value>Dígito Convênio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrNroConDig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrProAut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrProAut</Value></Property><Property><Name>Description</Name><Value>Protestar Automaticamente?</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrProAut</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrProQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrProQtd</Value></Property><Property><Name>Description</Name><Value>Quantos dias para o protesto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrProQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrLocPgt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrLocPgt</Value></Property><Property><Name>Description</Name><Value>Local de Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrLocPgt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrInsBol1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrInsBol1</Value></Property><Property><Name>Description</Name><Value>Intrução para Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrInsBol1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrInsBol2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrInsBol2</Value></Property><Property><Name>Description</Name><Value>Instrução para Boleto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrInsBol2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrInsBol3">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrInsBol3</Value></Property><Property><Name>Description</Name><Value>Instrução Para Boleto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrInsBol3</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrInsBol4">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrInsBol4</Value></Property><Property><Name>Description</Name><Value>Instrução para Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrInsBol4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanCrt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanCrt</Value></Property><Property><Name>Description</Name><Value>Conta Corrente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanCrt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WebSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WebSession</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrMltVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrMltVlr</Value></Property><Property><Name>Description</Name><Value>Valor Multa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrMltVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGerarBoletoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGerarBoletoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBoleto.SdtBoletoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGerarBoleto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGerarBoleto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtBoleto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ErroMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ErroMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanCrtDig">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanCrtDig</Value></Property><Property><Name>Description</Name><Value>Conta Corrente Dígito</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanCrtDig</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsWebSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsWebSession</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrDesDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrDesDia</Value></Property><Property><Name>Description</Name><Value>Percentual de Desconto para pagemento em dia.</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrDesDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTax</Value></Property><Property><Name>Description</Name><Value>Juros Taxa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:JurTax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrJurCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrJurCod</Value></Property><Property><Name>Description</Name><Value>Juros Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrJurCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JurTaxDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JurTaxDia</Value></Property><Property><Name>Description</Name><Value>Juros Taxa ao Dia</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:JurTaxDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrBolMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrBolMod</Value></Property><Property><Name>Description</Name><Value>Modelo Boleto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrBolMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanBanImg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanBanImg</Value></Property><Property><Name>Description</Name><Value>Cbr Cta Ban Ban Img</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Image</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrQtdDiaDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrQtdDiaDesc</Value></Property><Property><Name>Description</Name><Value>Qtd Dias desconto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrQtdDiaDesc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtZoop_Duplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtZoop_Duplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtZoop_Duplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCtaBanBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCtaBanBanCod</Value></Property><Property><Name>Description</Name><Value>Cre Cbr Cta Ban Ban Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCtaBanBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtRegistroVar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtRegistroVar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreVlrDup">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreVlrDup</Value></Property><Property><Name>Description</Name><Value>Duplicata Valor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreVlrDup</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Banco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Banco</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreBloNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreBloNro</Value></Property><Property><Name>Description</Name><Value>Cobrança Núm.Bloqueto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreBloNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilImg146_50">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilImg146_50</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Image</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrAvaRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrAvaRaz</Value></Property><Property><Name>Description</Name><Value>Nome Avalista</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrAvaRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrAvaCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrAvaCnpj</Value></Property><Property><Name>Description</Name><Value>CNPJ Avalista</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrAvaCnpj</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <InnerHtml><![CDATA[<P>BANCO DO BRASIL</P>
+<P>FORMATO “NOSSO-NÚMERO” COM 11 POSIÇÕES: </P>
+<P>A composição do “Nosso-Número” deve obedecer as seguintes regras: </P>
+<P>CCCCNNNNNNN-X convênios com 4 posições, onde:</P>
+<P>&nbsp;"C" - número do convênio fornecido pelo Banco (número fixo e não pode ser alterado)</P>
+<P>&nbsp;"N" - seqüencial atribuído pelo cliente</P>
+<P>&nbsp;"X" - dígito verificador do “Nosso-Número”, calculado de acordo com o anexo 9 </P>
+<P>&nbsp;</P>
+<P>CÓDIGO DE BARRAS</P>
+<P>FORMATO DO CÓDIGO DE BARRAS: </P>
+<P>Posição&nbsp;&nbsp;&nbsp;&nbsp; Tamanho&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Picture&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Conteúdo</P>
+<P>&nbsp;01 a 03&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 03&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;9(3)&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Código do Banco na Câmara de Compensação = ‘001’ </P>
+<P>04 a 04&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 01&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;9(1)&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Código da Moeda = '9' </P>
+<P>05 a 05&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;01&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;9(1)&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; DV do Código de Barras (Anexo 10) </P>
+<P>06 a 09&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 04&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 9(04)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Fator de Vencimento (Anexo 8) </P>
+<P>10 a 19&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;9(08)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; V(2) Valor </P>
+<P>20 a 30&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 11&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;9(11)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Nosso-Número, sem DV </P>
+<P>20 a 23&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 9(4) Número do Convênio fornecido pelo Banco (CCCC) </P>
+<P>24 a 30&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 9(7) Complemento do Nosso-Número, sem DV (NNNNNNN) </P>
+<P>31 a 34&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 04 9(4) Número da Agência de Relacionamento, sem DV </P>
+<P>35 a 42&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 08 9(8) Conta Corrente de Relacionamento, sem DV </P>
+<P>43 a 44&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 02 9(2) Tipo de Carteira/Modalidade de Cobrança</P>
+<P>#####################################################################</P>]]></InnerHtml>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GerarBoleto</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

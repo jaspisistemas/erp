@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="SRVORDIG\Administrador" versionDate="2025-05-28T14:05:05.0000000Z" lastUpdate="2025-05-28T14:02:56.0000000Z" checksum="8d95ea6c6ef44a0b90a6ed47ce1965e1" fullyQualifiedName="DuplicataBaixaLct" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="f400caa7-d6c3-44e4-aac0-edbf02a01fdf" name="DuplicataBaixaLct" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Baixa da Duplicata e Lançamento no Caixa" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+if &CreSts <> Status_Duplicata.DESCONTADA
+	&CrePagVlr = &RemCrePagVlr 
+Endif
+
+For Each Order EmpCod, PlanCod
+	Where EmpCod = &EmpCod
+	Where PlanCod = &RetPlanCod
+	
+	&RetPlanCatTip = PlanCatTip
+	Do CAse
+//		CAse &RemRetBanCod = '28' and &BanCod = '748'
+//			&MovItmVlr = &RemCreVlrTar
+		
+		CAse &RemRetBanCod = 'TAXA'
+			&MovItmVlr = &RemCreVlrTar
+			&CrePagVlr = &RemCreVlrTar
+			
+		Otherwise
+			&MovItmVlr = &CrePagVlr
+	EndCAse
+
+	
+	Do case
+		Case PlanCatTip = 'D'
+			&MovTip = TipoMovimento.DespesaRemessa
+			Do 'ValidaCapadoLcto'
+		Case PlanCatTip = 'C'
+		    &MovTip = TipoMovimento.ReceitaRemessa
+			Do 'ValidaCapadoLcto'
+	EndCase
+	Exit
+EndFor
+
+if &MovCod > 0
+	PrcAtualizaMovimentoFinanceiro.Call(&EmpCod, &MovCod)
+Endif
+
+//#############################################################################################################################
+Sub 'ValidaCapadoLcto'
+	&IsExiste = False
+	For each Order EmpCod,MovDtaPgt,MovTip,MovCtaBanCod
+		Where EmpCod = &EmpCod
+		Where MovDtaPgt = &RemDtaCreDta
+		Where MovTip = &MovTip 
+		Where MovCtaBanCod = &CreCbrCtaBanCod
+		Where MovCrePagDta = &DtaOco// adicionado 01/07/16 TTS
+		Where MovSts = Status_Caixa.Lancado or MovSts.IsEmpty() or MovSts.IsNull()
+				
+		&MovCod    = MovCod
+		&MovMaxItm = MovMaxItm
+		Do 'InsereItensLcto'
+		Exit
+	When none
+		Do 'CapadoLcto'
+	EndFor
+EndSub
+//#############################################################################################################################
+Sub 'CapadoLcto'
+	UltimoCodigoEmpresa.Call(domParCod.MOVIMENTO, &EmpCod, 0, &MovCod)
+	New
+		EmpCod = &EmpCod
+		MovCod = &MovCod
+		MovDta = SErverDate()
+		MovDtaPgt = &RemDtaCreDta
+		MovHor = ServerNow()
+		MovCtaBanCod = &CreCbrCtaBanCod
+		MovCreDeb = &RetPlanCatTip
+		if &RemCreDupNro.IsEmpty()
+			MovDoc = trim(str(&MovCod))
+		Else		
+			MovDoc    = &RemCreDupNro
+		Endif
+	
+	    MovTip    = &MovTip
+		MovDtaCon = &RemDtaCreDta
+		MovCrePagDta = &DtaOco
+		MovSts = Status_Caixa.Lancado
+	EndNew
+	commit
+	Do 'InsereItensLcto'
+
+EndSub
+
+Sub 'InsereItensLcto'
+	
+	&MovItmCpl = 'CL: '+Trim(str(&CreCliCod))+'-'+trim(&CreCliRaz)
+	
+//	if &RemRetBanCod <> '28'
+		For each Order EmpCod,FilCod,CreCod
+			Where EmpCod = &EmpCod
+			Where FilCod = &FilCod
+			Where CreCod = &CreCod
+			&CreMaxPagCod = CreMaxPagCod
+			
+			Exit
+		EndFor
+		&AuxCreMaxPagCod = &CreMaxPagCod +1
+		&AuxMovMaxItm  = &MovMaxItm + 1
+		
+		New //MOVIMENTO ITEM
+			EmpCod       = &EmpCod
+			MovCod       = &MovCod
+			MovItmCod    = &AuxMovMaxItm
+			MovItmVlr    = &MovItmVlr
+			PlanCod      = &RetPlanCod
+			MovCreFilCod = &FilCod
+			MovCreCod    = &CreCod
+			MovItmCpl    = &MovItmCpl
+			MovCrePagCod = &AuxCreMaxPagCod
+		EndNew
+		Commit
+		
+		New
+		    EmpCod       = &EmpCod
+			FilCod       = &FilCod
+			CreCod       = &CreCod
+			CrePagCod    = &AuxCreMaxPagCod
+			CrePagDta    = &DtaOco //#########################################
+			CrePagVlr    = &RemCrePagVlr
+			CrePagVlrJur = &RemCrePagVlrJur
+			CrePagVlrDsc = &RemCrePagVlrDsc
+			if &RemRetBanCod = 'TAXA'
+				CrePagVlr    = 0
+				CrePagVlrTar = &MovItmVlr
+				CrePagVlr    = 0
+				CrePagVlrJur = 0
+				CrePagVlrDsc = 0
+			Endif
+		
+			
+			CrePagTip    = TipoDuplicataBaixa.Total
+			CreIsRet     = true
+			CreMovCod    = &MovCod
+			CreMovItmCod = &AuxMovMaxItm
+		Endnew
+	
+		Commit
+		
+		AtualizaSaldoDuplicata.Call(&EmpCod,&CreCod,&FilCod)
+		
+//	Else //SO GRAVA TARIFA NA CONTA SE AINDA NAO FOI GRAVADA.
+//		For Each Order EmpCod, MovCod, MovCreFilCod, MovCreCod
+//			Where EmpCod       = &EmpCod
+//			Where MovCod       = &MovCod
+//			Where MovCreFilCod = &FilCod
+//			Where MovCreCod    = &CreCod
+//			MovItmVlr    = &MovItmVlr
+//			PlanCod      = &RetPlanCod
+//			MovItmCpl    = &MovItmCpl
+//			Exit
+//		When none
+//			&AuxMovMaxItm  = &MovMaxItm + 1
+//			New
+//				EmpCod       = &EmpCod
+//				MovCod       = &MovCod
+//				MovItmCod    = &AuxMovMaxItm
+//				MovItmVlr    = &MovItmVlr
+//				PlanCod      = &RetPlanCod
+//				MovCreFilCod = &FilCod
+//				MovCreCod    = &CreCod
+//				MovItmCpl    = &MovItmCpl
+//				MovCrePagCod = 1
+//			EndNew
+//		EndFor
+//	
+//		Commit
+//	EndIf
+
+	&Mode = TrnMode.update
+	AtualizaSaldoConta.Call(&Mode,&EmpCod,&CreCbrCtaBanCod,&RemDtaCreDta,&RetPlanCatTip,&CrePagVlr,&DtaVazia,0, '')
+	
+EndSub
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&CreCod,in:&CreSts, in:&DtaOco,in:&CreCbrCod,in:&CreCbrCtaBanCod,in:&BanCod,in:&RemRetBanCod,in:&RemCrePagVlr,in:&RemCreVlrTar,in:&RemCreVlrOut,in:&RemDtaCreDta,in:&RemCrePagVlrDsc,in:&RemCrePagVlrJur,in:&RemCreDupNro,in:&CreCliCod,in:&CreCliRaz, in:&RetPlanCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaOco">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaOco</Value></Property><Property><Name>Description</Name><Value>Data Ocorrência</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemRetBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemRetBanCod</Value></Property><Property><Name>Description</Name><Value>Retorno Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlr</Value></Property><Property><Name>Description</Name><Value>Valor Pagamento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreVlrTar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreVlrTar</Value></Property><Property><Name>Description</Name><Value>Remessa ValorTarifa</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreVlrOut">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreVlrOut</Value></Property><Property><Name>Description</Name><Value>Remessa Outras Despesas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemDtaCreDta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemDtaCreDta</Value></Property><Property><Name>Description</Name><Value>Data do crédito</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlrDsc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlrDsc</Value></Property><Property><Name>Description</Name><Value>Valor Descontos</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrDsc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCrePagVlrJur">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCrePagVlrJur</Value></Property><Property><Name>Description</Name><Value>Valor Juros</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlrJur</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCod</Value></Property><Property><Name>Description</Name><Value>Movimento Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovTip</Value></Property><Property><Name>Description</Name><Value>Movimento Tipo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExiste">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExiste</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobranca</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCbrCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCbrCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCbrCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovMaxItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovMaxItm</Value></Property><Property><Name>Description</Name><Value>Movimento Máximo Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovMaxItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="BanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>BanCod</Value></Property><Property><Name>Description</Name><Value>Banco Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:BanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreMaxPagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreMaxPagCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Máximo Código Pgto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreMaxPagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaVazia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaVazia</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmCpl</Value></Property><Property><Name>Description</Name><Value>Movimento Complemento Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetPlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetPlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Retorno</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetPlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RetPlanCatTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RetPlanCatTip</Value></Property><Property><Name>Description</Name><Value>Plano Tipo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RetPlanCatTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreDupNro</Value></Property><Property><Name>Description</Name><Value>Remessa Duplicata Nro</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemCreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxMovMaxItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxMovMaxItm</Value></Property><Property><Name>Description</Name><Value>Movimento Máximo Item</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovMaxItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreMaxPagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreMaxPagCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Máximo Código Pgto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreMaxPagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreCliRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCliRaz</Value></Property><Property><Name>Description</Name><Value>Cliente Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreSts</Value></Property><Property><Name>Description</Name><Value>Duplicata </Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrePagVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrePagVlr</Value></Property><Property><Name>Description</Name><Value>Valor Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrePagVlr</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>DuplicataBaixaLct</Value></Property><Property><Name>Description</Name><Value>Baixa da Duplicata e Lançamento no Caixa</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,427 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="06416860-509f-4eba-861b-aa75118bfaf6" user="WINJEAN\jeanfae" versionDate="2024-12-27T18:44:41.0000000Z" lastUpdate="2024-12-27T18:39:10.0000000Z" checksum="1eb1fb9a71303da986ffa6370a16b0ec" fullyQualifiedName="GeraCobranca_OnLine" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="71b76325-9142-48ee-9304-46f7faff8faf" name="GeraCobranca_OnLine" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera Cobranca_On Line" parent="FinPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+
+&Total = 100
+&Count = 0
+&Percentual = 0
+&ProgressIni = serverNow()
+
+do 'Atualiza'
+Do 'LocalCobranca'
+&sdtDuplicatasRemessa.Clear()
+
+//############################################# Registro de Transação - Tipo 1 ######################################################################################
+&qtdTitulos = 0
+&VlrTotTitulos = 0
+For Each Order EmpCod, CreRecPag,CreFrpPgtoTip, CreCbrCod,CreDtaVct, CreDupNro
+	Where EmpCod = &EmpCod
+	Where CreRecPag = 'R'
+	Where CreFrpPgtoTip = TipoDuplicata.DUPLICATA
+	Where CreCbrCod = &CbrCod
+	Where CreDtaEms >= &DtaIni and CreDtaEms <= &DtaFim
+	Where CreDtaVct >= serverdate() and (CreDtaVct <= &CreDtaVct or &CreDtaVct.IsEmpty())
+	Where CreVlrSdo > 0 // ainda tem vlor a Receber
+	Where (CreSts = &CreSts and CreSts <> Status_Duplicata.CANCELADA) or (&CreSts.IsEmpty() and CreSts <> Status_Duplicata.CANCELADA) //Cancelada
+	Where (CreDtaRet.IsEmpty() or CreDtaRet.IsNull()) when &SemRet = Status_SimNao.Sim
+	
+	&RemFiLCod = FilCod 
+	&RemCreSeq = CreCod
+	
+	Do case
+		Case &CbrCtaBanBanCod = '077' //INTER
+			prcGeraBoletoInter.Call(EmpCod, FilCod, CreCod,&PesCod, &IsErro, &Mensagem)
+			
+		CAse &CbrCtaBanBanCod = '133' //CRESOL 
+			prcGeraBoletoCresol.Call(EmpCod, FilCod, CreCod, &IsErro, &Mensagem)
+		
+		Case &CbrCtaBanBanCod = '237' //Bradesco
+			GeraBoletoBradesco.Call(EmpCod, FilCod, CreCod, &IsErro, &Mensagem)
+			
+		Case &CbrCtaBanBanCod = '748' and  &CbrTipBol <> tipoBoleto.Hibrido  // Sicredi Tradicional
+			GeraBoletoApiECommerce.Call(EmpCod, FilCod, CreCod, &IsErro, &Mensagem)
+			
+		Case &CbrCtaBanBanCod = '748' and  &CbrTipBol = tipoBoleto.Hibrido // Sicredi Hibrido
+			GeraBoletoSicredi.Call(EmpCod, FilCod, CreCod, &IsErro, &Mensagem)
+			
+		Case &CbrCtaBanBanCod = '999' //Zoop
+			&IsErro = false
+			&Mensagem.SetEmpty()
+			if &AuxCreCliCod <> CreCliCod
+				ValidaCliente.call(EmpCod, FilCod, CreCliCod, &IsErro, &Mensagem)
+				
+				if &IsErro = false
+					GeraBoletoApi_ZoopCliente.Call(EmpCod, FilCod, CreCliCod, &IsErro, &Mensagem)
+				Endif
+			Endif
+			
+			if &IsErro = false
+				GeraBoletoApi_ZoopDuplicata.Call(EmpCod, FilCod, CreCod, &IsErro, &Mensagem)
+			Endif
+			&AuxCreCliCod = CreCliCod
+	EndCase
+	
+	Do 'AddItemRemessa'  //Adiciona Duplicata na Remessa Remessa 
+	
+	Do CAse
+		Case CreSts = Status_Duplicata.ATIVO and &CbrCtaBanBanCod <> '077' //INTER
+			CreSts = Status_Duplicata.EM_REMESSA
+		CAse CreSts = Status_Duplicata.ATIVO and &CbrCtaBanBanCod = '077' and CreCodSol <> '' //INTER
+			CreSts = Status_Duplicata.EM_REMESSA
+	EndCase
+
+	
+	&sdtDuplicatasRemessaItem = new()
+	&sdtDuplicatasRemessaItem.EmpCod = EmpCod
+	&sdtDuplicatasRemessaItem.FilCod = FilCod
+	&sdtDuplicatasRemessaItem.CreCod = CreCod
+	if &IsErro = true
+		&sdtDuplicatasRemessaItem.Mensagem = &Mensagem
+	EndIf
+	&sdtDuplicatasRemessa.Add(&sdtDuplicatasRemessaItem)
+	
+	&Count += 1
+	If &Count > 0
+		&Percentual = round((&Count / &Total) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+	
+EndFor
+
+prcAtualizaRetornoInter.Call(&EmpCod, &PesCod)
+
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+For Each Order EmpCod,RemCbrCod, RemNum
+	Where EmpCod    = &EmpCod
+	Where RemCbrCod = &CbrCod
+	Where RemNum    = &CbrUltRem
+	RemTxt = &sdtDuplicatasRemessa.ToXml()
+	Exit
+EndFor
+
+Commit
+
+//###############################################################FINAL DO ARQUIVO ########################################
+
+
+Sub 'Atualiza'
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit	
+EndSub
+
+Sub 'LocalCobranca'
+	For each Order EmpCod,CbrCod,CbrTipImp
+		Where EmpCod = &EmpCod
+		Where CbrCod = &CbrCod
+		&CbrCtaBanBanCod = CbrCtaBanBanCod
+		&CbrCtaBanCod = CbrCtaBanCod
+		&CbrTipBol = CbrTipBol
+	EndFor
+	
+	
+	For Each Order EmpCod,RemCbrCod, (RemNum)
+		Where EmpCod    = &EmpCod
+		Where RemCbrCod = &CbrCod
+		&CbrUltRem    = RemNum
+		Exit
+	endFor
+	&CbrUltRem    += 1
+	
+	do 'GravaSequencial'
+	Do 'CapaRemessa'
+EndSub
+
+
+Sub 'GravaSequencial'
+	For each Order EmpCod,CbrCtaBanCod
+		Where EmpCod = &EmpCod
+		Where CbrCtaBanCod = &CbrCtaBanCod
+		CbrUltRem = &CbrUltRem
+	EndFor
+	
+	Commit
+EndSub
+
+Sub 'CapaRemessa'	
+	For Each Order EmpCod,RemCbrCod, RemNum
+		Where EmpCod    = &EmpCod
+		Where RemCbrCod = &CbrCod
+		Where RemNum    = &CbrUltRem
+		
+		For Each Order EmpCod,RemCbrCod, RemNum, RemItm
+			Delete
+		EndFor
+	
+		Delete
+	EndFor
+	
+	New
+		EmpCod = &EmpCod
+		RemCbrCod = &CbrCod
+		RemNum = &CbrUltRem
+		RemBanCod = &CbrCtaBanBanCod
+		RemDta = serverdate()
+		RemHor = ServerNow()
+		RemNomArq = 'REMESSA_ONLINE'
+	EndNEw
+
+	Commit
+EndSub
+
+Sub 'AddItemRemessa'
+	For Each Order EmpCod,RemCbrCod, RemNum, (RemItm)
+		Where EmpCod = &EmpCod
+		Where RemCbrCod = &CbrCod
+		Where RemNum = &CbrUltRem
+		
+		&RemItm = RemItm
+		
+		Exit
+	EndFor
+	&RemItm += 1
+	
+	For Each Order EmpCod,RemFilCod,RemCreSeq,RemCbrCod, RemNum, (RemItm)
+		Where EmpCod    = &EmpCod
+		Where RemCbrCod = &CbrCod
+		Where RemNum    = &CbrUltRem
+		Where RemFilCod = &FilCod
+		Where RemCreSeq = &CreSeq
+		Exit
+	When none		
+		New
+			EmpCod    = &EmpCod
+			RemCbrCod = &CbrCod
+			RemNum    = &CbrUltRem
+			RemItm    = &RemItm
+			RemFilCod = &RemFiLCod 
+			RemCreSeq = &RemCreSeq
+		EndNEw
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&ProgressId, in:&EmpCod,in:&FilCod ,in:&CbrCod,in:&DtaIni,in:&DtaFim,in:&SemRet, in:&CreSts, in:&CreDtaVct);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CbrCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCod</Value></Property><Property><Name>Description</Name><Value>Local Cobrança Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrUltRem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrUltRem</Value></Property><Property><Name>Description</Name><Value>Ultima Remessa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrUltRem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaFim">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaFim</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DtaIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DtaIni</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Date</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SemRet">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SemRet</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemItm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemItm</Value></Property><Property><Name>Description</Name><Value>Remessa Item</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemItm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreSeq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreSeq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemCreSeq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemCreSeq</Value></Property><Property><Name>Description</Name><Value>Remessa Duplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemCreSeq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="RemFiLCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>RemFiLCod</Value></Property><Property><Name>Description</Name><Value>Remessa Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:RemFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="VlrTotTitulos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>VlrTotTitulos</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdTitulos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdTitulos</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreSts</Value></Property><Property><Name>Description</Name><Value>Duplicata </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsErro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDuplicatasRemessa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDuplicatasRemessa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDuplicatasRemessa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDuplicatasRemessaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDuplicatasRemessaItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDuplicatasRemessa.sdtDuplicatasRemessaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressIni">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressIni</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Banco Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxCreCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxCreCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrCtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrCtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta bancária</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrCtaBanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDtaVct</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrTipBol">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrTipBol</Value></Property><Property><Name>Description</Name><Value>Tipo Boleto</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrTipBol</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <InnerHtml><![CDATA[<B><FONT size=3>
+<P>109 a 110 - Identificações de Ocorrência </P></B></FONT><FONT size=3 face="Courier New,Courier New"><FONT size=3 face="Courier New,Courier New">
+<P>01..Remessa </P>
+<P>02..Pedido de baixa </P>
+<P>03..Pedido de Protesto Falimentar </P>
+<P>04..Concessão de abatimento </P>
+<P>05..Cancelamento de abatimento concedido </P>
+<P>06..Alteração de vencimento </P>
+<P>07..Alteração do controle do participante </P>
+<P>08..Alteração de seu número </P>
+<P>09..Pedido de protesto </P>
+<P>18..Sustar protesto e baixar Título </P>
+<P>19..Sustar protesto e manter em carteira </P>
+<P>22..Transferência Cessão crédito ID. Prod.10 </P>
+<P>23..Transferência entre Carteiras </P>
+<P>24..Dev. Transferência entre Carteiras </P>
+<P>31..Alteração de outros dados </P>
+<P>68..Acerto nos dados do rateio de Crédito </P>
+<P>69..Cancelamento do rateio de crédito.</P>
+<P>&nbsp;</P>
+<P>
+<TABLE dir=ltr cellSpacing=0 cellPadding=7 width=265 border=1>
+<TBODY>
+<TR>
+<TD height=6 vAlign=top width="50%"><FONT size=3>
+<P>148 a 149 </FONT></P></TD>
+<TD height=6 vAlign=top width="50%"><FONT size=3>
+<P>Espécie de Título </FONT></P></TD></TR></TBODY></TABLE></P>
+<P>
+<TABLE dir=ltr cellSpacing=0 cellPadding=7 width=201 border=1>
+<TBODY>
+<TR>
+<TD height=74 vAlign=top><FONT size=3>
+<P>01-Duplicata </P>
+<P>02-Nota Promissória </P>
+<P>03-Nota de Seguro </P>
+<P>04-Cobrança Seriada </P>
+<P>05-Recibo </P>
+<P>10-Letras de Câmbio </P>
+<P>11-Nota de Débito </P>
+<P>12-Duplicata de Serv. 99-Outros </FONT></P></TD></TR></TBODY></TABLE></P>
+<P>&nbsp;</P>
+<P>Tipo dew Pagador</P>
+<P>
+<TABLE dir=ltr cellSpacing=0 cellPadding=7 width=115 border=1>
+<TBODY>
+<TR>
+<TD height=40 vAlign=top><FONT size=3>
+<P>01-CPF </P>
+<P>02-CNPJ </P>
+<P>03-PIS/PASEP </P>
+<P>98-Não tem </P>
+<P>99-Outros </FONT></P></TD></TR></TBODY></TABLE></P>
+<P>&nbsp;</P>
+<P>&nbsp;</P></FONT></FONT>]]></InnerHtml>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GeraCobranca_OnLine</Value></Property><Property><Name>Description</Name><Value>Gera Cobranca_On Line</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="" versionDate="2022-06-28T23:50:51.0000000Z" lastUpdate="2018-03-19T12:43:09.0000000Z" checksum="6c163868596ce7824ce6fbdfed8bc82b" fullyQualifiedName="LeituraEncerramentoMDFe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="a950d66f-85a3-4c4c-82cd-663a77ffd1eb" name="LeituraEncerramentoMDFe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Leitura Encerramento MDFe" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&conteudo_arquivo = ''
+
+For Each Order EmpCod, FilCod, MDFeCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where MDFeCod = &MDFeCod
+	&MDFeChv = MDFeChv
+	Exit
+EndFor
+
+	
+&Nome_retorno_erro = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + 'MDFe'+ trim(&MDFeChv)+'-eve.err' 
+&Nome_retorno_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim() + 'MDFe' +trim(&MDFeChv) + '-eve.xml'
+
+&File.Source = &Nome_retorno_erro
+if &File.Exists() 
+	&ResultadoAbertura =   DFROpen(&Nome_retorno_erro)    
+	
+	Do while dfrnext() = 0 
+		&ResultadoAbertura = DFRGTxt(&CampoUnico)
+		&conteudo_arquivo += NewLine() + &CampoUnico.Trim()
+	EndDo
+	&ResultadoAbertura = DFRClose()
+	
+	&File.Delete()
+	
+	&Tentativa = 99
+	&SolSts = Status_Solicitacao.Falha
+	&SolMsg = &conteudo_arquivo
+else
+	&File.Source = &Nome_retorno_correto
+	if &File.Exists()
+		
+		&retorno_xml.Open(&Nome_retorno_correto)    
+		&retorno_xml.ReadType(1, 'infEvento')
+		&retorno_xml.Read()  
+		Do While (&retorno_xml.Name <> 'infEvento' and &retorno_xml.Name <> '')
+			Do Case
+				Case &retorno_xml.Name = 'cStat'
+					&NfeAutSts = &retorno_xml.Value
+				Case &retorno_xml.Name = 'dhRegEvento'
+					&NfeAutDatHorRec = &retorno_xml.Value
+				Case &retorno_xml.Name = 'xMotivo'
+					&NfeAutMsg  = &retorno_xml.Value
+				Case &retorno_xml.Name = 'nProt'
+					&NfeAutNumPro  = &retorno_xml.Value
+			EndCase
+			&retorno_xml.Read()           
+		EndDo
+		&retorno_xml.close()
+		
+		if not &NfeAutSts.IsEmpty()
+			Do Case
+				Case &NfeAutSts in ('135', '136')
+					&NfeAutSts = '132'					
+					&mensagem = '132 - ENCERRAMENTO DE MDFE HOMOLOGADO'
+					
+					AtualizaNumeroProtocoloMDFe.Call('ENCERRA_MDFE', &EmpCod, &FilCod, &MDFeCod, &NfeAutSts, '', '', &NfeAutDatHorRec, &NfeAutMsg, &NfeAutNumPro, '', Status_MDFe.Encerrado, &SolPesCod)
+					&SolSts = Status_Solicitacao.Finalizada
+					
+				Case &NfeAutSts in ('579', '577', '578')
+					&mensagem = 'Falha na Comunicação, Fuso horário informado diverge dos servidores sefaz.'
+					&SolSts = Status_Solicitacao.Falha
+					
+				Otherwise
+					&mensagem = &NfeAutSts.Trim() + ' - ' + trim(&NfeAutMsg)
+					&SolSts = Status_Solicitacao.Falha
+			EndCase
+			
+			&Tentativa = 99
+			&SolMsg = &mensagem
+		EndIF
+	EndIf
+EndIf
+
+if &SolSts <> Status_Solicitacao.Pendente
+	&File.Source = &Nome_retorno_erro 
+	If &File.Exists()
+		&File.Delete()
+	EndIF
+
+	&File.Source = &Nome_retorno_correto 
+	If &File.Exists()
+		&File.Delete()
+	EndIF
+EndIF
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&MDFeCod, in:&SolPesCod,  in:&sdtConfiguracoesPasta, inout:&Tentativa, inout:&SolSts, inout:&SolMsg);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="conteudo_arquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>conteudo_arquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeChv</Value></Property><Property><Name>Description</Name><Value>Chave MDFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_retorno_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_retorno_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="retorno_xml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>retorno_xml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutSts</Value></Property><Property><Name>Description</Name><Value>Status NFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutDatHorRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutDatHorRec</Value></Property><Property><Name>Description</Name><Value>Data Hora Recibo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutMsg</Value></Property><Property><Name>Description</Name><Value>msg</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeAutNumPro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeAutNumPro</Value></Property><Property><Name>Description</Name><Value>Protocolo Autorizacao</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeAutNumPro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>LeituraEncerramentoMDFe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="cb7d507a-ac2b-42b9-a5ea-8d6a322e9b4e" user="WINJEAN\jeanfae" versionDate="2025-12-11T20:07:11.0000000Z" lastUpdate="2025-12-11T18:10:14.0000000Z" checksum="f215b75f31c07e31660fd2598ac15100" fullyQualifiedName="GravaValorImpostoApi" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="9c80f66d-51fd-4bb5-a20e-47a969e31922" name="GravaValorImpostoApi" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Grava Valor Imposto Api" parent="prcCTE" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+AtualisaBaseCalculoCte.Call(&EmpCod, &FilCod, &CteCod)
+
+For each Order EmpCod,FilCod,CteCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where CteCod = &CteCod
+	
+//	CteVlrRecSer = &CteVlrRecSer
+	
+//	CteImpVbc = &CteImpVbc
+//	CteImpAliTotTri = &CteImpAliTotTri
+//	CteImpTriVlrPis = &CteImpTriVlrPis
+//	CteImpTriVlrCofins = &CteImpTriVlrCofins
+//	CteImpTriVlrCsll = &CteImpTriVlrCsll
+	CteImpTriVlrInss = (CteImpVbc * (CteImpTriAliInss*0.01))
+//	CteImpTriVlrIr =&CteImpTriVlrIr
+	CteImpVlrTotTri = ((CteVlrTotPreSer * CteImpAliTotTri)*0.01)
+
+	Do case
+		Case CteImpCst = ClassificacaoCst.Outros or CteImpCst = ClassificacaoCst.OutraUF
+			//			CteImpAli = &CteImpAli
+			CteImpVlr = (CteImpVbc * (CteImpAli*0.01))
+			
+			//			CteImpVlrCre = &CteImpVlrCre
+			//			CteImpPerRed = &CteImpPerRed
+			CteConSplNac = Status_SimNao.Nao
+		Case CteImpCst = ClassificacaoCst.Normal
+			//			CteImpAli = &CteImpAli
+			CteImpVlr = (CteImpVbc * (CteImpAli*0.01))
+			
+			CteConSplNac = Status_SimNao.Nao
+		Case CteImpCst = ClassificacaoCst.Reduzida
+			CteConSplNac = Status_SimNao.Nao
+		Case CteImpCst = ClassificacaoCst.Substituicao
+			CteConSplNac = Status_SimNao.Nao
+			CteImpVstRet = (CteImpVbcRet * (CteImpAliRet*0.01)) 
+			//			CteImpVbcRet = CteImpVbcRet
+			//			CteImpAliRet = CteImpAliRet
+			//			CteImpVlrCre = CteImpVlrCre
+			
+		Case CteImpCst = ClassificacaoCst.Simples
+			CteConSplNac = Status_SimNao.Sim
+			CteImpAli = 0
+			CteImpVlr = 0
+			CteImpVlrCre = 0
+			CteImpPerRed = 0
+	EndCase
+	
+	do case
+		case CteVlrRecSer > 0
+			&AuxBaseMoeda = CteVlrRecSer
+		case CteVlrTotPreSer > 0
+			&AuxBaseMoeda = CteVlrTotPreSer
+		Otherwise
+			&AuxBaseMoeda = CteImpVbc
+	EndCAse
+
+	&CteDesCod = CteDesCod
+	do 'getDestinatario'
+	
+	//Aqui tem que pegar as configuracoes do IBS e CBS
+	//retorna Categoria imposto padrao CTE
+	RetornaConfSistema.Call(EmpCod, FilCod, domConfSistema.TCon209_ImpostoProdutoCTE, &TCon209_ImpostoProdutoCTE)
+	&CImpCatCod = val(&TCon209_ImpostoProdutoCTE)
+	if &CImpCatCod.IsEmpty()
+		prcDefinePadraoCategoriaImpostoCTE.call(EmpCod, FilCod, &CImpCatCod)
+	Endif
+	
+	&sdtCadastroTabelaImpostoCbs = new()
+	&sdtCadastroTabelaImpostoCbs.Tipo = 'CTE'
+	&sdtCadastroTabelaImpostoCbs.EmpCod = EmpCod
+	&sdtCadastroTabelaImpostoCbs.CImpTbFilCod = FilCod
+	&sdtCadastroTabelaImpostoCbs.CImpLctCod = CteLctCod
+	&sdtCadastroTabelaImpostoCbs.CImpOriUfeCod = CteRemUfe
+	&sdtCadastroTabelaImpostoCbs.CImpDstUfeCod = CteDesUfe
+	&sdtCadastroTabelaImpostoCbs.CImpGruImpCod = &ImpGruImpCod
+	&sdtCadastroTabelaImpostoCbs.CImpCatCod = &CImpCatCod
+	&sdtCadastroTabelaImpostoCbs.CImpDtaIni = serverdate()
+	&sdtCadastroTabelaImpostoCbs.ProCod = 0 //nao tem produto
+	&sdtCadastroTabelaImpostoCbs.IsRetornarObs = true //retornar obs
+	prcRetornaConfiguracaoImposto_IBSCBS.Call(&sdtCadastrotabelaImpostoCbs)
+	
+	&sdtImpostoProduto.ProVlrFrt = &AuxBaseMoeda - (CteImpTriVlrIr+CteImpTriAliInss+CteImpTriVlrPis+CteImpTriVlrCofins+CteImpTriVlrCsll)
+	 
+	//Chamar o Calculador do IBS e CBS
+	CalculaImposto_IBSCBS.Call(&sdtCadastrotabelaImpostoCbs, &SdtImpostoProduto)
+	
+	//Atualizar Valores de IBS e CBS
+	CteIbsCST  = &sdtCadastroTabelaImpostoCbs.CImpClsCST
+	CteIbsClassTrib = &sdtCadastroTabelaImpostoCbs.CImpClsTrib
+	//CteIbsIndDoa
+	CteIbsBas = &sdtImpostoProduto.ValorBaseIbsCbs
+	CteIbsUfTax  = &sdtCadastroTabelaImpostoCbs.IbsUfTax
+	CteIbsUfTaxDif = &sdtCadastroTabelaImpostoCbs.NfeIbsUfPerDif
+	CteIbsUfVlrDif = &SdtImpostoProduto.NfeIbsUfVlrDif
+	CteIbsUfTaxRed = &sdtCadastroTabelaImpostoCbs.CltClsRedIbs
+	CteIbsUfTaxEfe = &sdtCadastroTabelaImpostoCbs.IbsUfTaxEfe
+	CteIbsUfVlr = &SdtImpostoProduto.ValorIbsUf
+	CteIbsMunTax = &sdtCadastroTabelaImpostoCbs.IbsMunTax
+	CteIbsMunTaxDif = &sdtCadastroTabelaImpostoCbs.NfeIbsMunPerDif
+	CteIbsMunTaxRed = &sdtCadastroTabelaImpostoCbs.CltClsRedIbs
+	CteIbsMunTaxEfe = &sdtCadastroTabelaImpostoCbs.IbsMunTaxEfe
+	CteIbsMunVlr = &SdtImpostoProduto.ValorIbsMun
+	CteIbsMunVlrDif = &SdtImpostoProduto.NfeIbsMunVlrDif
+	
+	CteIbsVlrTot = &SdtImpostoProduto.ValorIbsMun + &SdtImpostoProduto.ValorIbsUf
+	
+	CteCbsTax = &sdtCadastroTabelaImpostoCbs.IbsUnTax
+	CteCbsTaxDif = &sdtCadastroTabelaImpostoCbs.NfeCbsPerDif
+	CteCbsTaxRed = &sdtCadastroTabelaImpostoCbs.CltClsRedCbs
+	CteCbsTaxEfe = &sdtCadastroTabelaImpostoCbs.IbsUnTaxEfe
+	
+	CteCbsVlrDif = &SdtImpostoProduto.NfeCbsVlrDif
+	CteCbsVlr = &SdtImpostoProduto.ValorCbs
+	
+	CteTribRegCst = &sdtCadastroTabelaImpostoCbs.NfeRegIbsSit
+	CteTribRegClassTrib = &sdtCadastroTabelaImpostoCbs.NfeRegIbsClassTrib
+	CteTribRegUfTax = &sdtCadastroTabelaImpostoCbs.NfeRegIbsUfeTaxEfe
+	CteTribRegUfVlr = &SdtImpostoProduto.NfeRegIbsUfeVlr
+	CteTribRegMunTax = &sdtCadastroTabelaImpostoCbs.NfeRegIbsMunTaxEfe
+	CteTribRegMunVlr = &SdtImpostoProduto.NfeRegIbsMunVlr
+	CteTribRegUnTax = &sdtCadastroTabelaImpostoCbs.NfeRegCbsTaxEfe
+	CteTribRegUnVlr = &SdtImpostoProduto.NfeRegCbsVlr
+	
+	exit
+EndFor
+
+commit
+
+
+Sub 'getDestinatario'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &CteDesCod
+		&ImpGruImpCod = PesGruImpCod
+		exit
+	EndFor
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&CteCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteDesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteDesCod</Value></Property><Property><Name>Description</Name><Value>Destinatário Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteDesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon209_ImpostoProdutoCTE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon209_ImpostoProdutoCTE</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CImpCatCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CImpCatCod</Value></Property><Property><Name>Description</Name><Value>Grupo Produtos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CImpCatCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImpGruImpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImpGruImpCod</Value></Property><Property><Name>Description</Name><Value>Imp Gru Imp Cod</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImpGruImpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtCadastrotabelaImpostoCbs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtCadastrotabelaImpostoCbs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtCadastroTabelaImpostoCbs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtImpostoProduto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtImpostoProduto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtImpostoProduto</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxBaseMoeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxBaseMoeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>GravaValorImpostoApi</Value></Property><Property><Name>Description</Name><Value>Grava Valor Imposto Api</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

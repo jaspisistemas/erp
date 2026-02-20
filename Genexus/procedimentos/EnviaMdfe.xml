@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="1f511dc0-9418-490a-9e03-11ca2b7eb20a" user="WINJEAN\jeanfae" versionDate="2026-01-12T20:21:13.0000000Z" lastUpdate="2026-01-12T17:38:05.0000000Z" checksum="acb630ffbe15a4f53d150d1651714d8d" fullyQualifiedName="EnviaMdfe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="427fd82e-e996-40c9-90b7-c06793e68f05" name="EnviaMdfe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Envia Mdfe" parent="EnviaEmailNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&LogGUID = GUID.NewGuid()
+
+//csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.ServicePointManager.SecurityProtocol;
+
+&EmlSts = Status_Solicitacao.Pendente
+&EmlTip = TipoContaEmail.Email_Faturamento
+
+For Each Order EmpCod, EmlTip, EmlCod
+	Where EmpCod = &EmpCod
+	Where EmlTip = &EmlTip
+	Where EmlCod = &EmlCod
+	
+	&MdfeCod = EmlSeqCod
+	
+	do 'Filial'
+	Do 'Login'
+	
+	&PesCod = EmlPesCod
+	do 'Funcionario'
+		
+	do 'Mdfe'
+
+	&EmlAss = EmlAss
+	&EmlObs = EmlObs
+    Exit
+EndFor
+
+
+	//=====Insere o assunto da mensagem=====
+	&mensagem = 'Destinatarios'
+	&Destinatarios.Clear()
+	For Each Order EmpCod, EmlTip, EmlCod, EmlItmCod
+		Where EmpCod = &EmpCod
+		Where EmlTip = &EmlTip
+		Where EmlCod = &EmlCod
+		&mensagem += '; ' + trim(EmlUrl)
+		//Destinatário de email
+		
+		&Destinatarios.Add(EmlUrl)
+	EndFor
+
+	do 'mensagem'	
+	&mensagem = 'Anexos: '
+	
+	if not &MdfeArqXml.IsEmpty()
+		geraPdfMDFe.Call(&EmpCod, &EmlFilCod, &MdfeCod, &UrlVirtual, &URlFisico)
+		
+	    //ADICIONA ARQUIVO
+		&Attachments.Clear()
+		
+		&File.Source = &URlFisico //PDF
+		If &File.Exists()
+			&mensagem += ' ' + trim(&URlFisico)
+			do 'mensagem'
+			//=====Adiciona Anexo a partir de um caminho do servidor=====
+			&Attachments.Add(&URlFisico)
+			GravaAnexosEmailBase64.Call(&EmpCod, &EmlTip, &EmlCod, &URlFisico)
+		EndIF
+	EndIF	
+	//XML
+		&File.Source = &PastaAutorizadas
+		If &File.Exists()
+			&mensagem += '; ' + trim(&PastaAutorizadas)
+		 	&Attachments.Add(&PastaAutorizadas)
+			GravaAnexosEmailBase64.Call(&EmpCod, &EmlTip, &EmlCod, &PastaAutorizadas)
+		Else
+			GravaXmlMdfeDoBancoDados.Call(&EmpCod, &EmlFilCod, &EmlSeqCod, &sdtConfiguracoesPasta)
+			&File.Source = &PastaBancoDados
+			If &File.Exists()
+				&mensagem += '; ' + trim(&PastaBancoDados)
+				do 'mensagem'
+				&Attachments.Add(&PastaBancoDados)	
+				GravaAnexosEmailBase64.Call(&EmpCod, &EmlTip, &EmlCod, &PastaBancoDados)
+			EndIF
+		endif				
+	
+	
+	do 'PreencheHTML'
+	
+&Result = &JASPI_enviaEmail.SendEmailSafeJson(&HostVarchar, &PortNumeric, &UserNameVarchar, &EmpEmlSen, &imapHost, &imapPort, &imapSsl, &FilRaz, &AddressVarchar, &FunEmailContato, &FilRaz, &Destinatarios, &EmlAss, &Obs, &Attachments, true)
+	
+&EmailResult.FromJson(&Result)
+
+If &EmailResult.Success = true
+    // Marca como enviado
+	&EmlMsg = 'Enviado com Sucesso!'
+	&Tentativa = 99
+	&EmlSts = Status_Solicitacao.Finalizada
+Else
+	&EmlMsg = &EmailResult.ErrorCode + " - " + &EmailResult.Message
+	&Tentativa = 99
+	
+	&EmlSts = Status_Solicitacao.Falha
+EndIf
+
+
+Sub 'Mdfe'
+	For Each Order EmpCod, FilCod, MDFeCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &EmlFilCod
+		Where MDFeCod = &MdfeCod
+		&MdfeSer = MDFeSer
+		&MdfeNum = MDFeNum
+		&auxMdfeNum = MDFeNum
+		&MdfeChv = MDFeChv
+		&PastaDanfeNota = str(year(MDFeDtaEms),4,0)+padl(trim(str(month(MDFeDtaEms),2,0)),2,'0')
+		&MdfeArqXml = MDFeArqXml
+		
+		&AnoMes = str(year(MDFeDtaEms),4,0)+padl(trim(str(month(MDFeDtaEms),2,0)),2,'0')
+		&PastaAutorizadas = &sdtConfiguracoesPasta.PastaNFenviado.Trim() + "Autorizados\" + &AnoMes.trim() + "\MDFe" + &MdfeChv.Trim() + '-procMDFe.xml'
+		&PastaBancoDados =  &sdtConfiguracoesPasta.PastaNFenviado.Trim() + "BancoDeDados\" + MDFeChv.Trim() + '-jaspi.xml'
+		
+		Exit
+	EndFor
+EndSub
+
+Sub 'Filial'
+	For Each Order EmpCod, FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &EmlFilCod
+		
+	 	&FilRaz = iif(FilFan.IsEmpty() or FilFan.IsNull(), FilRaz,FilFan)
+		&FilFonNum = FormataFONE.Udp(FilFonNum)
+		Exit
+	EndFor
+EndSub
+
+Sub 'login'
+	For Each Order EmpCod, EmpEmlCod
+		Where EmpCod = &EmpCod
+		Where EmpEmlTip = &EmlTip
+		
+		If EmpEml = 'nao_responda@jaspi.com.br' or EmpEml = 'nao.responda.jaspi@gmail.com' //adiciona a mensagem dados do remetente
+			&EmpEmlCod = EmpEmlCod
+			do 'EmailPadrao'
+		Else
+			&AddressVarchar = EmpEml
+			//&FilRaz
+			&AuthenticationNumeric = EmpEmlAut
+			&SecureNumeric 		= EmpEmlSec
+			&TimeoutNumeric        = 600
+			&HostVarchar 			= EmpEmlHos
+			&UserNameVarchar 		= EmpEmlUsr
+			&EmpEmlSen 		= DecryptSenhaEmail.Udp(EmpCod, EmpEmlCod, EmpEml)
+			&PortNumeric 			= EmpEmlPor
+			&imapHost = EmpEmlImapHos
+			&imapPort = EmpEmlImapPor
+			&imapSsl = EmpEmlImapSsl
+		EndIF
+		
+		Exit
+	When None
+		GravaRemetentePadrao.Call(&EmpCod, &EmlTip, &EmpEmlCod)
+		do 'EmailPadrao'
+	EndFor
+EndSub
+
+sub 'EmailPadrao'
+	EmailPadrao.call(&AddressVarchar, &AuthenticationNumeric, &SecureNumeric, &TimeoutNumeric, &HostVarchar, &UserNameVarchar, &PortNumeric, &imapHost, &imapPort, &ImapSSl)
+	&EmpEmlSen = DecryptSenhaEmail.Udp(&EmpCod, &EmpEmlCod, &AddressVarchar)
+		
+EndSub
+
+sub 'PreencheHTML'
+	
+	&Obs =  '<html > '
+	&Obs +=  ' <head> '
+	&Obs +=  ' <meta http-equiv="Content-Type" content="text/html; charset=utf-8" /> '
+	&Obs +=  ' <style type="text/css"> '
+	&Obs +=  ' <!-- '
+	&Obs +=  ' .A2B {	color: #900; '
+	&Obs +=  ' } '
+	&Obs +=  ' body,td,th,p { '
+	&Obs +=  ' font-size: 13px; '
+	&Obs +=  ' color: #000; '
+	&Obs +=  ' } '
+	&Obs +=  ' body { '
+	&Obs +=  ' background-color: #F0F0F0; '
+	&Obs +=  ' } '
+	&Obs +=  ' a:link { '
+	&Obs +=  ' color: #069; '
+	&Obs +=  ' text-decoration: none; '
+	&Obs +=  ' } '
+	&Obs +=  ' a:visited { '
+	&Obs +=  ' text-decoration: none; '
+	&Obs +=  ' color: #069; '
+	&Obs +=  ' } '
+	&Obs +=  ' a:hover { '
+	&Obs +=  ' text-decoration: underline; '
+	&Obs +=  ' } '
+	&Obs +=  ' a:active { '
+	&Obs +=  ' text-decoration: none; '
+	&Obs +=  ' } '
+	&Obs +=  ' #A1A { '
+	&Obs +=  ' font-size: 22px; '
+	&Obs +=  ' } '
+	&Obs +=  ' .A3A { '
+	&Obs +=  ' color: #069; '
+	&Obs +=  ' } '
+	&Obs +=  ' --> '
+	&Obs +=  ' </style> '
+	&Obs +=  ' </head> '
+	
+	&Obs +=  ' <body> '
+	
+	&Obs +=  ' <p>Manifesto Eletrônico de Documentos enviado por: '+trim(&FilRaz)
+	&Obs +=  ' <p> Nome de Contato: '+ trim(&FunNom) +'<br/> '
+	
+	if not &FunEmailContato.IsEmpty()
+		&Obs +=  ' E-mail de Contato: <a href="mailto:'+ trim(&FunEmailContato) +'">'+ trim(&FunEmailContato) +'</a><br/> '
+	EndIF
+
+	if not &FilFonNum.IsEmpty()
+		&Obs +=  ' Fone de Contato: '+ trim(&FilFonNum)
+	EndIF
+
+	For Each Order EmpCod, FilCod, MDFeCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &EmlFilCod
+		Where MDFeCod = &MdfeCod
+		
+		&Obs +=  '<p>'
+		For Each Order EmpCod, FilCod, MDFeCod
+				&Obs +=  'Tração: '+ trim(MDFeVeiPla)+'<br/>'
+		EndFor
+	
+		For Each Order EmpCod, FilCod, MDFeCod
+				&Obs +=  'Reboque: '+ trim(MDFeRebPla)+'<br/>'
+		EndFor	
+		
+		For Each Order EmpCod, FilCod, MDFeCod
+			&MDFeMotNom = MDFeMotCpf+'-'+trim(MDFeMotNom)
+			&Obs +=  'Motorista: '+ trim(&MDFeMotNom)+'<br/>'
+		EndFor
+	
+		&Obs +=  '</p>'
+	EndFor
+
+
+	&Obs +=  ' <p>#Essa mensagem foi enviada por <a href="http://www.jaspi.com.br">JASPI - Soluções em Software</a>, <span class="A2B">não utilize a opção responder o e-mail.</span>#<br/> '
+	&Obs +=  ' -------------------------------------------------------------------------------------------------------------------</p>'
+	
+	If not &EmlObs.IsEmpty()
+		&Obs += ' <ul> '
+		&Obs +=  ' <li id="A1A">    <strong>'+trim(&EmlObs)+'</strong></li> '
+		&Obs += ' </ul> '
+		&Obs +=  ' <p>-------------------------------------------------------------------------------------------------------------------</p> '
+	EndIF
+	
+	&Obs +=  ' <p>Prezado cliente,</p> '
+	&Obs +=  ' <blockquote> '
+	&Obs +=  ' <p>Você está recebendo o Manifesto Eletrônico de Documentos número '+ trim(toformattedString(&auxMdfeNum)) +', série ' +  padl(trim(str(&MdfeSer)), 3, '0')  + ' de ' +trim(&FilRaz)+ 
+	'. Além disso, junto com a mercadoria seguirá o DAMDFE (Documento Auxiliar do Manifesto Eletrônico de Documentos), impresso em papel que acompanha o transporte das mesmas. '
+	&Obs +=  ' <br/>Anexo à este e-mail você está recebendo também o arquivo XML do Manifesto Eletrônico de Documentos. Este arquivo deve ser armazenado eletronicamente por sua empresa pelo prazo de 05 (cinco) anos, conforme previsto na legislação tributária (Art. 173 do Código Tributário Nacional e § 4º da Lei 5.172 de 25/10/1966). '
+	&Obs +=  ' <br/>O DAMDFE em papel pode ser arquivado para apresentação ao fisco quando solicitado. Todavia, se sua empresa também for emitente de MDF-e, o arquivamento eletrônico do XML de seus fornecedores é obrigatório, sendo passível de fiscalização. '
+	&Obs +=  ' <br/>Para se certificar que este MDF-e é válido, queira por favor consultar sua autenticidade no site nacional do projeto MDF-e <a href="https://dfe-portal.svrs.rs.gov.br/Mdfe/consulta"> (dfe-portal.svrs.rs.gov.br) </a>, utilizando a chave de acesso contida no DAMDFE.</p> '
+	&Obs +=  ' </blockquote> '
+	&Obs +=  ' <p> Atenciosamente, '
+	&Obs +=  ' <br/> '
+	&Obs +=  trim(&FilRaz)+ '.</p> '
+	&Obs +=  ' <p>Descrição dos anexos: '
+	
+	&arquivoXML = &MdfeChv.Trim() + '-procMDFe.xml'
+	&ArquivoPDF = &MdfeChv.Trim() + '.pdf'
+	&Obs +=  ' <br/>- <span class="A3A">' + trim(&arquivoXML) + '</span> - Esse arquivo é o próprio Manifesto Eletrônico de Documentos, que deve ser guardada pelo período de 05 anos. Ele contém todas as informações do emitente, Remetente, Destinatário, Tomador, Tributação, etc. Esse arquivo, além de guardado, deve ser enviado para o setor de contabilidade. <br/> '
+	&Obs +=  ' - <span class="A3A">' + trim(&ArquivoPDF) + '</span> - DAMDFE é o Documento Auxiliar do Manifesto Eletrônico de Documentos, utilizado para acompanhar o trânsito da mercadoria. É uma representação gráfica simplificada do Conhecimento de Transporte Eletrônico, em papel comum e em via única.</p> '
+	&Obs +=  ' <p>-------------------------------------------------------------------------------------------------------------------<br/>#Essa mensagem foi enviada por <a href="http://www.jaspi.com.br">JASPI - Soluções em Software</a>, <span class="A2B">não utilize a opção responder o e-mail.</span>#</p> '
+	&Obs +=  ' </body> '
+	&Obs +=  ' </html> '
+EndSUb
+
+Sub 'Mensagem'
+	msg(&mensagem  + ' Hora: ' + serverTime(), status)
+EndSub
+
+Sub 'Funcionario'
+	For Each Order EmpCod, PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		&FunNom = PesRaz
+		
+		For Each Order EmpCod, PesCod, PesEmlCod
+			&FunEmailContato = PesEml
+			Exit
+		EndFor
+		
+		Exit
+	EndFor
+EndSub
+
+
+
+Sub 'Exception_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+Endsub
+
+Sub 'Error_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&EmlFilCod, in:&EmlCod, in:&sdtConfiguracoesPasta, inout:&Tentativa, inout:&EmlSts, inout:&EmlMsg);
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="MdfeChv">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeChv</Value></Property><Property><Name>Description</Name><Value>Chave MDFe</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeChv</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoPDF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoPDF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivoXML">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivoXML</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Obs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Obs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunNom</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunEmailContato">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunEmailContato</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlTip</Value></Property><Property><Name>Description</Name><Value>Tipo Email</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlCod</Value></Property><Property><Name>Description</Name><Value>Codigo</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlAss">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlAss</Value></Property><Property><Name>Description</Name><Value>Assunto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlAss</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlObs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlObs</Value></Property><Property><Name>Description</Name><Value>Observação</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlObs</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlMsg</Value></Property><Property><Name>Description</Name><Value>Status MEnsagem</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Tentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Tentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="URlFisico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>URlFisico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UrlVirtual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UrlVirtual</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaAutorizadas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaBancoDados">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaBancoDados</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlFilCod</Value></Property><Property><Name>Description</Name><Value>Sequencia Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxMdfeNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxMdfeNum</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PastaDanfeNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PastaDanfeNota</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeArqXml</Value></Property><Property><Name>Description</Name><Value>Arq.Xml</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AnoMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AnoMes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilFonNum</Value></Property><Property><Name>Description</Name><Value>Telefone Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEmlCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEmlCod</Value></Property><Property><Name>Description</Name><Value>Conta Email</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEmlCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PortNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PortNumeric</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEmlSen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEmlSen</Value></Property><Property><Name>Description</Name><Value>Senha</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEmlSen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserNameVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserNameVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HostVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HostVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TimeoutNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TimeoutNumeric</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SecureNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SecureNumeric</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuthenticationNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuthenticationNumeric</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AddressVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AddressVarchar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlSeqCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlSeqCod</Value></Property><Property><Name>Description</Name><Value>Sequencia Tabela</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlSeqCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeSer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeSer</Value></Property><Property><Name>Description</Name><Value>Série</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeSer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeMotNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeMotNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeMotNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImapSSl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImapSSl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="imapHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>imapHost</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Host</Value></Property></Properties>
+        </Variable>
+        <Variable Name="imapPort">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>imapPort</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Port</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Result">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Result</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JASPI_enviaEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JASPI_enviaEmail</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:JASPI_EnviaEmail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmailResult">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmailResult</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:EmailResult</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Attachments">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Attachments</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Destinatarios">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Destinatarios</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolEmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EnviaMdfe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

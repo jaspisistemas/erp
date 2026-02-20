@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="9bbd5271-0e6e-4b96-abef-fa6edd198f06" user="WINJEAN\jeanfae" versionDate="2025-07-21T13:35:12.0000000Z" lastUpdate="2025-07-18T18:12:55.0000000Z" checksum="b3a9e083c41d5db60b85c6f89cd2d214" fullyQualifiedName="Sincronizar_DFE_CTE_Baixar" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="85ac402f-12d1-4ea1-97cd-ea20637f2669" name="Sincronizar_DFE_CTE_Baixar" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Sincronizar_DFE_CTE_Baixar" parent="ComunicaNFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	&FilCpj = RetornaSoNumeros.Udp(FilCpj)
+	Exit
+EndFor
+
+//SINCRONIZAR DFE
+For Each Order EmpCod, ManCod
+	Where EmpCod = &EmpCod
+	Where ManCod = &NfeCod
+	
+	&Nome_arquivo_erro = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ trim(ManCha) + '-dist-dfe.err'
+	&ManCha = ManCha
+	&ManNsu= ManNsu
+	Exit
+EndFor
+
+&NewTentativa = 0
+&SolSts = Status_Solicitacao.Pendente
+
+Do while &NewTentativa < 20 and &SolSts = Status_Solicitacao.Pendente
+	&cStat = 0
+	&xMotivo = ''
+	&NewTentativa += 1
+	
+	&mensagem = 'Tentativa ' + trim(str(&NewTentativa))
+	do 'Mensagem'
+	
+	do 'Procedimentos_SINCRONIZA'
+	
+	if &SolSts = Status_Solicitacao.Pendente
+		&dorme = sleep(1)
+	Else
+		Exit
+	EndIF
+EndDo
+
+&FILE.Close()
+&XMLReader.Close()
+
+
+Sub 'Mensagem'
+	msg(&mensagem  + ' Hora: ' + serverTime(),status)
+EndSub
+
+Sub 'Procedimentos_SINCRONIZA'
+	&SolMsg = ''
+	&File.Source = &Nome_arquivo_erro //XML REJEITADO
+	If &File.Exists()		
+		&SolSts = Status_Solicitacao.Falha
+		&NewTentativa = 99
+		
+		&SolMsg = 'Xml Rejeitado: '
+		&ResultadoAbertura = DFROpen(&Nome_arquivo_erro)
+		&ResultadoNext = 0
+		Do while &ResultadoNext = 0
+			&Ret =  DFRGTxt(&CampoUnico, 500)	
+			&SolMsg += &CampoUnico	
+			&ResultadoNext =  DFRNext()
+		EndDo
+		&resultadoNext = DFRClose()
+		
+		&mensagem = &SolMsg
+		do 'mensagem'
+	Else		
+		&dorme = sleep(1)
+		do 'pegar_retorno'
+	Endif
+	
+EndSUb
+
+Sub 'pegar_retorno'
+	&Arquivo_rec_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ &ManNsu +'-'+&ManNsu+ '-dist-dfe.xml'
+	&arquivo_rec_erro    = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ &ManNsu + '-dist-dfe.err'
+	
+	&File.Source = &Arquivo_rec_correto
+	if not &File.Exists()
+		&Arquivo_rec_correto = &sdtConfiguracoesPasta.PastaNFretorno.Trim()+ &FilCpj +'-'+&ManNsu+ '-dist-dfe.xml'
+	Endif
+	
+	&File.Source = &Arquivo_rec_correto
+	if &File.Exists()
+		msg('Achou arquivo Retorno e vai Ler',status)
+		
+		&XMLReader.Open(&Arquivo_rec_correto)
+		
+		&ret = &XmlReader.ReadType(1, 'retDistDFeInt') 
+		if &ret <> 0
+			&XmlReader.Read()
+			
+			//	LEITURA XML
+			Do while &XmlReader.Name <> 'retDistDFeInt'
+				Do Case
+					
+					Case &XmlReader.Name = 'cStat'
+						&cStat = val(&XmlReader.Value)
+					Case &XmlReader.Name = 'xMotivo'
+						&xMotivo = &XMLReader.Value
+					Case &XmlReader.Name = 'dhResp'
+						&dhResp = &XMLReader.Value
+					Case &XmlReader.Name = 'ultNSU'
+						&ultNSU = val(&XMLReader.Value)		
+					Case &XmlReader.Name = 'maxNSU'
+						&maxNSU = val(&XMLReader.Value)
+						if &maxNSU > 0
+							GravaNsuFilial.call(&EmpCod,&FilCod,&maxNSU,0,'CTE',serverNow(), '')	
+						EndIf
+						
+					Case &XmlReader.Name = 'loteDistDFeInt'
+						&XmlReader.Read() //Avanca para o primeiro campo da tag...
+						do 'loteDistDFeInt'
+				EndCase
+				
+				&XmlReader.Read()						
+				if &XmlReader.EOF
+					Exit
+				endif
+				
+				if &SolSts <> Status_Solicitacao.Pendente
+					exit
+				Endif
+			EndDo
+			If &cStat <> 0
+				Do Case
+					CAse &cStat = 108 //SERVICO PARALIZADO MOMENTANEAMENTE
+						
+						&mensagem = 'Status Retorno: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+						&SolMsg = &mensagem
+						Do 'Mensagem'
+						
+						&SolSts = Status_Solicitacao.Finalizada
+						
+					Case &cStat = 109 //Serviço Paralisado sem Previsão
+						
+						&mensagem = 'Status Retorno: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+						&SolMsg = &mensagem
+						Do 'Mensagem'
+						
+						&SolSts = Status_Solicitacao.Finalizada
+						
+					Case &cStat = 137 // NENHUM DOCUMENTO LOCALIZADO
+						
+						&SolSts = Status_Solicitacao.Finalizada
+						
+						&mensagem = 'Status Retorno: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+						&SolMsg = &mensagem
+						Do 'Mensagem'
+						
+					Case &cStat = 138 // Documento localizado então pega os nsu do retorno.
+						
+						&mensagem = 'Status Retorno: ' + trim(str(&cStat)) + ' - ' + trim(&xMotivo)
+						&SolMsg = &mensagem
+						Do 'Mensagem'
+						
+					Otherwise
+						&SolSts = Status_Solicitacao.Falha					
+				EndCase
+			EndIf
+		Endif
+		&XMLReader.Close()
+	Else
+		&File.Source = &arquivo_rec_erro
+		if &File.Exists()
+			
+			&NewTentativa = 99
+			&SolSts = Status_Solicitacao.Falha
+			
+			&SolMsg = 'Recibo Erro: '
+			&ResultadoAbertura = DFROpen(&arquivo_rec_erro)
+			&ResultadoNext = 0
+			Do while &ResultadoNext = 0
+				&Ret =  DFRGTxt(&CampoUnico, 500)	
+				&SolMsg += &CampoUnico	
+				&ResultadoNext =  DFRNext()
+			EndDo
+			&resultadoNext = DFRClose()
+			
+			&mensagem = &SolMsg
+			do 'Mensagem'
+		EndIf
+	EndIF
+EndSub
+
+sub 'loteDistDFeInt'
+	Do while &XmlReader.Name <> 'loteDistDFeInt'
+		&NroNSU=''
+		&NroNSU = &XmlReader.GetAttributeByName('NSU')
+		&mensagem = 'NSU '+&NroNSU	
+		&SolMsg = &mensagem
+		
+		Do 'Mensagem'
+		
+		If not &NroNSU.Trim().IsEmpty() // se pego o nsu vai pega o resumo e a nota
+//			Pega_Arquivo_DFe_Download.Call(&EmpCod,&FilCod, &NfeCod,&sdtConfiguracoesPasta) //JDF ACHEI REDUNDANTE
+			GravaXmlNotaCTe.Call(&EmpCod, &FilCpj, &NroNSU, &ManCha, &sdtConfiguracoesPasta, &IsExisteXml)
+		EndIf
+		
+		&XmlReader.Read()						
+		if &XmlReader.EOF
+			Exit
+		endif
+	EndDo
+
+	&SolSts = Status_Solicitacao.Finalizada			        	
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&NfeCod, &sdtConfiguracoesPasta, inout:&NewTentativa, inout:&SolSts, inout:&SolMsg, in:&SolPesCod);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="SolMsg">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolMsg</Value></Property><Property><Name>Description</Name><Value>Mensagem Aviso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolMsg</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolPesCod</Value></Property><Property><Name>Description</Name><Value>Usuario Solicitou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolPesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_rec_correto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_rec_correto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="arquivo_rec_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arquivo_rec_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CampoUnico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CampoUnico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="cStat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>cStat</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property><Property><Name>Length</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Nome_arquivo_erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Nome_arquivo_erro</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>300</Value></Property><Property><Name>AttMaxLen</Name><Value>300</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoAbertura">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoAbertura</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ResultadoNext">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ResultadoNext</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XMLReader">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XMLReader</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="xMotivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>xMotivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NewTentativa">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NewTentativa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dhResp">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dhResp</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ultNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ultNSU</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="maxNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>maxNSU</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NroNSU">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NroNSU</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>15</Value></Property><Property><Name>AttMaxLen</Name><Value>15</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManCha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManCha</Value></Property><Property><Name>Description</Name><Value>Chave da Nota</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManCha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExisteXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExisteXml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Arquivo_rec_correto2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Arquivo_rec_correto2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ManNsu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ManNsu</Value></Property><Property><Name>Description</Name><Value>Nsu</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ManNsu</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Sincronizar_DFE_CTE_Baixar</Value></Property><Property><Name>Description</Name><Value>Sincronizar_DFE_CTE_Baixar</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

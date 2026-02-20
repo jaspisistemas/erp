@@ -1,0 +1,401 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="a3be529e-3058-45c0-82b5-ecf9e218a1af" user="WINJEAN\jeanfae" versionDate="2026-01-21T14:58:39.0000000Z" lastUpdate="2026-01-19T13:01:14.0000000Z" checksum="e6921fda8be57ab9bbb5ac7d16fef665" fullyQualifiedName="verificaDescontoMaximoPedido" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c5fe3380-04e5-4ed9-be59-29fe4d560e64" name="verificaDescontoMaximoPedido" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="verifica Desconto Maximo Pedido" parent="PedPrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&isErro = false
+&LogGUID = GUID.NewGuid()
+
+
+if &Context.TipoPerfil <> 3 //ADM
+	RetornaAutorizacaoDescontoMaximo.Call(&EmpCod, &Context.PesCod, &IsAutorizadoDescontoMaximo)
+	if &IsAutorizadoDescontoMaximo = true
+		return
+	Endif
+Else
+	Return
+Endif
+
+For Each Order EmpCod, FilCod, PedCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	WHere PedCod = &PedCod
+	if LctDscMaxLib = Status_SimNao.Sim
+		return
+	Endif
+	
+	Exit
+EndFor
+
+if &PedVlrDscGlb > 0 //% desconto Valor Informado
+	if &PedVlrLiq > 0
+		&DescontoTotalValorInformado = (&PedVlrDscGlb / &PedVlrLiq) * 100
+		
+		if &DescontoTotalValorInformado > 100
+			&DescontoTotalValorInformado = 100
+		Endif
+	else
+		&DescontoTotalValorInformado = 100
+	EndIf
+ENdif
+
+//GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'PedVlrLiq',&PedVlrLiq.ToFormattedString())
+//GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'PedVlrDscGlb',&PedVlrDscGlb.ToFormattedString())
+//GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'DescontoTotalValorInformado',&DescontoTotalValorInformado.ToFormattedString())
+
+
+&Total = 100
+&desconto1 = 0
+&desconto2 = 0
+&TotalDescontoNormal = 0
+if &PedPerSpm1 > 0 and &PedPerSpm2 > 0 //%descontos Tabela Normal
+	&desconto1 = round(&Total * (&PedPerSpm1/100), 2) //ValorDesconto 1
+	&Total = &Total - &desconto1
+	
+	&desconto2 = &Total * (&PedPerSpm2/100) //valor 
+	&Total = &Total - &desconto2
+	
+	&TotalDescontoNormal = 100-&Total //% desconto dos descontos normal	
+Else
+	Do CAse
+		Case &PedPerSpm1 > 0
+			&TotalDescontoNormal = &PedPerSpm1
+		Case &PedPerSpm2 > 0
+			&TotalDescontoNormal = &PedPerSpm2
+	EndCase
+Endif
+
+//GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'TotalDescontoNormal',&TotalDescontoNormal.ToFormattedString())
+
+&Total = 100
+&desconto1 = 0
+&desconto2 = 0
+&TotalDescontoPromocao = 0
+if &PedPerPrm1 > 0 and &PedPerPrm2 > 0 //%descontos Tabela Promocao
+	&desconto1 = round(&Total * (&PedPerPrm1/100), 2) //ValorDesconto 1
+	&Total = &Total - &desconto1
+	
+	&desconto2 = &Total * (&PedPerPrm2/100) //valor 
+	&Total = &Total - &desconto2
+	
+	&TotalDescontoPromocao = 100-&Total //% desconto dos descontos Promocao	
+Else
+	Do CAse
+		Case &PedPerPrm1 > 0
+			&TotalDescontoPromocao = &PedPerPrm1
+		Case &PedPerPrm2 > 0
+			&TotalDescontoPromocao = &PedPerPrm2
+	EndCase
+Endif
+
+//GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'TotalDescontoPromocao',&TotalDescontoPromocao.ToFormattedString())
+
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon017_DescMax, &Varchar)
+&TCon017_DescMax = val(&Varchar) //Tabela Normal
+
+RetornaConfSistema.Call(&EmpCod, &FilCod, domConfSistema.TCon131_DescMaxTabPromocao, &Varchar)
+&TCon131_DescMaxTabPromocao = val(&Varchar) //Tabela Normal
+
+For Each Order EmpCod, PesCod
+	Where EmpCod = &EmpCod
+	Where PesCod = &PedCliCod
+	&PesDscMax = PesDscMax
+	Exit
+EndFor
+
+&TotalNormal = &DescontoTotalValorInformado+&TotalDescontoNormal
+
+
+//VERIFICA AUTORIZACOES  DO PEDIDO
+
+&IsUmPromocao = false
+For Each Order EmpCod, FilCod, PedCod, PedItmCod
+	Where EmpCod = &EmpCod
+	Where FilCod = &FilCod
+	Where PedCod = &PedCod
+	Where PedItmPrm = domPedItmPrm.PROMOCAO
+	&IsUmPromocao = true
+EndFor
+
+if &IsUmPromocao = true ////JDF - CASO NAO TENHA ITENS NA PROMOCAO NAO VAI DAR O ERRO  //CAse &TotalPromocao > &TCon131_DescMaxTabPromocao and &TCon131_DescMaxTabPromocao <> 100//promocao maior que a da config
+	&TotalPromocao = &DescontoTotalValorInformado+&TotalDescontoPromocao
+Else
+	&TotalPromocao = &TotalDescontoPromocao
+Endif
+
+
+Do CAse
+	CAse &TotalNormal > &PesDscMax and &PesDscMax <> 100 //Normal mairo que a do cliente
+		&isErro = true
+		&mensagem = format('% Total de Descontos no pedido maior que o permitido no Cliente: %1', RetirazerosDepoisVirgula.Udp(toformattedString(&PesDscMax)) + '% desconto total: ' + RetirazerosDepoisVirgula.Udp(toformattedString(&TotalNormal))+ '%')
+		return
+		
+	CAse &TotalPromocao > &PesDscMax  and &PesDscMax <> 100//Promocao Maior que a do cliente
+		&isErro = true
+		&mensagem = format('% Total de Descontos no pedido maior que o permitido Cliente: %1', trim(toformattedString(&PesDscMax)) + '% desconto total: ' + RetirazerosDepoisVirgula(toformattedString(&TotalPromocao))+ '%')
+		return
+		
+	CAse &TotalNormal > &TCon017_DescMax and &TCon017_DescMax <> 100 //normal mairo que a da config.
+		&isErro = true
+		&mensagem = format('% Total de Descontos no pedido maior que o permitido na Tabela Normal, (TCon017): %1', RetirazerosDepoisVirgula(toformattedString(&TCon017_DescMax)) + '% desconto total: ' + RetirazerosDepoisVirgula(toformattedString(&TotalNormal))+ '%')
+		return
+		
+	CAse &TotalPromocao > &TCon131_DescMaxTabPromocao and &TCon131_DescMaxTabPromocao <> 100//promocao maior que a da config
+		&isErro = true
+		&mensagem = format('% Total de Descontos no pedido maior que o permitido na Tabela Promoção, (TCon131): %1', RetirazerosDepoisVirgula(toformattedString(&TCon131_DescMaxTabPromocao)) + '% desconto total: ' + RetirazerosDepoisVirgula(toformattedString(&TotalPromocao))+ '%')
+		return
+		
+	Otherwise
+		&TotalPromocao = &DescontoTotalValorInformado+&TotalDescontoPromocao
+		
+		if &PedCod > 0 //TESTA DESCONTOS MAXIMOS DOS ITENS
+			For Each Order EmpCod, FilCod, PedCod, PedItmCod
+				Where EmpCod = &EmpCod
+				Where FilCod = &FilCod
+				Where PedCod = &PedCod
+				
+				//if PedVlrTab.IsEmpty() or PedVlrTab.IsNull()
+				//	PedVlrTab = RetornaPrecoUnitarioVenda.UDP(EmpCod, TabCod, TabPrmCod, ProCod, ProGraCod, TabColCod, PedDtaEms, PedDtaEms)
+				//	Commit
+				//Endif
+			
+				//VERIFICA AUTORIZACOES 
+				RetornaTotalAutorizado.Call(EmpCod, FilCod, PedCod, ProCod, ProGraCod, &PedLibAutPedQtd, &PedLIbAutPedVlr, &PedLibAutPedDesc)
+				
+				&TotalDescontos = 0
+				IF (PedVlrUnt <> PedVlrTab) AND (PedVlrUnt > 0) AND (PedVlrTab > 0)
+					&TotalDescontos = (100 - ((PedVlrUnt / PedVlrTab) * 100))
+				EndIF
+				if PedItmDsc > 0
+					&TotalDescontos += PedItmDsc
+				EndIF
+				
+				if PedItmPrm = domPedItmPrm.PROMOCAO or PedItmPrm = domPedItmPrm.DESCONTO 
+					&TotalDescontos += &TotalPromocao
+				Else
+					&TotalDescontos += &TotalNormal
+				Endif
+				
+//				GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&TotalDescontos',&TotalDescontos.ToFormattedString())
+//				GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&&PedLibAutPedDesc',&PedLibAutPedDesc.ToFormattedString())
+				
+//				GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&PedVlrUnt',PedVlrUnt.ToFormattedString())
+//				GravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'&&&PedLIbAutPedVlr',&PedLIbAutPedVlr.ToFormattedString())
+				
+				if (&TotalDescontos > &PedLibAutPedDesc) or (PedVlrUnt < &PedLIbAutPedVlr) or (&PedLibAutPedDesc = 0 and &PedLIbAutPedVlr = 0)
+					
+				    Do Case
+						CAse &TotalDescontos > 0 and &TotalDescontos > ProDesMax and ProDesMax <> 100  and (&PedLibAutPedDesc <= ProDesMax)
+							&Mensagem = format('% Desc. Maior que o autorizado no Produto: %1 - %2 Máx. autorizado: %3%, desconto total: %4%', ProRef, ProNom, retiraZerosDepoisVirgula.Udp(ProDesMax.ToFormattedString()), retiraZerosDepoisVirgula.Udp(&TotalDescontos.ToFormattedString()))
+					        &isErro = true
+							return
+							
+					    Case &TotalDescontos > 0 and (&TotalDescontos > GrupDscMax) and GrupDscMax <> 100  and (&PedLibAutPedDesc <= GrupDscMax)
+							&Mensagem = format('% Desc. Maior que o autorizado no Grupo do Produto: %1 - %2 Máx. autorizado: %3%, desconto total: %4%', ProRef, ProNom, retiraZerosDepoisVirgula.Udp(GrupDscMax.ToFormattedString()), retiraZerosDepoisVirgula.Udp(&TotalDescontos.ToFormattedString()))
+					        &isErro = true
+							return
+							
+						CAse &TotalDescontos > 0 and &TotalDescontos > &PesDscMax and &PesDscMax <> 100  and (&PedLibAutPedDesc <= &PesDscMax)
+							&Mensagem = format('% Desc. Maior que o autorizado no Cliente, Produto: %1 - %2 Máx. autorizado: %3%, desconto total: %4%', ProRef, ProNom, retiraZerosDepoisVirgula.Udp(&PesDscMax.ToFormattedString()), retiraZerosDepoisVirgula.Udp(&TotalDescontos.ToFormattedString()))
+					        &isErro = true
+							return
+					        
+						CAse &TotalDescontos > 0 and &TotalDescontos > &TCon017_DescMax and &TCon017_DescMax <> 100 and (PedItmPrm <> domPedItmPrm.PROMOCAO)  and (&PedLibAutPedDesc <= &TCon017_DescMax)
+							&Mensagem = format('% Desc. Maior que o autorizado no Sistema, Tabela Normal, Produto: %1 - %2 Máx. autorizado: %3%, desconto total: %4%', ProRef, ProNom, retiraZerosDepoisVirgula.Udp(&TCon017_DescMax.ToFormattedString()), retiraZerosDepoisVirgula.Udp(&TotalDescontos.ToFormattedString()))
+				            &isErro = true
+							return
+							
+						CAse &TotalDescontos > 0 and &TotalDescontos > &TCon131_DescMaxTabPromocao and &TCon131_DescMaxTabPromocao <> 100 and (PedItmPrm = domPedItmPrm.PROMOCAO)  and (&PedLibAutPedDesc <= &TCon131_DescMaxTabPromocao)
+							&Mensagem = format('% Desc. Maior que o autorizado no Sistema, Tabela Promocao, Produto: %1 - %2 Máx. autorizado: %3%, desconto total: %4%', ProRef, ProNom, retiraZerosDepoisVirgula.Udp(&TCon131_DescMaxTabPromocao.ToFormattedString()), retiraZerosDepoisVirgula.Udp(&TotalDescontos.ToFormattedString()))
+				            &isErro = true
+							return
+							
+						CAse &TotalDesconto > 0 and (&PedLibAutPedDesc < &TotalDesconto) and &PedLibAutPedDesc > 0
+							&Mensagem = format('% Desc. Maior que o Liberado para o Produto, Produto: %1 - %2 Máx. autorizado: %3%, desconto total: %4%', &ProRef, &ProNom, retiraZerosDepoisVirgula.Udp(&PedLibAutPedDesc.ToFormattedString()), retiraZerosDepoisVirgula.Udp(&TotalDescontos.ToFormattedString()))
+							&isErro = true
+							return
+				    EndCase
+				EndIf
+			EndFor
+		EndIf
+EndcAse
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&FilCod, in:&PedCod, in:&Context, in:&PedCliCod, in:&PedVlrDscGlb, in:&PedVlrLiq, in:&PedPerSpm1, in:&PedPerSpm2, in:&PedPerPrm1, in:&PedPerPrm2, out:&mensagem, out:&isErro);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PedVlrDscGlb">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrDscGlb</Value></Property><Property><Name>Description</Name><Value>Desconto Global</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrDscGlb</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerSpm1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerSpm1</Value></Property><Property><Name>Description</Name><Value>% Normal 1</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerSpm1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerSpm2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerSpm2</Value></Property><Property><Name>Description</Name><Value>% normal 2</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerSpm2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerPrm1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerPrm1</Value></Property><Property><Name>Description</Name><Value>% Promoção 1</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerPrm1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedPerPrm2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedPerPrm2</Value></Property><Property><Name>Description</Name><Value>% Promoção 2</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedPerPrm2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCliCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCliCod</Value></Property><Property><Name>Description</Name><Value>Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCliCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon131_DescMaximoCapaVenda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon131_DescMaximoCapaVenda</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Taxa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon017_DescMax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon017_DescMax</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Taxa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedCod</Value></Property><Property><Name>Description</Name><Value>Pedido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesDscMax">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesDscMax</Value></Property><Property><Name>Description</Name><Value>Desconto Máximo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesDscMax</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedVlrLiq">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedVlrLiq</Value></Property><Property><Name>Description</Name><Value>Total Líquido </Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedVlrLiq</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DescontoTotalValorInformado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DescontoTotalValorInformado</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>12</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>12</Value></Property></Properties>
+        </Variable>
+        <Variable Name="desconto1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>desconto1</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="desconto2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>desconto2</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>4</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>4</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Total">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Total</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon131_DescMaxTabPromocao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon131_DescMaxTabPromocao</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Taxa</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalPromocao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalPromocao</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDescontoPromocao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDescontoPromocao</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDesconto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDesconto</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDescontoNormal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDescontoNormal</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutorizado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutorizado</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsAutorizadoDescontoMaximo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsAutorizadoDescontoMaximo</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalDescontos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalDescontos</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>5</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>5</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalNormal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalNormal</Value></Property><Property><Name>Length</Name><Value>18</Value></Property><Property><Name>Decimals</Name><Value>6</Value></Property><Property><Name>AttMaxLen</Name><Value>18</Value></Property><Property><Name>AttAvgLen</Name><Value>6</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isErro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isErro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedLibAutPedDesc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedLibAutPedDesc</Value></Property><Property><Name>Description</Name><Value>Desconto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedLibAutPedDesc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedLIbAutPedVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedLIbAutPedVlr</Value></Property><Property><Name>Description</Name><Value>Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedLibAutPedVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PedLibAutPedQtd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PedLibAutPedQtd</Value></Property><Property><Name>Description</Name><Value>Quantidade</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PedLibAutPedQtd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProRef">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProRef</Value></Property><Property><Name>Description</Name><Value>Ref.Cód.</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProRef</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProNom</Value></Property><Property><Name>Description</Name><Value>Produto Descrição</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsUmPromocao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsUmPromocao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>verificaDescontoMaximoPedido</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

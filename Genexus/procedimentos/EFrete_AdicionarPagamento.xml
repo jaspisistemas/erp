@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="d0c96432-a33e-4e97-8c06-694cbb6c4b62" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:39:21.0000000Z" checksum="2a3a4a593a56ba66bae3745f54c26dab" fullyQualifiedName="EFrete_AdicionarPagamento" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="31e1cd01-b712-438e-ba71-2b891e21af86" name="EFrete_AdicionarPagamento" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="EFrete_Adicionar Pagamento" parent="CIOT" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[// O conteúdo da tag Integrador deve ser uma CONSTANTE, pois é ela quem identifica seu sistema de gestão,
+//Suporte e-FRETE:	Seguem credenciais para uso em ambiente de homologação:
+//Integrador:		JASPI SISTEMAS DE INFORMÁTICA
+//CNPJ:				21826923000177
+//Usuário:			usuario@jaspi
+//Senha:			usuario#jaspi
+//Hash:				b754b48e-8c22-4cfc-bb0a-3524a76284c9
+
+LoadWWPContext(&Context)
+//Config do Servidor
+HostWebServiceEfrete.Call(&EmpWebHost, &ExecuteUrl, '', '', &Hash)
+&ExecuteUrl			+= 'Pef/AdicionarPagamento'
+
+&HttpClient.Host	= 	&EmpWebHost
+&HttpClient.Secure	= 	1
+		
+//Header do Xml
+&HttpClient.AddHeader(!'Content-Type', !'application/json')
+&HttpClient.AddHeader(!'Accept-Encoding', !'gzip, deflate, br')
+
+//Realiza o Envio ao WebService
+&JSONOpeDtaLib	= Trim(Str(Year(&parmOpeDtaLib))) + '-' + Trim(Str(Month(&parmOpeDtaLib))) + '-' + Trim(Str(Day(&parmOpeDtaLib)))
+&OpePgtNro 		= Padl(Str(&Context.EmpCod),6,'0') + Padl(Str(&Context.FilCod),6,'0')+ Padl(Str(&parmOpePgtCod),6,'0')	
+&OpePgtDoc		= &parmOpePgtDoc + '-' + Trim(Str(&parmOpePgtCod))
+	
+For Each Order EmpCod, FilCod, OpeCod
+	Where EmpCod = &Context.EmpCod
+	Where FilCod = &Context.FilCod
+	Where OpeCod = &parmOpeCod
+	
+	&JSONBody	=	'{'
+	&JSONBody	+=	'    "CodigoIdentificacaoOperacao": "'+	Trim(&parmOpeNroCiot) +'",'
+	&JSONBody	+=	'    "Pagamentos": ['
+	&JSONBody	+=	'        {'
+	&JSONBody	+=	'            "IdPagamentoCliente": "'+ &OpePgtNro +'",'
+	&JSONBody	+=	'            "DataDeLiberacao": "'+ Trim(&JSONOpeDtaLib) +'",'
+	&JSONBody	+=	'            "Valor": "'+ Trim(Str(&parmOpePgtVal)) +'",'
+	If OpeEmiGra = True
+		&JSONBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.TransferenciaBancaria +'",'
+	Else
+		&JSONBody	+=	'          "TipoPagamento": "'+ PefServiceTipoPagamento.eFRETE +'",'
+	EndIf
+	&JSONBody	+=	'            "Categoria": "'+ &parmOpePgtCat +'",'
+	&JSONBody	+=	'            "Documento": "'+ Trim(&OpePgtDoc) +'",'
+	&JSONBody	+=	'            "InformacoesBancarias": {'
+	&JSONBody	+=	'                "InstituicaoBancaria": "'+ Trim(&parmOpePgtBan) +'",'
+	&JSONBody	+=	'                "Agencia": "'+ Trim(&parmOpePgtAge) +'",'
+	&JSONBody	+=	'                "Conta": "'+ Trim(&parmOpePgtCon) +'",'
+	&JSONBody	+=	'                "TipoConta": "'+ Trim(&parmOpePgtConTip) +'"'
+	&JSONBody	+=	'            },'
+	If Not &parmOpePgtInfAdd.IsEmpty()
+		&JSONBody	+=	'            "InformacaoAdicional": "'+ Trim(&parmOpePgtInfAdd) +'"'
+	EndIf
+	&JSONBody	+=	'        }'
+	&JSONBody	+=	'    ],'
+	If Not &Token.IsEmpty()
+		&JSONBody	+=	'    "Token": "' + Trim(&Token) +'",'
+	EndIf
+	&JSONBody	+=	'    "Integrador": "'+ &Hash.Trim() +'",'
+	&JSONBody	+=	'    "Versao": "3"'
+	&JSONBody	+=	'}'
+	
+	Exit
+EndFor
+
+&HttpClient.AddString(Trim(&JSONBody))
+&HttpClient.Execute('POST',&ExecuteUrl)
+		
+padraoUsuario.Call('G', '#EFRETEADICIONAPAGAMENTO', &Context.PesCod, &Context.EmpCod, &JSONBody, &PadDtaMod)
+
+If &HttpClient.StatusCode = 200
+	&JSONBody 		= &HttpClient.ToString()
+	&PosicaoSucesso = StrSearch(&JSONBody, '"Sucesso"')
+	&PosicaoSucesso = &PosicaoSucesso + 11
+	
+	&Status = SubStr(&JSONBody, &PosicaoSucesso, 4)
+	
+	If &Status = 'true'
+		Do 'AdicionaPagamento'
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Successo!",'Pagamento adicionado com sucesso!', DVMessageType.success, "", DVMessageBoolean.True,""))
+		&StatusCode		= 200
+	Else	
+		&PosicaoSucesso = StrSearch(&JSONBody, '"Mensagem"')
+		&PosicaoSucesso = &PosicaoSucesso + 13
+		
+		&PosicaoFinal	= StrSearch(&JSONBody, '"Codigo"')
+		&PosicaoFinal	= &PosicaoFinal - &PosicaoSucesso - 8
+		&Status			= SubStr(&JSONBody, &PosicaoSucesso, &PosicaoFinal)
+		
+		Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro!",'Ocorreu um erro ao adicionar o pagamento. ERRO: '+ Trim(&Status), DVMessageType.error, "", DVMessageBoolean.True,""))
+	EndIf
+	padraoUsuario.Call('G', '#EFRETEMOTORISTARESPOSTA', &Context.PesCod, &Context.EmpCod, &JSONBody, &PadDtaMod)
+Else
+	Msg(DVMessageGetBasicNotificationMsg.Udp(!"Erro!", &HttpClient.StatusCode.ToString() + ":" + &HttpClient.ErrDescription, DVMessageType.error, "", DVMessageBoolean.True,""))
+EndIf
+
+Sub 'AdicionaPagamento'
+				
+		New
+			EmpCod			= &Context.EmpCod
+			FilCod			= &Context.FilCod
+			OpeCod			= &parmOpeCod
+			OpePgtCod		= &parmOpePgtCod
+			OpePgtNro		= &OpePgtNro
+			OpeDtaLib		= &parmOpeDtaLib
+			OpePgtVal		= &parmOpePgtVal
+			OpePgtTip		= &parmOpePgtTip
+			OpePgtCat		= &parmOpePgtCat
+			OpePgtDoc		= &OpePgtDoc	
+			OpePgtBan		= &parmOpePgtBan
+			OpePgtAge		= &parmOpePgtAge
+			OpePgtCon		= &parmOpePgtCon
+			OpePgtConTip	= &parmOpePgtConTip	
+			OpePgtInfAdd	= &parmOpePgtInfAdd
+			OpePgtSts		= Status_AtivoInativo.ATIVO
+			OpePgtSit		= Status_AbertoFechado.Fechado
+		EndNew
+		
+		Commit
+		
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(In:&Token, In:&parmOpeCod, In:&parmOpePgtCod, In:&parmOpeNroCiot, In:&parmOpePgtNro, In:&parmOpeDtaLib, In:&parmOpePgtVal, In:&parmOpePgtTip, In:&parmOpePgtCat, In:&parmOpePgtDoc, 
+	In:&parmOpePgtBan, In:&parmOpePgtAge, In:&parmOpePgtCon, In:&parmOpePgtConTip, In:&parmOpePgtInfAdd, Out:&StatusCode);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExecuteUrl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExecuteUrl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONBody">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONBody</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JSONOpeDtaLib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JSONOpeDtaLib</Value></Property><Property><Name>Description</Name><Value>Liberação Saque</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeDtaLib">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeDtaLib</Value></Property><Property><Name>Description</Name><Value>Liberação Saque</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeDtaLib</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeNroCiot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeNroCiot</Value></Property><Property><Name>Description</Name><Value>Nro Ciot</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeNroCiot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtAge">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtAge</Value></Property><Property><Name>Description</Name><Value>Agência</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtAge</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtBan">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtBan</Value></Property><Property><Name>Description</Name><Value>Banco</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtBan</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtCat">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtCat</Value></Property><Property><Name>Description</Name><Value>Categoria</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtCat</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtCon</Value></Property><Property><Name>Description</Name><Value>Conta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtConTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtConTip</Value></Property><Property><Name>Description</Name><Value>Tipo Conta</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtConTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtDoc</Value></Property><Property><Name>Description</Name><Value>Documento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtInfAdd">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtInfAdd</Value></Property><Property><Name>Description</Name><Value>Informações Adicionais</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtInfAdd</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtNro</Value></Property><Property><Name>Description</Name><Value>Identificador de pagamento Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtTip">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtTip</Value></Property><Property><Name>Description</Name><Value>Tipo Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtTip</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtVal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtVal</Value></Property><Property><Name>Description</Name><Value>Valor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtVal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Token">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Token</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>150</Value></Property><Property><Name>AttMaxLen</Name><Value>150</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoSucesso</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Status">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Status</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PosicaoFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PosicaoFinal</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpePgtCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpePgtCod</Value></Property><Property><Name>Description</Name><Value>Pagamentos</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmOpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmOpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxOpeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxOpeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpePgtNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpePgtNro</Value></Property><Property><Name>Description</Name><Value>Identificador de pagamento Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OpePgtDoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OpePgtDoc</Value></Property><Property><Name>Description</Name><Value>Documento</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:OpePgtDoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="StatusCode">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>StatusCode</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpWebHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpWebHost</Value></Property><Property><Name>Description</Name><Value>Host</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpWebHost</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hash">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hash</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EFrete_AdicionarPagamento</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

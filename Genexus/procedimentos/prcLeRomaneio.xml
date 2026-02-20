@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="3da02edb-1b7b-48ed-b7ed-63881a7bef92" user="WIN-ITALO\Italo" versionDate="2026-01-21T14:28:46.0000000Z" lastUpdate="2026-01-21T11:55:27.0000000Z" checksum="5ed65e8c6570f6859f36e120081e966c" fullyQualifiedName="prcLeRomaneio" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="7243efac-d12b-4d36-89dc-a947f0c79d13" name="prcLeRomaneio" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Le Romaneio" parent="NfePrc" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[gravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'[PATH] &path',&path)
+if fileexist(&path) = 1
+	&File = new()
+	&File.Source = &path
+	
+	do case
+		case &extensao = 'txt'
+			do 'processaTxt'
+			
+		case &extensao = 'pdf'
+			do 'processaPdf'
+			
+		case &extensao in ('xls','xlsx')
+			if &colCodigo.IsEmpty()
+				&UserMessage = criaUserMessageError('Informe a coluna do Código','')
+			endif
+		
+			if &colPesoLiquido.IsEmpty()
+				&UserMessage = criaUserMessageError('Informe a coluna do Peso Líquido','')
+			endif
+		
+			if &colPrimeiraLinha.IsEmpty()
+				&UserMessage = criaUserMessageError('Informe a coluna da Primeira Linha','')
+			endif
+			
+			if &UserMessage.isSucess
+				do 'processaPlanilha'
+			endif
+		
+		otherwise
+			if &extensao.IsEmpty()
+				&UserMessage = criaUserMessageError('Arquivo não identificado a extensão','')
+			else
+				&UserMessage = criaUserMessageError('Extensão não suportada',&extensao)
+			endif
+	endcase
+	
+	&File.Close()
+else
+	&UserMessage = criaUserMessageError('Txt não localizado','')
+endif
+
+Sub 'processaTxt'
+	&ConteudoArquivo = &File.ReadAllText(EncodingTypes.UTF8)
+	
+	gravaLogDevNew(&EmpCod,&LogGUID,&Pgmname,'[TXT] &ConteudoArquivo',&ConteudoArquivo)
+	
+	if not &ConteudoArquivo.IsEmpty()
+		do case
+			case &ConteudoArquivo.IsMatch('Listagem de romaneios')
+				do 'txtTipo1'
+				
+			otherwise
+				&UserMessage = criaUserMessageError('Este TXT ainda não é suportado','')
+		endcase
+	else
+		&UserMessage = criaUserMessageError('Conteúdo vazio','')
+	endif
+EndSub
+
+Sub 'processaPdf'
+	&ConteudoArquivo = ConverteArquivoPdfemTxt(&path)
+	
+	if not &ConteudoArquivo.IsEmpty()
+		do case
+			case &ConteudoArquivo.IsMatch('EXTRATODEMOVIMENTA')
+				and &ConteudoArquivo.IsMatch('C\.VALE')
+				and &ConteudoArquivo.IsMatch('DATA ROMAN PLAC NFP PH %UMID %IMPU %AVAR PESOBRUT PESOLIQU')
+				do 'pdfTipo1'
+				
+			otherwise
+				&UserMessage = criaUserMessageError('Este PDF ainda não é suportado','')
+		endcase
+	else
+		&UserMessage = criaUserMessageError('Conteúdo vazio','')
+	endif
+EndSub
+
+Sub 'processaPlanilha'
+	&ExcelDocument.Open(&path)
+	
+	do case
+		case &ExcelDocument.ErrCode <> 0
+			&UserMessage = criaUserMessageError(format("Erro %1!",trim(str(&ExcelDocument.ErrCode))),'')
+		
+		case &colPrimeiraLinha < 1
+			&UserMessage = criaUserMessageError('Informe uma linha válida','')
+			
+		case &colCodigo < 1
+			&UserMessage = criaUserMessageError('Informe uma coluna para Código','')
+			
+		case &colPesoLiquido < 1
+			&UserMessage = criaUserMessageError('Informe uma coluna para Peso líquido','')
+			
+		otherwise
+			&isContinua = true
+			&excelLinha = &colPrimeiraLinha - 1
+			
+			do while &isContinua
+				&excelLinha += 1
+				
+				&sdtLeituraRomaneioTxt = new()
+				&sdtLeituraRomaneioTxt.Origem = &arqNom
+				&sdtLeituraRomaneioTxt.Codigo = Round(&ExcelDocument.Cells(&excelLinha, &colCodigo).Number, 0)
+				&sdtLeituraRomaneioTxt.PesoLiquido = Round(&ExcelDocument.Cells(&excelLinha, &colPesoLiquido).Number, 0)
+				
+				if not (&sdtLeituraRomaneioTxt.Codigo.IsEmpty() or &sdtLeituraRomaneioTxt.PesoLiquido.IsEmpty())
+					&sdtLeituraRomaneioTxts.Add(&sdtLeituraRomaneioTxt)
+				else
+					exit
+				endif
+			enddo
+			
+			if &sdtLeituraRomaneioTxts.Count = 0
+				&UserMessage = criaUserMessageError('Nenhuma linha identificada','')
+			endif
+	endcase
+
+EndSub
+
+Sub 'txtTipo1'
+	&linhas = regexMatches(&ConteudoArquivo,'[0-9]+ [0-9]{2}\/[0-9]{2}\/[0-9]{4}.+')
+	
+	if &linhas.Count > 0
+		for &linha in &linhas
+			//19991 04/01/2026     29.040  1,0%      290 13,9%        0  0,0%        0  8,0%        0     28.750       0     28.750 AGE1705  AGRICOLA PIQ
+			
+			&sdtLeituraRomaneioTxt = new()
+			&sdtLeituraRomaneioTxt.origem = &arqNom
+			
+			// Data do romaneio
+			regexGrupo3(&linha,'(?:[0-9]+) ([0-9]{2})\/([0-9]{2})\/([0-9]{4})',&result1,&result2,&result3)
+			&sdtLeituraRomaneioTxt.Data.Set(val(&result3),val(&result2),val(&result1))
+			
+			// Código do romaneio
+			regexGrupo1(&linha,'([0-9]+) ([0-9]{2})\/([0-9]{2})\/([0-9]{4})',&result1)
+			&sdtLeituraRomaneioTxt.Codigo = val(&result1)
+			
+			// Líquido final
+			//28.750 AGE1705  AGRICOLA PIQ
+			//28.750
+			regexGrupo1(&linha,'([0-9,.]+) ([\w]+)  ([\w ]+)$',&result1)
+			&result1 = &result1.Replace('.','')
+			&sdtLeituraRomaneioTxt.PesoLiquido = val(&result1,',')
+			
+			if not (&sdtLeituraRomaneioTxt.Data.IsEmpty()
+				or &sdtLeituraRomaneioTxt.Codigo.IsEmpty()
+				or &sdtLeituraRomaneioTxt.PesoLiquido.IsEmpty())
+				&sdtLeituraRomaneioTxts.Add(&sdtLeituraRomaneioTxt)
+			endif
+		endfor
+	else
+		&UserMessage = criaUserMessageError('Estrutura inválida [TXT#1]','Nenhum romaneio identificado')
+	endif
+EndSub
+
+Sub 'pdfTipo1'
+	&linhas = regexMatches(&ConteudoArquivo,'([0-9]{2})\/([0-9]{2})\/([0-9]{2})\s[0-9].+')
+	
+	if &linhas.Count > 0
+		for &linha in &linhas
+			//15/01/26 93578 ATV3H58 12,7 1,9 3,1 4.715,0 4.625,0
+			
+			&sdtLeituraRomaneioTxt = new()
+			&sdtLeituraRomaneioTxt.origem = &arqNom
+			
+			// Data do romaneio
+			regexGrupo3(&linha,'([0-9]{2})\/([0-9]{2})\/([0-9]{2})\s[0-9]+',&result1,&result2,&result3)
+			&sdtLeituraRomaneioTxt.Data.Set(val(&result3),val(&result2),val(&result1))
+			
+			// Código do romaneio
+			regexGrupo1(&linha,'[0-9]{2}\/[0-9]{2}\/[0-9]{2}\s([0-9]+)',&result1)
+			&sdtLeituraRomaneioTxt.Codigo = val(&result1)
+			
+			// Líquido final
+			//28.750 AGE1705  AGRICOLA PIQ
+			//28.750
+			//4.625,0
+			regexGrupo1(&linha,'([0-9.,]+)$',&result1)
+			&result1 = &result1.Replace('.','')
+			&sdtLeituraRomaneioTxt.PesoLiquido = val(&result1,',')
+			
+			if not (&sdtLeituraRomaneioTxt.Data.IsEmpty()
+				or &sdtLeituraRomaneioTxt.Codigo.IsEmpty()
+				or &sdtLeituraRomaneioTxt.PesoLiquido.IsEmpty())
+				&sdtLeituraRomaneioTxts.Add(&sdtLeituraRomaneioTxt)
+			endif
+		endfor
+	else
+		&UserMessage = criaUserMessageError('Estrutura inválida [PDF#1]','Nenhum romaneio identificado')
+	endif
+EndSub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(
+	in:&path,
+	in:&arqNom,
+	in:&extensao,
+	in:&colPrimeiraLinha,
+	in:&colCodigo,
+	in:&colPesoLiquido,
+	inout:&sdtLeituraRomaneioTxts,
+	out:&UserMessage
+);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Properties />
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="arqNom">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>arqNom</Value></Property><Property><Name>Description</Name><Value>Nome</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ArqNom</Value></Property></Properties>
+        </Variable>
+        <Variable Name="colCodigo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>colCodigo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="colPesoLiquido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>colPesoLiquido</Value></Property></Properties>
+        </Variable>
+        <Variable Name="colPrimeiraLinha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>colPrimeiraLinha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ConteudoArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ConteudoArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ExcelDocument">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ExcelDocument</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:ExcelDocument</Value></Property></Properties>
+        </Variable>
+        <Variable Name="excelLinha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>excelLinha</Value></Property></Properties>
+        </Variable>
+        <Variable Name="extensao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>extensao</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="isContinua">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>isContinua</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="linha">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>linha</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="linhas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>linhas</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="path">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>path</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="result1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>result1</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="result2">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>result2</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="result3">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>result3</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1000</Value></Property><Property><Name>AttMaxLen</Name><Value>1000</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtLeituraRomaneioTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtLeituraRomaneioTxt</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtLeituraRomaneioTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtLeituraRomaneioTxts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtLeituraRomaneioTxts</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtLeituraRomaneioTxt</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserMessage">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserMessage</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:UserMessage</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcLeRomaneio</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

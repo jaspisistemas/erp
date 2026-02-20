@@ -1,0 +1,674 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="WINJEAN\jeanfae" versionDate="2025-12-01T14:30:13.0000000Z" lastUpdate="2025-12-01T13:02:44.0000000Z" checksum="43742402cec951251cd94cf02c8d3de7" fullyQualifiedName="ppJASPI_Agendador" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="c02eea0e-7adb-49ad-8b78-cd8b45dc54e5" name="ppJASPI_Agendador" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="pp JASPI_Agendador" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&Hoje = serverdate()
+&IsSyncNCM = false
+//BANCO
+//CIDADE
+//NF PENDENTE
+//FERIADOS
+
+//DESABILITEI POIS BOLSONARO É FODA, FALOU ASSIM, NAO VAI TER MAIS E PONTO.
+//msg('SYNCRONIZAR FUSOS, ...', status)
+//prcSyncFuso.Call(&Hoje-365)
+
+//&IsNameBanco = false
+For Each Order EmpCod //EMPRESA	
+	&mensagem = trim(str(EmpCod)) + ' - ' + trim(EmpRaz)
+	msg(&mensagem, status)
+		
+	msg('Inicio - Localiza Vencimento JASPI . . . ', status)
+	GetVencimentoWbsJapsi.call(EmpCod, EmpCodSec, &mensagem)
+	Msg(&mensagem, status)
+	msg('Finalizado - Localiza Vencimento JASPI . . . ', status)
+	
+	if EmpLicAut = Status_SimNao.Sim
+		msg('Verificando licença nova!', status)
+		GetLicenca.Call(EmpCod, &LicencaMensagem)
+	Endif
+
+	//LICENCA
+	&IsVencido = false	
+	GetVencimento.call(EmpCod, EmpChv, &Jaspi, &AuxData, &EmpCodSec, &QtdDias)
+	Do CAse			
+		Case &QtdDias > 30
+			&IsVencido = true
+			
+		Case &Jaspi <> 'JASPI'	
+			msg('Palavra inválida, Sistema vencido!', status)
+			
+		Case &EmpCodSec <> EmpCodSec
+			msg('Chave inválida, Sistema vencido!', status)
+			
+		Case &QtdDias > 10
+			msg('Sistema vencido à mais de 10 dias!', status)
+	EndCase
+	
+	if &IsVencido <> true
+		
+		//GET MENU
+		if &countMenus < 10 and EmpSyncMenu < &EMpSyncMenu
+			
+			&Mensagem = 'Atualizando Menu Empresa: ' + trim(str(EmpCod))
+			msg(&Mensagem, status)
+			&erro = 0
+			
+			ppJASPI_Rotinas_WSDL.Call(EmpCod, EmpCodSec, EmpCmp, &ppJaspi_RotinasSdtEstruturaMenus, &erro)
+			If &Erro = 0
+				if &ppJaspi_RotinasSdtEstruturaMenus.SdtMod.Modulos.Count > 0 and &ppJaspi_RotinasSdtEstruturaMenus.SdtRot.Rotinas.Count > 0 and &ppJaspi_RotinasSdtEstruturaMenus.SdtSubMen.SubMenus.Count > 0
+					GravaMenus.Call(EmpCod, &ppJaspi_RotinasSdtEstruturaMenus)
+					&countMenus += 1
+					
+					//se nao deu erro nos menus grava os widgets
+					ppJASPI_Widgets_WSDL.Call(EmpCod, EmpCodSec, EmpCmp, &Sdtwidgets, &erro)
+					If &Erro = 0
+						if &Sdtwidgets.Count > 0
+							GravaWidgets.Call(EmpCod, &Sdtwidgets)
+						Endif
+					EndIf
+				EndIF
+			EndIf
+		Endif
+	
+		msg('Syncroniza Dados!', status)
+		
+		//GRAVA INF CLIENTE
+		prcSyncAll.Call(EmpCod, 'GRAVARINF_CLIENTE')
+		prcSyncAll_ERP.Call(EmpCod, 'GRAVARINF_CLIENTE')
+		
+		//GRAVA PREVISAO CONTAS A PAGAR, RECEBER
+		msg('GERA PREVISOES!', status)
+		GeraPrevisaoAutomatico_Agendador.Call(EmpCod, 1, -1) //FILIAL 1 e ADMINISTRADOR
+		msg('PREVISOES GERADAS!', status)
+		//proc que gera todas previsoes ativas conforme qtd mes/anosz
+		
+		//NCM - CEST
+		&EmpSyncNcm = CtoD('10/08/2017')
+		if (EmpSyncNcm <= &Hoje-20 or EmpSyncNcm < &EmpSyncNcm) and &IsSyncNCM = false
+			//ATUALIZA MENUS
+			msg('Syncronizando Menus . . . ', status)
+			//		prcSynMenusAgendador.Call(EmpCod, EmpCodSec)
+			msg('Menus OK . . . ', status)
+			
+			&AuxEmpSyncNcm = EmpSyncNcm
+			if EmpSyncNcm < &EmpSyncNcm
+				&AuxEmpSyncNcm = CtoD('01/01/2000')
+			Endif
+			
+			&IsExecutou = False
+			msg('Syncronizar NCM: ' + &AuxEmpSyncNcm.ToFormattedString() + ' <= ' + &Hoje.ToString() + '-20', status)
+			
+			Agendador_SyncNCM.Call(EmpCod, &AuxEmpSyncNcm, EmpCodSec, &IsExecutou)
+			
+			if &IsExecutou = true
+				
+				GravaSyncNCM.Call(&Hoje)
+				&IsSyncNCM = true
+			Endif	
+		Else
+			msg('CADASTRO NCM, OK!', status)
+		Endif
+		
+		//CORRIGIR NCMS
+		msg('Verificando NCM INVÁLIDO!', status)
+		CorrigeNCM.Call(EmpCod)
+		msg('Finalizado verificacao de NCM INVÁLIDO!', status)
+		
+		if EmpCod = 1 //JASPI
+			//EMISSAO MODELO 55
+			prcEmitirNotaGrupo.Call(EmpCod)
+		Else //DEMAIS CLIENTES
+			
+			//EMISSAO MODELO 55
+			//prcEmitirNotaGrupo.Call(EmpCod)
+		Endif
+	
+		//EMISSAO SERVICO
+		prcEmitirNotaGrupoServico.Call(EmpCod)
+	
+	
+		//BAIXA CARTAO E BOLETO ZOOP
+		For Each Order EmpCod, FilCod
+			Where not FilZoopKey.IsNull() and not FilZoopKey.IsEmpty()
+			
+			getEventsADM_ZOOP.call(EmpCod, FilCod, FilZoopKey)
+		EndFor
+	
+		For Each Order EmpCod, CbrCod
+			Where CbrTipBol	= TipoBoleto.Hibrido
+			Where CbrSts	= Status_AtivoInativo.ATIVO
+			Where CrbRegAut = Status_SimNao.Sim
+			
+			Do Case
+				Case CbrCtaBanBanCod	= '748' //SE FOR SICREDI
+					prcRetornoRecebimentoADMERP.Call(EmpCod, CbrCtaBanCod, CbrNroCon)
+				Case CbrCtaBanBanCod	= '077' //SE FOR INTER
+					&CbrNroCon		 	= CbrNroCon.Trim() + CbrNroConDig.Trim()
+					prcRetornoRecebimentoADMERP.Call(EmpCod, CbrCtaBanCod, &CbrNroCon)
+			EndCase			
+			
+		EndFor
+	
+		For Each Order EmpCod, BanCarCod
+			Where BanCarConfAut = 'J' //CONFERÊNCIA - AUTOMÁTICA MAQUININHA JASPI
+			prcBaixaCartaoZoop.Call(EmpCod, BanCarCod)
+		EndFor
+	
+		For Each Order EmpCod, BanCarCod
+			Where BanCarConfAut = 'S' //CONFERÊNCIA - AUTOMÁTICA NO VENCIMENTO
+			prcBaixaCartaoAutomatico.Call(EmpCod, BanCarCod)
+		EndFor
+	
+		//NOTIFICAÇÃO DA AGENDA
+		prcEnviaNotificacaoCompromisso.Call(EmpCod)
+		
+		//AGENDAMENTOS
+		InicializaAgendador.Call(EmpCod, TipoAgendamento.EnviarXmlEscritorio, 0, &AgdCod)
+		
+		For Each Order EmpCod, AgdSts,AgdUltDta,AgdCod
+			Where AgdSts = Status_Tarefa.TarefaAtiva
+			Where AgdUltDta < &Hoje
+			
+			Do CAse
+				Case AgdTip = TipoAgendamento.EnviaEmailDuplicatas
+					msg('Gerando Envios de Duplicatas vencidas . . .', status)
+					
+					prcEnviaEmailDuplicatas.Call(EmpCod, AgdFiltro)
+					AgdUltDta = serverdate()
+					AgdUltHor = ServerTime()
+					
+					//ENVIA XMLS
+				Case AgdTip = TipoAgendamento.EnviarXmlEscritorio
+					msg('Enviando Arquivos Para Contador . . .', status)
+					&IsExecutou = false
+					
+					prcAgenda_EnviaSintegra.Call(EmpCod, AgdFiltro, AgdExeFilCod, AgdUltDta, &IsExecutou)
+					
+					if &IsExecutou = true
+						AgdUltDta = serverdate()
+						AgdUltHor = ServerTime()
+					EndIf
+					
+				case AgdTip = TipoAgendamento.CalculaEstoqueMinimo //Henrique
+					msg('Calculando Estoque Mínimo . . . ', status)
+					prcCalculaEstoqueMinimoWin.Call(EmpCod, 1,AgdFiltro) //Filial 1 Fixo
+					
+					//Aqui nao eh recomendado pois exexcuta as 00 horas
+					//				Case AgdTip = TipoAgendamento.AutorizarValorXNotas
+					//					&IsExecutou = false
+					//					prcAutorizarNotasPendentes.Call(EmpCod, AgdFiltro, AgdUltDta, &IsExecutou)
+					//					if &IsExecutou = true
+					//						AgdUltDta = serverdate()
+					//						AgdUltHor = ServerTime()
+					//					EndIf
+				
+				case AgdTip = TipoAgendamento.WhatsBoleto
+					msg('Adiciona na fila de envio do whatsapp boletos prestes a vencer . . .', status)
+					
+					prcFilaEnvioWhats_AddBoletoProximoVencimento.Call(EmpCod, AgdFiltro)
+					AgdUltDta = serverdate()
+					AgdUltHor = ServerTime()
+					
+			EndCase
+			
+			commit
+		EndFor
+		
+		//JASPI RODIZIO VENDEDORES
+		if RodInt = true or RodExt = true
+			prcTrocaVendedor.Call(EmpCod)
+		Endif		
+		
+		msg('INATIVAR CLIENTES SEM VENDAS!', status)
+		prcInativarClientesSemCompra.Call(EmpCod)
+		msg('CLIENTES INATIVADOS SEM VENDAS!', status)
+		
+		//BAIXA CHEQUES RECEBIDOS COM MAIS DE 15 DIAS.
+		msg('COMPENSANDO CHEQUES!', status)
+		prcBaixaChequesPendentes.Call(EmpCod)
+		msg('CHEQUES COMPENSADOS!', status)
+		
+		msg('NCM INCORRETOS!', status)
+		prcVerificaNcmIncorretoProdutos.Call(EmpCod)
+		msg('NCM ANALISADOS!', status)
+	Else
+		prcAlgumaNotaEmitidaNosUltimos30dias.Call(EmpCod, &IsTem)
+		if &IsTem = true
+			//MESMO SEM LICENCA, MAS CASO TENHA NOTAS EMITIDAS ENVIAR ARQUIVO SINTEGRA
+			For Each Order EmpCod,AgdSts,AgdTip, AgdCod
+				Where AgdSts = Status_Tarefa.TarefaAtiva
+				Where AgdUltDta < &Hoje
+				Where AgdTip = TipoAgendamento.EnviarXmlEscritorio
+				
+				//ENVIA XMLS
+				
+				msg('Enviando Arquivos Para Contador . . .', status)
+				&IsExecutou = false
+				
+				prcAgenda_EnviaSintegra.Call(EmpCod, AgdFiltro, AgdExeFilCod, AgdUltDta, &IsExecutou)
+				
+				if &IsExecutou = true
+					AgdUltDta = serverdate()
+					AgdUltHor = ServerTime()
+				EndIf
+				
+				commit
+			EndFor
+		EndIf
+	Endif
+
+	&AuxEmpCod = EmpCod
+	Do 'DeletaTemporariosESemNro'
+	Commit
+	&Dorme = sleep(1)
+EndFor
+
+Commit
+
+prcImportaAtualizacoes.Call() //BUSCA NOTA DE VERSÕES DO ERP
+
+msg('APAGANDO TEMPORARIA!', status)
+//APAGA TEMPORARIAS
+For Each ORder ProgressId //PROGRESSO
+	Where ProgressIni < serverdate() or ProgressIni.IsNull() or ProgressIni.IsEmpty()	 
+	delete
+EndFor
+commit
+
+msg('APAGANDO IMPORTACAO PRODUTO!', status)
+for each Order IpPro //IMPORTACAO PRODUTO
+	Where IpDtaHor < serverdate() or IpDtaHor.IsNull() or IpDtaHor.IsEmpty()	
+	for each Order IpPro, IpProItm
+		delete
+	EndFor	
+	Delete
+EndFor
+commit
+
+msg('APAGANDO TEMPORARIA NF-E!', status)
+For Each Order tmpNFeCod //NOTA 
+	Where tmpNfeDtaMod < serverdate() or tmpNfeDtaMod.IsNull() or tmpNfeDtaMod.IsEmpty()	
+	For Each ORder tmpNFeCod, tmpNfeItmCod		
+		For Each ORder tmpNFeCod, tmpNfeItmCod, tmpProLotCod
+			Delete
+		EndFor
+		
+		delete
+	EndFor
+	
+	delete
+EndFor
+commit
+
+msg('APAGANDO TEMPORARIA RENTABILIDADE!', status)
+For Each Order EmpCod,TempRent,TempUsr,TempDtaMod //RENTABILIDADE
+	Where TempDtaMod < serverdate() or TempDtaMod.IsNull() or TempDtaMod.IsEmpty()
+	delete
+EndFor
+commit
+
+msg('APAGANDO TEMPORARIA DUPLICATA!', status)
+For Each Order DupTmpEmpCod, DupTmpFilCod, DupTmpCreCod, DupTmpPesCod //DUPLICATA
+	Where DupTmpDtaMod < serverdate() or DupTmpDtaMod.IsNull() or DupTmpDtaMod.IsEmpty()
+	delete
+EndFor
+commit
+
+//VERIFICA UMA PESSOA COM ANEXO ANTIGO
+&IsTemUm = false
+For Each ORder EmpCod, PesCod, PesAnxCod
+	Where PesAnxGuid.IsEmpty() or PesAnxGuid.IsNull() or PesAnxGuidExt.IsEmpty() or PesAnxGuidExt.IsNull() or PesAnxGuidNom.IsEmpty() or PesAnxGuidNom.IsNull()
+	&IsTemUm = true
+	Exit
+EndFor
+if &IsTemUm = true
+	Call(AtualizaAnexosPessoa)
+Endif
+//VERIFICA UMA PESSOA COM ANEXO ANTIGO
+
+//MANIFESTACAO DO DESTINATÁRIO -- INICIO
+For Each Order EmpCod, FilCod
+	Where EmpCodPas > 0
+	Where FilCodPas > 0
+	Where FilAmbEms = TAmb.Producao
+	Where FilVctCer > serverdate()
+	Where EmpA1A3 = 'A1'
+	
+	&IsVencido = false
+	GetVencimento.call(EmpCod, EmpChv, &Jaspi, &AuxData, &EmpCodSec, &QtdDias)
+	Do CAse			
+		Case &QtdDias > 30
+			&IsVencido = true
+			
+		Case &Jaspi <> 'JASPI'	
+			&IsVencido = true
+			
+		Case &EmpCodSec <> EmpCodSec
+			&IsVencido = true
+	EndCase
+	
+	if &IsVencido <> true
+		RetornaConfSistema.Call(EmpCod, FilCod, domConfSistema.TCon099_DownloadAutomatico, &TCon099_DownloadAutomatico)
+		
+		if &TCon099_DownloadAutomatico = 'S'
+			&mensagem = serverTime()
+			msg(trim(str(EmpCod)) +' - '+ FilRaz.Trim() + ' - MANIFESTACAO DESTINARIO: '+ &mensagem, status)
+			
+			//GeraXmlSincroManifest.Call( EmpCod, FilCod, 'S','NFE', 0, &SolCod)
+			prcManifestaNotas.Call(EmpCod, FilCod)
+		Endif
+	Endif
+EndFor
+////MANIFESTACAO DO DESTINATÁRIO -- FIM
+
+msg('APAGANDO FILA ENVIO EMAIL!', status)
+//DELETA FILAENVIO COM MAIS DE 365 DIAS
+&EmlDtaEms = serverdate()
+&EmlDtaEms = &EmlDtaEms.AddDays(-365)
+For each Order EmpCod, EmlTip, EmlCod
+	Where EmlDtaEms <= &EmlDtaEms
+	
+	For each Order EmpCod, EmlTip, EmlCod, EmlAnxCod //Anexos
+		Delete
+	EndFor
+	
+	For each Order EmpCod, EmlTip, EmlCod, EmlDupCod //Duplicatas
+		Delete
+	EndFor
+	
+	For each Order EmpCod, EmlTip, EmlCod, EmlItmCod //Email
+		Delete
+	EndFor
+	
+	Delete
+EndFor
+Commit
+//DELETA FILAENVIO COM MAIS DE 365 DIAS
+
+msg('APAGANDO PEDIDO DUPLICATAS TEMPORARIA!', status)
+//DELETE PEDIDOTEMPORARIA deleta com mais de 365 dias
+&EmlDtaEms = serverdate()
+&EmlDtaEms = &EmlDtaEms.AddDays(-365)
+For Each ORder EmpCod, FilCod, PedCod, PedTmpDupCod
+	Where PedDtaEms <= &EmlDtaEms
+	delete
+EndFor
+Commit
+//DELETE PEDIDOTEMPORARIA
+
+
+msg('APAGANDO FILA DE IMPRESSAO!', status)
+&FiDtaEms = serverdate()
+&FiDtaEms = &FiDtaEms.AddDays(-15)
+For Each ORder FIempCod, FIcod
+	Where FiDtaEms <= &FiDtaEms
+	delete
+EndFor
+commit
+
+msg('APAGANDO FILA ENVIO EMAIL!', status)
+&PadDtaMod = serverdate()
+&PadDtaMod = &PadDtaMod.AddDays(-5)
+For Each ORder PadRotLin, PadPesCod, PadEmpCod
+	Where PadDtaMod < &PadDtaMod
+	Where PadTemPer = 'T'
+	
+	delete 
+EndFor
+Commit
+
+
+
+//RECALCULO DE ESTOQUE TEM QUE SER O ULTIMO
+&ProgressId = 'cmdRecalculo'
+msg('RECALCULANDO ESTOQUE!', status)
+For Each Order EmpCod
+	where EmpLicAut = Status_SimNao.Sim
+	Where EmpSyncAtuEst <= (&Hoje - 30) or EmpSyncAtuEst.IsEmpty() or EmpSyncAtuEst.IsNull()
+	
+	&IsVencido = false
+	GetVencimento.call(EmpCod, EmpChv, &Jaspi, &AuxData, &EmpCodSec, &QtdDias)
+	Do CAse			
+		Case &QtdDias > 30
+			&IsVencido = true
+			
+		Case &Jaspi <> 'JASPI'	
+			&IsVencido = true
+			
+		Case &EmpCodSec <> EmpCodSec
+			&IsVencido = true
+	EndCase
+	
+	if &IsVencido <> true
+		&NomeArquivo = 'ErroEstoque_EMP.'+trim(str(EmpCod)) + serverTime()
+		msg(trim(str(EmpCod)) +' - '+ EmpRaz.Trim() + ' - Inicio: '+ serverTime(), status)
+		
+		prcRecalculaEstoque_Agendador.Call(&ProgressId, EmpCod, 1, '', '', 0, Status_SimNao.Nao, Status_SimNao.Nao)
+		
+		&mensagem = serverTime()
+		msg(trim(str(EmpCod)) +' - '+ EmpRaz.Trim() + ' - Fim: '+ &mensagem, status)
+		
+		For Each Order ProgressId
+			Where ProgressId = &ProgressId
+			
+			&sdtEstoque.FromXml(ProgressLogXml)
+			Exit
+		EndFor
+		
+		If &sdtEstoque.Count > 0
+			RELJAS008_toFile.Call(EmpCod, 1, &NomeArquivo, &ProgressId)
+		Endif
+		
+		EmpSyncAtuEst = &Hoje+1
+		
+		commit
+	EndIf
+EndFor
+//RECALCULO DE ESTOQUE TEM QUE SER O ULTIMO
+
+Sub 'DeletaTemporariosESemNro'
+	&NfeDtaEms = &Hoje - 2
+	
+	msg('DELETANDO NF-e NRO ZERO!', status)
+	//APAGAR NOTAS FISCAIS PENDENTES. SEM NUMERO
+	For Each Order EmpCod, NfeSts,NfeDtaEms,FilCod, NfeCod
+		Where EmpCod = &AuxEmpCod
+		Where NfeDtaEms <= &NfeDtaEms
+		Where NfeNum.IsEmpty() and NfeProTer = Nota_ProPriaTerceira.PROPRIA
+		Where NfeSts = Status_nFe.Digitando
+		
+		ExcluirNfe.Call(EmpCod, FilCod, NfeCod)
+		
+	EndFor
+	
+	msg('DELETANDO NFS-e NRO ZERO!', status)
+	//APAGAR NOTAS SERVIÇO FISCAIS PENDENTES. SEM NUMERO
+	For Each Order EmpCod,NfsSts,NfsDtaEms, NfsCod
+		Where EmpCod = &AuxEmpCod
+		Where NfsDtaEms <= &NfeDtaEms
+		Where NfsNum.IsEmpty() and NfsProTer = Nota_ProPriaTerceira.PROPRIA
+		Where NfsSts = Status_nFe.Digitando 
+		Where NfsVlrTot = 0 or NfsNumLote.IsEmpty()
+		
+		prcDeletarNFSe.Call(EmpCod, NfsCod)
+	EndFor
+	
+	msg('DELETANDO TEMPORARIA!', status)
+	//APAGA ARQUIVOS TEMPORARIOS
+	For Each Order EmpCod, FilCod //empresa e filial
+		Where EmpCod = &AuxEmpCod
+		RetornaConfiguracoesPastas.Call(EmpCod, FilCod, &sdtConfiguracoesPasta)
+		
+		ApagaArquivosPastaTemp.call(&sdtConfiguracoesPasta)
+		
+	EndFor
+	
+	
+	
+EndSub
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="AgdCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AgdCod</Value></Property><Property><Name>Description</Name><Value>Agendamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:AgdCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEstoque">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEstoque</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEstoque</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxData">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxData</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxEmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxEmpSyncNcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxEmpSyncNcm</Value></Property><Property><Name>Description</Name><Value>Ult.Data.Sync.NCM</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpSyncNcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Dorme">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Dorme</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCodSec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCodSec</Value></Property><Property><Name>Description</Name><Value>Código Cliente</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCodSec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpSyncNcm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpSyncNcm</Value></Property><Property><Name>Description</Name><Value>Ult.Data.Sync.NCM</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpSyncNcm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Hoje">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Hoje</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Data</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExecutou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExecutou</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSyncNCM">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSyncNCM</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsTemUm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsTemUm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsVencido">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsVencido</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Jaspi">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Jaspi</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressID</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdDias">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdDias</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolCod</Value></Property><Property><Name>Description</Name><Value>Solicitacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TCon099_DownloadAutomatico">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TCon099_DownloadAutomatico</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LicencaMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LicencaMensagem</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CbrNroCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CbrNroCon</Value></Property><Property><Name>Description</Name><Value>Número Convênio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CbrNroCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="countMenus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>countMenus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="erro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>erro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ppJaspi_RotinasSdtEstruturaMenus">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ppJaspi_RotinasSdtEstruturaMenus</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:ppJASPI_RotinassdtEstruturaMenus</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Sdtwidgets">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Sdtwidgets</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:Sdtwidgets</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EMpSyncMenu">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EMpSyncMenu</Value></Property><Property><Name>Description</Name><Value>Ult.Data.Sync.Menu</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpSyncMenu</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FiDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FiDtaEms</Value></Property><Property><Name>Description</Name><Value>Emissao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FiDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>ppJASPI_Agendador</Value></Property><Property><Name>IsMain</Name><Value>True</Value></Property><Property><Name>CALL_PROTOCOL</Name><Value>CLINE</Value></Property><Property><Name>IntegratedSecurityLevel</Name><Value>SecurityNone</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

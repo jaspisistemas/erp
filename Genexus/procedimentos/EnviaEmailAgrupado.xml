@@ -1,0 +1,548 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="fe6fc952-a66d-4fb6-8c78-3d1bdc1c09b3" user="WINJEAN\jeanfae" versionDate="2026-01-12T20:21:13.0000000Z" lastUpdate="2026-01-12T17:38:03.0000000Z" checksum="dad2c579343b9f5b33ba7b6799d619e1" fullyQualifiedName="EnviaEmailAgrupado" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="563dafcb-90e8-4e1d-b79d-556dd80d3b0e" name="EnviaEmailAgrupado" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Envia Email Agrupado" parent="NotaFiscalServico" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&LogGUID = GUID.NewGuid()
+
+//csharp System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.ServicePointManager.SecurityProtocol;
+
+RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &SdtConfiguracoespasta)
+
+//#################### CALCULA % PROGRESSO ###########
+&TotalPercentual = 0
+For Each Order EmpCod,PesEml,PesCod
+	Where EmpCod = &EmpCod
+	Where PesEml in &ColPesEml
+	&TotalPercentual += 1
+EndFor
+Do 'Percentual'
+&Count = 0  
+//####################################################
+
+
+//############### ADICIONA TODOS OS CLIENTES QUE PERTENCEM AO E-MAIL SELECIONADO QUE ESTA VINDO POR PARÂMENTRO NUMA COLLECTION  ###################
+&ColPesCod.Clear() //zera os clientes
+&Index = 0
+
+For Each Order EmpCod,PesEml,PesCod
+	Where EmpCod = &EmpCod
+	Where PesEml in &ColPesEml
+
+	&Index +=1 
+	If &PesEml <> PesEml and &Index > 1 // Se trocou o e-mail Chama o envio, 
+		Do 'BUSCANOTASDOSCLIENTES'
+		&ColPesCod.Clear() 
+	EndIf
+	
+	&PesEml = PesEml
+	&ColPesCod.Add(PesCod)
+	
+EndFor
+
+//esta fora pos se tiver so um email ou ultimo email nao entra na regra do if
+Do 'BUSCANOTASDOSCLIENTES'
+//##############################
+
+&ProgressLogXml = 'E-mail enviado com Sucesso!'
+&Percentual = 100
+&ProgressFin = serverNow()
+do 'Atualiza'
+
+
+
+Sub 'BUSCANOTASDOSCLIENTES'
+	Msg('Buscando clientes',Status)
+	&ProgressLogXml = 'Contabilizou'
+	&Count += 1
+	
+	Do 'Percentual'
+	
+	&IniNfeDtaEms = YMDtoD(&Ano,&Mes,1)
+	&FinNfeDtaEms = YMDtoD(&Ano,&Mes,Day(Eom(&IniNfeDtaEms)))
+	
+	DO Case
+		Case &TipoNota = 'P'
+			&NfsProTer = Nota_ProPriaTerceira.PROPRIA
+		Case &TipoNota = 'T'
+			&NfsProTer = Nota_ProPriaTerceira.TERCEIROS
+		OtherWise
+			&NfsProTer.SetEmpty()
+	EndCase	
+	&IsExistDiretorio = false
+	
+	CopiaXmlAutorizadosNfse.Call('EMAILAGRUPADO',&EmpCod,&FilCod,&IniNfeDtaEms,&FinNfeDtaEms,&SomenteNotasAutorizadas,&sdtConfiguracoesPasta,&destinoPasta,&EnviaPdfNota,&ColPesCod,&CountNfse)
+	
+	&Attachments.Clear()
+	&Destinatarios.Clear()
+	do 'EnviarEmail'
+EndSub
+
+
+
+Sub 'EnviarEmail'
+	&DestinoPesEml = &PesEml //esse vem la do For
+	For Each Order EmpCod,FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &FilCod
+		&FilRaz = FilRaz
+		Exit
+	EndFor
+	
+	msg('Enviar para o e-mail ' +&DestinoPesEml,status)
+	
+	If not &DestinoPesEml.Trim().isEmpty()
+		
+		For Each Order EmpCod, EmpEmlCod
+			Where EmpCod = &EmpCod
+			Where EmpEmlTip = TipoContaEmail.Email_Faturamento
+			
+			If EmpEml = 'nao_responda@jaspi.com.br' or EmpEml = 'nao.responda.jaspi@gmail.com' //adiciona a mensagem dados do remetente
+				&EmpEmlCod = EmpEmlCod
+				do 'EmailPadrao'
+			Else
+				&AddressVarchar = EmpEml
+				//&FilRaz
+				&AuthenticationNumeric = EmpEmlAut
+				&SecureNumeric 		= EmpEmlSec
+				&TimeoutNumeric        = 600
+				&HostVarchar 			= EmpEmlHos
+				&UserNameVarchar 		= EmpEmlUsr
+				&EmpEmlSen 		= DecryptSenhaEmail.Udp(EmpCod, EmpEmlCod, EmpEml)
+				&PortNumeric 			= EmpEmlPor
+				&imapHost = EmpEmlImapHos
+				&imapPort = EmpEmlImapPor
+				&imapSsl = EmpEmlImapSsl
+			EndIF
+			
+			&EmlAss = 'Notas Serviço Mês:' + trim(PadL(str(&mes), 2, '0')) + '/' +trim(str(&Ano)) + ' da empresa ' + trim(&FilRaz)
+			
+			//Destinatário de email
+			&Destinatarios.Add(&DestinoPesEml)
+			
+			do 'PreencheHTML'
+			
+			If not &destinoPasta.IsEmpty() //add xml NFE
+				&File.Source = &destinoPasta
+				If &File.Exists()
+					//=====Adiciona Anexo a partir de um caminho do servidor=====
+					&Attachments.Add(&destinoPasta)
+				EndIF
+				&File.Close()
+			EndiF
+			
+			&Result = &JASPI_enviaEmail.SendEmailSafeJson(&HostVarchar, &PortNumeric, &UserNameVarchar, &EmpEmlSen, &imapHost, &imapPort, &imapSsl, &FilRaz, &AddressVarchar, &FunEmailContato, &FilRaz, &Destinatarios, &EmlAss, &Obs, &Attachments, true)	
+			&EmailResult.FromJson(&Result)				
+			If &EmailResult.Success = true
+				// Marca como enviado
+				&ProgressLogXml = 'Enviado com Sucesso!'
+				&EmlSts = Status_Solicitacao.Finalizada
+				&IsExecutou = true
+			Else
+				&ProgressLogXml = &EmailResult.ErrorCode + " - " + &EmailResult.Message					
+				&EmlSts = Status_Solicitacao.Falha
+			EndIf
+			
+		When none
+			msg('ATENÇÃO! Não foi encontrado e-mail de faturamento',status)
+		EndFor
+	Else
+		msg('ATENÇÃO! nenhum e-mail destino preenchido',status)
+	EndIf
+EndSub
+
+
+Sub 'PreencheHTML'
+	&Obs =  ' </head> '
+	
+	&Obs +=  ' <body> '
+	&Obs += '<p>Notas Serviço do Mês:' + trim(PadL(str(&mes), 2, '0')) + '/' +trim(str(&Ano)) + ' da empresa ' + trim(&FilRaz)
+	
+	if (&CountNfse > 0)
+		&Obs += '<p>Encontra-se Anexados nesse Email os seguintes Arquivos.'
+		
+		If not &destinoPasta.IsEmpty()
+			&Obs += ' <li><em># xmlsDasNfs.zip</em></li>'
+		EndiF
+//		If not &ZipXMLS1.IsEmpty()
+//			&Obs += ' <li><em># xmlsDasNfeTerceiros.zip</em></li>'
+//		EndiF
+		
+//		If  not &ZipXMLSCte.IsEmpty()
+//			&Obs += ' <li><em># xmlsDosCTe.zip</em></li>'
+//		EndIf
+//		
+//		if not &NomeArquivoSintegraProPrio.IsEmpty()
+//			&Obs += ' <li><em># SintegraProprias.txt</em></li>'
+//		EndiF
+//		
+//		if not &NomeArquivoSintegraTerceiros.IsEmpty()
+//			&Obs += ' <li><em># SintegraPropriasTerceiros.txt</em></li>'
+//		EndiF
+//		
+//		if not &NomeArquivoRelatorio.IsEmpty()
+//			&Obs += ' <li><em># RelatorioNotasEmitidas.pdf</em></li>'
+//		EndIF
+	
+//		if &EnviaRelatorioProdutos = true and not &NomeArquivoRelatorioProdutos.IsEmpty()
+//			&Obs += ' <li><em># RelatorioProdutos.pdf</em></li>'
+//		EndIF
+//	
+//		if not &NomeArquivoRelatorioCte.IsEmpty()
+//			&Obs += ' <li><em># RelatorioCtesEmitidos.pdf</em></li>'
+//		EndIF
+//		
+//		if not &NomeArquivoRelatorioCtePrestacao.IsEmpty()
+//			&Obs += ' <li><em># RelatorioCtesAgrupadosPrestacao.pdf</em></li>'
+//		EndIF
+	Else
+		&Obs += '<p>Nenhuma Nota emitida/localizada para o Mês informado.'
+	endif
+
+	&Obs += '<p>'
+	&Obs += '<p>Erros/dúvidas/elogios entre em contato conosco.'
+	&Obs += '<p>E-mail: contato@jaspi.com.br.'
+	&Obs += '<p>Fone: (44) 9-9753-8680 / (45) 9-9998-3031'
+
+	&Obs +=  ' </body> '
+	&Obs +=  ' </html> '
+EndSUb
+
+sub 'EmailPadrao'
+	EmailPadrao.call(&AddressVarchar, &AuthenticationNumeric, &SecureNumeric, &TimeoutNumeric, &HostVarchar, &UserNameVarchar, &PortNumeric, &imapHost, &imapPort, &ImapSSl)
+	&EmpEmlSen = DecryptSenhaEmail.Udp(&EmpCod, &EmpEmlCod, &AddressVarchar)
+EndSub
+
+
+sub 'Percentual'
+	If &Count > 0
+		&Percentual = round((&Count / &TotalPercentual) * 100, 0)
+	EndIF
+	If &Percentual >= 100
+		&Percentual = 99
+	EndIf
+	do 'Atualiza'
+EndSub
+
+Sub 'Atualiza'
+	
+	for each Order ProgressId
+		where ProgressId = &ProgressId
+		ProgressValue = &Percentual
+		ProgressFin = &ProgressFin
+		ProgressIni = &Progressini
+		ProgressLogXml = &ProgressLogXml
+	When none
+		new
+			ProgressId = &ProgressId
+			ProgressValue = &Percentual
+			ProgressFin = &ProgressFin
+			ProgressLogXml = &ProgressLogXml
+			ProgressIni = &Progressini
+		Endnew
+	endfor
+	
+	commit
+EndSub
+
+
+
+Sub 'Exception_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXexceptionType',&GXexceptionType)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionDetails',&GXExceptionDetails)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Exception_handler: &GXExceptionStack',&GXExceptionStack)
+Endsub
+
+Sub 'Error_handler'
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &Err',&Err.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBErr',&gxDBErr.ToFormattedString())
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &GxDbSqlState',&GxDbSqlState)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxDBTxt',&gxDBTxt)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxOper',&gxOper)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrTbl',&gxErrTbl)
+	GravaLogDevNew(&SolEmpCod,&LogGUID,&Pgmname,'Error_handler: &gxErrOpt',&gxErrOpt.ToFormattedString())
+Endsub
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(IN:&ProgressId,in:&EmpCod,in:&FilCod,in:&Mes,in:&Ano,in:&TipoNota,in:&EnviarXml,in:&EnviaPdfNota,in:&SomenteNotasAutorizadas,in:&ColPesEml);
+
+
+Exception_handler('Exception_handler');
+
+Error_handler('Error_handler');
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesEml</Value></Property><Property><Name>Description</Name><Value>Pessoa Email</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColPesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColPesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TipoNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TipoNota</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Var1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviarXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviarXml</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EnviaPdfNota">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EnviaPdfNota</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SomenteNotasAutorizadas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SomenteNotasAutorizadas</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Status_SimNao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalPercentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalPercentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Count">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Count</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColPesEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColPesEml</Value></Property><Property><Name>Description</Name><Value>Pessoa Email</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesEml</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Index">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Index</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressLogXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressLogXml</Value></Property><Property><Name>Description</Name><Value>Temporaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressLogXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ProgressFin">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressFin</Value></Property><Property><Name>Description</Name><Value>Data Final</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressFin</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Progressini">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Progressini</Value></Property><Property><Name>Description</Name><Value>Data Inicial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressIni</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IniNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IniNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FinNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FinNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEmlCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEmlCod</Value></Property><Property><Name>Description</Name><Value>Conta Email</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEmlCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilRaz">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilRaz</Value></Property><Property><Name>Description</Name><Value>Filial Razão Social</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilRaz</Value></Property></Properties>
+        </Variable>
+        <Variable Name="DestinoPesEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>DestinoPesEml</Value></Property><Property><Name>Description</Name><Value>Pessoa Email</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExecutou">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExecutou</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AddressVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AddressVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuthenticationNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuthenticationNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SecureNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SecureNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TimeoutNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TimeoutNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="HostVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HostVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="UserNameVarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>UserNameVarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PortNumeric">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PortNumeric</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpEmlSen">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpEmlSen</Value></Property><Property><Name>Description</Name><Value>Senha</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpEmlSen</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Obs">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Obs</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FunEmailContato">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FunEmailContato</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NfsProTer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NfsProTer</Value></Property><Property><Name>Description</Name><Value>Propria Terceiros</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfsProTer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsExistDiretorio">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsExistDiretorio</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="destinoPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>destinoPasta</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>600</Value></Property><Property><Name>AttMaxLen</Name><Value>600</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CountNfse">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CountNfse</Value></Property><Property><Name>Length</Name><Value>8</Value></Property><Property><Name>AttMaxLen</Name><Value>8</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImapSSl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImapSSl</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="imapPort">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>imapPort</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Port</Value></Property></Properties>
+        </Variable>
+        <Variable Name="imapHost">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>imapHost</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Host</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmailResult">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmailResult</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:EmailResult</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Result">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Result</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlSts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlSts</Value></Property><Property><Name>Description</Name><Value>Status</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlSts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Attachments">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Attachments</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Destinatarios">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Destinatarios</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>200</Value></Property><Property><Name>AttMaxLen</Name><Value>200</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmlAss">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmlAss</Value></Property><Property><Name>Description</Name><Value>Assunto</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmlAss</Value></Property></Properties>
+        </Variable>
+        <Variable Name="JASPI_enviaEmail">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>JASPI_enviaEmail</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>exo:JASPI_EnviaEmail</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SolEmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SolEmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:SolEmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXexceptionType">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXexceptionType</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXexceptionType</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionDetails">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionDetails</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionDetails</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GXExceptionStack">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GXExceptionStack</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GXExceptionStack</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBErr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBErr</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBErr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GxDbSqlState">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GxDbSqlState</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:GxDbSqlState</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxDBTxt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxDBTxt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxDBTxt</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxOper">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxOper</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxOper</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrTbl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrTbl</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrTbl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="gxErrOpt">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>gxErrOpt</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:gxErrOpt</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>EnviaEmailAgrupado</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="7529ae64-c871-4084-a67d-a1ef9467c563" user="SRVORDIG\Administrador" versionDate="2024-05-02T16:59:08.0000000Z" lastUpdate="2024-04-30T12:46:00.0000000Z" checksum="5d869ae885e1a0f2d5a6f654ff7ff1ff" fullyQualifiedName="prcGravaLogGNRE_Novo" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="249a9b92-0b0e-4b1c-99c7-52198c2273b6" name="prcGravaLogGNRE_Novo" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Grava Log GNRE_Novo" parent="GNRE" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[//LoadWWPContext(&Context)
+RetornaConfiguracoesPastas.Call(&EmpCod, &FilCod, &sdtConfiguracoesPasta)
+
+//## Define o nome dos Arquivos
+
+&parmXML 		= 	&sdtConfiguracoesPasta.PastaNFretorno+Trim(&nomeFinal)+'_guias-pro-rec.xml'
+&parmPDF 		= 	&sdtConfiguracoesPasta.PastaNFretorno+Trim(&nomeFinal)+'_guias-gnre.pdf'
+
+//################################\\
+
+//## Pesquisa o Arquivo em XML
+
+&File.Source 	= 	&parmXML
+
+//################################\\
+
+//## Se o Arquivo existe	
+If &File.Exists()
+	
+	For Each Order EmpCod, FilCod, GNRENumRec		//## Verifica se há algum registro referente a GNRE emetida		
+		Where EmpCod 		=	 &EmpCod			//## Código da Empresa	(por parâmetro)
+		Where FilCod	 	=	 &FilCod			//## Código da Filial	(por parâmetro)
+		Where GNRENumRec 	=	 &parmGNRENumRec	//## Recibo da GNRE		(por parâmetro)	
+		
+		GNREDtaEms 			= 	&Today				//## Data de Emissão do Registro		
+		GNREFunCod 			= 	&PesFunCod	//## Funcionário que emitiu a GNRE	
+		
+	When None										//## Se não há registro									
+		
+		New											 
+			EmpCod 		= &EmpCod					//## Código da Empresa		
+			FilCod 		= &FilCod					//## Código da Filial	
+			GNRENumRec 	= &parmGNRENumRec			//## Recibo da GNRE			
+			GNREDtaEms 	= &Today					//## Data de Emissão		
+			GNREFunCod 	= &PesFunCod				//## Funcionário que emitiu
+		EndNew
+		
+	EndFor
+	
+	Commit
+	
+	&LeituraXML.Open(&parmXML)						//## Abre o Arquivo 	
+	&Ret = &LeituraXML.ReadType(1, 'ns1:situacaoProcess')	//## Lê todos os dados dentro da TAG: 'ns1:TResultLote_GNRE'	
+	If &Ret <> 0
+		&LeituraXML.Read()
+		Do While &LeituraXml.Name <> 'ns1:situacaoProcess' //## Repete enquanto o arquivo não acabar	
+			Do Case
+				Case &LeituraXML.Name 	= 	'ns1:codigo'
+					&GNRESts 			= 	&LeituraXML.Value
+			EndCase
+			&LeituraXML.Read()
+		EndDo
+	EndIf
+	&LeituraXML.Close()
+	
+	If &GNRESts 	= '401'
+		&parmPDF.SetEmpty()
+		&parmXML.SetEmpty()
+		&Mensagem	= 'STATUS 401 - Lote em processamento. Cancele o envio e transmita novamente em alguns instantes.'
+		prcGravaGNREEmitida.Call(&EmpCod, &FilCod, &parmGNRENumRec, &GNREChavNot, &parmGnreTipo, &GNRESts, &GNREVlrTot, &Mensagem, &parmPDF, &parmXML)
+		Return
+	EndIf
+
+	&LeituraXML.Open(&parmXML)
+	&LeituraXML.ReadType(1, 'ns1:resultado')
+	&LeituraXML.Read()
+			
+	Do While (&LeituraXml.Name <> 'ns1:resultado' and &LeituraXml.Name <> '')
+		Do Case
+			Case &LeituraXML.Name 	= 'ns1:receita'
+				&GNRETipo 		  	= &LeituraXML.Value 
+			Case &LeituraXML.Name 	= 'ns1:dataVencimento'
+				&CreDtaVct 			= &LeituraXML.Value
+			Case &LeituraXML.Name 	= 'ns1:valorGNRE'
+				&GNREVlrTot 		= &LeituraXML.Value
+			Case &LeituraXML.Name	= 'ns1:codigoBarras'
+				&CreCodBar			= &LeituraXML.Value
+			Case &LeituraXML.Name 	= 'ns1:motivosRejeicao'
+				&LeituraXML.Read()
+				Do While (&LeituraXml.Name <> 'ns1:motivosRejeicao' and &LeituraXml.Name <> '')
+					Do Case 
+						Case &LeituraXML.Name = 'ns1:motivo'
+							&LeituraXML.Read()
+							Do While (&LeituraXml.Name <> 'ns1:motivo' and &LeituraXml.Name <> '')
+								Do Case
+									Case &LeituraXML.Name = 'ns1:codigo'
+										&Mensagem	+= 'ERRO ' + &LeituraXML.Value
+									Case &LeituraXML.Name = 'ns1:descricao'
+										&Mensagem 	+= ' - ' + &LeituraXML.Value + ' '
+								EndCase
+								&LeituraXML.Read()
+							EndDo
+					EndCase
+					&LeituraXML.Read()
+				EndDo
+		EndCase
+		&LeituraXML.Read()
+	EndDo
+	&LeituraXML.Close()
+	
+	If &GNRESts <> '402'
+		&parmPDF.SetEmpty()
+		&parmXML.SetEmpty()
+	EndIf
+
+	prcGravaGNREEmitida.Call(&EmpCod, &FilCod, &parmGNRENumRec, &GNREChavNot, &GNRETipo, &GNRESts, &GNREVlrTot, &Mensagem, &parmPDF, &parmXML)
+	
+	//## Caso necessário gerar a DUPLICATA, atribui as informações e salva	##\\
+	If &GerarDuplicata = 1 And &GNRESts	= '402'
+		//## Concatena de forma certa as informações ##\\
+		&Day 				= Trim(SubStr(&CreDtaVct, 9, 2))
+		&Mes				= Trim(SubStr(&CreDtaVct, 6, 2))
+		&Ano 				= Trim(SubStr(&CreDtaVct, 1, 4))
+		&CreDtaVct			= Trim(&Day)+'/'+Trim(&Mes)+'/'+Trim(&Ano)
+		//#############################################\\
+		
+		&SdtAdiantamento.Clear()
+		&SdtAdiantamentoItem 			= 	New()
+		&SdtAdiantamentoItem.Data 		= 	CtoD(&CreDtaVct)		//## Data de Vencimento			
+		&SdtAdiantamentoItem.Valor 		= 	&GNREVlrTot.ToNumeric()	//## Valor da GNRE			
+		&SdtAdiantamentoItem.PlanCod 	= 	&PlanCod				//## Plano de Contas			
+		&SdtAdiantamentoItem.Nro		= 	&CreDupNro				//## Número da Duplicata			
+		&SdtAdiantamento.Add(&SdtAdiantamentoItem)
+		
+		&SdtDuplicata.CreFilPgt 		= 	&FilCod					//## Código da Filial			
+		&sdtDuplicata.CreRecPag 		= 	ReceberPagar.Pagar		//## Tipo da DUPLICATA (PAGAR)	
+		
+		For Each Order EmpCod, FrpPgtoCod		//## Busca a Forma de Pagamento
+			Where EmpCod 		= 	&EmpCod
+			Where FrpPgtoNom 	= 	'DUPLICATA'
+			
+			&CreFrpPgtoCod = FrpPgtoCod
+			
+			Exit
+		EndFor
+		
+		&sdtDuplicata.CreFrpPgtoCod	= 	&CreFrpPgtoCod			//## Forma de Pagamento		
+		&sdtDuplicata.CreDupNro 	= 	&CreDupNro				//## Número da DUPLICATA	
+		&sdtDuplicata.CreDtaEms 	= 	&Today					//## Data de Emissão 		
+		&sdtDuplicata.CreDtaVct 	= 	CtoD(&CreDtaVct)		//## Data de Vencimento		
+		&sdtDuplicata.CreCliCod 	= 	&PesCodFornecedor		//## Cliente				
+		&sdtDuplicata.CreVenCod 	= 	&PesFunCod				//## Funcionário			
+		&sdtDuplicata.CreVlrDup 	= 	&GNREVlrTot.ToNumeric()	//## Valor da DUPLICATA		
+		&sdtDuplicata.CreCbrCod 	= 	1						//## Forma de Cobrança		
+		&sdtDuplicata.CreNumConGNRE = 	&parmGNRENumRec			//## GNRE de Origem 		
+		
+		&sdtDuplicata.CrePlanCod 	= 	&PlanCod				//## Plano de Contas		
+		&sdtDuplicata.CreIsPer 		= 	False
+		
+		&sdtDuplicata.CreCodBar 	= 	&CreCodBar				//## Código de Barras		
+		&sdtDuplicata.CreCobObs	 	=	'DUPLICATA GERADA APÓS A EMISSÃO DA GNRE'
+		
+		GravaAtualizaDuplicatas.Call('INS', &EmpCod, &FilCod, 0, &PesFunCod, &sdtDuplicata, &SdtAdiantamento)
+		
+	EndIf
+	//#######################################################################\\
+	
+EndIf
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(In:&parmGNRENumRec, In:&GNREChavNot, In:&CreDupNro, In:&nomeFinal, In:&EmpCod, In:&FilCod, In:&GerarDuplicata, in:&PesCodFornecedor, In:&PlanCod, In:&PesFunCod, In:&parmGnreTipo);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CreCodBar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreCodBar</Value></Property><Property><Name>Description</Name><Value>Duplicata Codigo de barras</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreCodBar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreFrpPgtoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreFrpPgtoCod</Value></Property><Property><Name>Description</Name><Value>Cre Frp Pgto Cod</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreFrpPgtoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="File">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>File</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:File</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GNREChavNot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GNREChavNot</Value></Property><Property><Name>Description</Name><Value>Chave do Lote gerada pela Consulta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GNREChavNot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GNRESts">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GNRESts</Value></Property><Property><Name>Description</Name><Value>Status da Consulta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GNRESts</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GNRETipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GNRETipo</Value></Property><Property><Name>Description</Name><Value>Tipo da GNRE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GNRETipo</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GNREVlrTot">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GNREVlrTot</Value></Property><Property><Name>Description</Name><Value>Valor da GNRE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GNREVlrTot</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmGNRENumRec">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmGNRENumRec</Value></Property><Property><Name>Description</Name><Value>Número do Recibo da GNRE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GNRENumRec</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtAdiantamento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtAdiantamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtAdiantamento</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtConfiguracoesPasta">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtConfiguracoesPasta</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtConfiguracoesPasta</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtDuplicata</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtDuplicata</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>4</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>4</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Edit</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDtaVct">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDtaVct</Value></Property><Property><Name>Description</Name><Value>Data Vencimento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CreDupNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CreDupNro</Value></Property><Property><Name>Description</Name><Value>Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CreDupNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Day">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Day</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="GerarDuplicata">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>GerarDuplicata</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Numeric</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LeituraXML">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LeituraXML</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLReader</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Mes</Value></Property><Property><Name>EmptyAsNull</Name><Value>Yes</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>Decimals</Name><Value>0</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property><Property><Name>AttAvgLen</Name><Value>0</Value></Property><Property><Name>AttCollection</Name><Value>False</Value></Property><Property><Name>idDATEFORMAT</Name><Value>idDATEFORMAT_SHORT</Value></Property><Property><Name>ControlType</Name><Value>Combo Box</Value></Property></Properties>
+        </Variable>
+        <Variable Name="nomeFinal">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>nomeFinal</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmPDF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmPDF</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmXML">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmXML</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Percentual">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Percentual</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Percentual</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCodFornecedor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCodFornecedor</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesFunCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesFunCod</Value></Property><Property><Name>Description</Name><Value>Funcionário</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FunCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PlanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PlanCod</Value></Property><Property><Name>Description</Name><Value>Plano Contas</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PlanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ret">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ret</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtAdiantamentoItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtAdiantamentoItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtAdiantamento.SdtAdiantamentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtGnreItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtGnreItem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtGNRE.sdtGNREItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="WebSession">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>WebSession</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:WebSession</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LogGUID">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LogGUID</Value></Property><Property><Name>Description</Name><Value>Log GUID</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LogGUID</Value></Property></Properties>
+        </Variable>
+        <Variable Name="parmGnreTipo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>parmGnreTipo</Value></Property><Property><Name>Description</Name><Value>Tipo da GNRE</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:GNRETipo</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcGravaLogGNRE_Novo</Value></Property><Property><Name>Description</Name><Value>prc Grava Log GNRE_Novo</Value></Property><Property><Name>CommitOnExit</Name><Value>No</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

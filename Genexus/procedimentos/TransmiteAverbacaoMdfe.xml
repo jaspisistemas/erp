@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="8a01b358-5082-4cbf-a049-3e3cb5451bd4" user="WINJEAN\jeanfae" versionDate="2025-06-16T20:01:29.0000000Z" lastUpdate="2025-06-11T19:34:28.0000000Z" checksum="56cceddf905988371612c08c8af0f8ac" fullyQualifiedName="TransmiteAverbacaoMdfe" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="fed818a7-7a38-4783-9e85-a9a3d16241da" name="TransmiteAverbacaoMdfe" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Transmite Averbacao Mdfe" parent="MDFe" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[&MDFeArqXml.SetEmpty()
+&IsSucesso = False
+do 'PegaArquivoXML'
+
+If not &MDFeArqXml.Trim().IsEmpty()
+	&HttpClient.Host = 'webserver.averba.com.br' //servidor
+	&HttpClient.timeout = 5
+	&HttpClient.Secure = 0
+	//&httpclient.AddHeader(!'Accept-Encoding',!'gzip,deflate')
+	&httpclient.AddHeader(!'Connection',!'Keep-Alive')
+	&httpclient.AddHeader(!'Accept',!'application/json')
+	&httpclient.AddHeader(!'Content-type',!'application/json')
+	&HttpClient.AddString(&SdtAtm.ToJson())
+	&String = '/rest/Auth' 
+	&HttpClient.Execute('POST',&String)
+	
+	padraoUsuario.Call('G', '#AVERBAATMMDFE', &Context.PesCod, &Context.EmpCod, &HttpClient.ToString(), &PadDtaMod)  // Grava resultado do Post só como um LOG para Consulta
+	
+	If &HttpClient.ErrCode = 0 //sem erro de comunicação
+		&Bearer.fromJson(&HttpClient.ToString())
+		
+		If not &Bearer.Bearer.IsEmpty()
+			//####################################################### AVERVA CTE #######################
+			&HttpClient.Host = 'webserver.averba.com.br' //servidor
+			&HttpClient.timeout = 5
+			&HttpClient.Secure = 0
+			&HttpClient.AddHeader(!'Authorization','Bearer '+&Bearer.Bearer.ToString())
+			&httpclient.AddHeader(!'Connection',!'Keep-Alive')
+			&httpclient.AddHeader(!'Accept',!'application/xml')
+			&httpclient.AddHeader(!'Content-type',!'application/xml')
+			&HttpClient.AddString(&MDFeArqXml)
+			&String = '/rest/MDFe' 
+			&HttpClient.Execute('POST',&String)
+			
+			padraoUsuario.Call('G', '#AVERBAATMMDFE', &Context.PesCod, &Context.EmpCod, &HttpClient.ToString(), &PadDtaMod)
+			&longvarchar = ''
+			If &HttpClient.ErrCode = 0 //sem erro de comunicação
+				&longvarchar = &HttpClient.ToString()
+				&longvarchar = &longvarchar.Replace('SdtRetornoAverbacao xmlns="ERP"','Retorno')
+				&longvarchar = &longvarchar.Replace('SdtRetornoAverbacao','Retorno')
+				
+				&SdtRetornoAverbacaoMdfe.FromXml(&longvarchar.ToString())
+				padraoUsuario.Call('G', '#AVERBAATMMDFE2', &Context.PesCod, &Context.EmpCod, &SdtRetornoAverbacao.ToXml(), &PadDtaMod)
+				
+				If not &SdtRetornoAverbacaoMdfe.Declarado.Protocolo.IsEmpty()
+					GravaAverbacaoMdfe.Call(&EmpCod,&FilCod,&MdfeCod,&SdtRetornoAverbacaoMdfe) 
+					&IsSucesso = True
+				Else
+					&erroMensagem = 'Erro! Averbação sem Protocolo.'
+				EndIf
+			Else
+				&erroMensagem = 'Autenticado mas com Erro na Averbação!'
+			EndIf
+		Else
+			&erroMensagem = 'ATENÇÃO! "Bearer" está vazio contate o suporte!'
+		EndIf
+	Else
+		&erroMensagem = 'Erro na comunicação!'
+	EndIf
+Else
+	&erroMensagem = 'Arquivo XML do MDF-e não encontado!'
+EndIf
+
+Sub 'PegaArquivoXML'
+	For Each Order EmpCod,FilCod,MDFeCod
+		Where EmpCod = &EmpCod
+		where FilCod = &FilCod
+		Where MDFeCod = &MdfeCod
+		Do Case
+			Case MDFeSts = Status_Nfe.Autorizada
+				&MdfeArqXml = MDFeArqXml
+			Case MDFeSts = Status_Nfe.Cancelada
+				&MdfeArqXml = MDFeArqXml
+		EndCase			
+		Exit
+	Endfor
+EndSub
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[Parm(in:&EmpCod,in:&FilCod,in:&MdfeCod,in:&SdtAtm,out:&IsSucesso, out:&erroMensagem);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="HttpClient">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>HttpClient</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:HttpClient</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteArqXml</Value></Property><Property><Name>Description</Name><Value>Arquivo XML</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtAtm">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtAtm</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtAtm</Value></Property></Properties>
+        </Variable>
+        <Variable Name="String">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>String</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Bearer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Bearer</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:Bearer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Context">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Context</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:wwpContext, WWPBaseObjects</Value></Property><Property><Name>ATT_INITIAL_VALUE</Name><Value>LoadWWPContext.udp()</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PadDtaMod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PadDtaMod</Value></Property><Property><Name>Description</Name><Value>Data modificacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PadDtaMod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRetornoAverbacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRetornoAverbacao</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRetornoAverbacao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CteCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CteCod</Value></Property><Property><Name>Description</Name><Value>Cte Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CteCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRetornoAverbacaoInfos">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRetornoAverbacaoInfos</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRetornoAverbacao.Info</Value></Property></Properties>
+        </Variable>
+        <Variable Name="XmlWriter">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>XmlWriter</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>ext:XMLWriter</Value></Property></Properties>
+        </Variable>
+        <Variable Name="longvarchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>longvarchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:LongVarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsSucesso">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsSucesso</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MDFeArqXml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MDFeArqXml</Value></Property><Property><Name>Description</Name><Value>Arq.Xml</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeArqXml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MdfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MdfeCod</Value></Property><Property><Name>Description</Name><Value>Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MDFeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtRetornoAverbacaoMdfe">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtRetornoAverbacaoMdfe</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtRetornoAverbacaoMdfe</Value></Property></Properties>
+        </Variable>
+        <Variable Name="erroMensagem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>erroMensagem</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mensagem</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>TransmiteAverbacaoMdfe</Value></Property><Property><Name>Description</Name><Value>Transmite Averbacao Mdfe</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

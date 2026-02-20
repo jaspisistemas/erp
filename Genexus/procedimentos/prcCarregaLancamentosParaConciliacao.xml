@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="80617bbf-8698-4e11-9870-c159255c810a" user="WINJEAN\jeanfae" versionDate="2025-10-31T19:35:53.0000000Z" lastUpdate="2025-10-28T17:34:29.0000000Z" checksum="5da986874f02fc1f7588e6264207473b" fullyQualifiedName="prcCarregaLancamentosParaConciliacao" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="cdca557b-96bd-4109-9653-7be4f0269f31" name="prcCarregaLancamentosParaConciliacao" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="prc Carrega Lancamentos Para Conciliacao" parent="ConciliacaoBancaria" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&MovCodMovItmCod.Clear()
+
+For Each Order EmpCod, CtabanCod, LanBanData
+	where EmpCod = &EmpCod
+	where CtabanCod = &CtaBanCod
+	where LanBanStatus.IsEmpty() or LanBanStatus = StatusConciliacao.pendente
+	where LanBanStatus <> StatusConciliacao.Ignorar
+	Where LanBanVlr = &LanBanVlr when not &LanBanVlr.IsEmpty()
+	Where LanBanDoc like &localizar or LanBanDesc like &localizar when not &localizar.IsEmpty()
+	where LanBanData.Month() = &dataMes when not &dataAno.IsEmpty()
+	where LanBanData.year() = &dataAno when not &dataAno.IsEmpty()
+	where LanBanData.day() = &dataDia when not &dataDia.IsEmpty()
+	
+	&SdtConciliacaoBancariaItem = new()
+	&SdtConciliacaoBancariaItem.EmpCod = EmpCod
+	&SdtConciliacaoBancariaItem.CtabanCodOrigem = CtabanCod
+	&SdtConciliacaoBancariaItem.CtaBanCodOrigemNome = CtaBanCodNom
+	&SdtConciliacaoBancariaItem.LanBanCod = LanBanCod
+	&SdtConciliacaoBancariaItem.LanBanCreDeb = LanBanCreDeb
+	&SdtConciliacaoBancariaItem.LanBanStatus = LanBanStatus
+	&SdtConciliacaoBancariaItem.LanBanVlr = LanBanVlr 
+	&SdtConciliacaoBancariaItem.LanBanData = LanBanData
+	&SdtConciliacaoBancariaItem.LanBanDesc = LanBanDesc
+	&SdtConciliacaoBancariaItem.LanBanDoc = LanBanDoc
+	
+	&FimMovDtaCon = LanBanData
+	&iniMovDtaCon = LanBanData
+	Do CAse
+		CAse LanBanData.DayOfWeek() = 7
+			&FimMovDtaCon = &FimMovDtaCon.AddDays(2)
+		CAse LanBanData.DayOfWeek() = 1
+			&FimMovDtaCon = &FimMovDtaCon.AddDays(1)
+	EndCase
+	
+	For Each Order EmpCod, MovDtaCon, MovCod, MovItmCod
+		where MovItmVlr = LanBanVlr //mesmo valor
+		where MovDtaCon >= &iniMovDtaCon and MovDtaCon <= &FimMovDtaCon
+		where (MovSts   = Status_Caixa.Lancado or MovSts.IsEmpty() or MovSts.IsNull())
+		where (MovItmSts = Status_Caixa.Lancado or MovItmSts.IsEmpty() or MovItmSts.IsNull())
+		where MovCreDeb = LanBanCreDeb
+		where (MovItmIsCon = Status_SimNao.Nao or MovItmIsCon.IsEmpty() or MovItmIsCon.IsNull())
+		where MovCtaBanCod = CtabanCod
+		
+		&Varchar = trim(str(MovCod)) + '.' + trim(str(MovItmCod))
+		if &Varchar in &MovCodMovItmCod
+		Else
+			&MovCodMovItmCod.Add(&Varchar)
+			
+			&SdtConciliacaoBancariaItemMovimento = new()		
+			&SdtConciliacaoBancariaItemMovimento.MovCod = MovCod
+			&SdtConciliacaoBancariaItemMovimento.MovDta = MovDta
+			&SdtConciliacaoBancariaItemMovimento.MovDtaCon = MovDtaCon
+			&SdtConciliacaoBancariaItemMovimento.MovTip = MovTip
+			&SdtConciliacaoBancariaItemMovimento.MovCtaBanCod = MovCtaBanCod
+			&SdtConciliacaoBancariaItemMovimento.MovVlr =  MovItmVlr
+			&SdtConciliacaoBancariaItemMovimento.MovDoc = MovDoc
+			&SdtConciliacaoBancariaItemMovimento.MovCreDeb = MovCreDeb
+			&SdtConciliacaoBancariaItemMovimento.MovItmCod = MovItmCod
+			&SdtConciliacaoBancariaItemMovimento.MovItmlCpl = MovItmCpl
+			&SdtConciliacaoBancariaItemMovimento.PlanCodNom = PlanCodNom
+			
+			&SdtConciliacaoBancariaItem.Movimento.Add(&SdtConciliacaoBancariaItemMovimento)
+			Exit
+		Endif
+	when none
+		if &IsConciliarAproximada = true
+			
+			&FimMovDtaCon = LanBanData.AddDays(5)
+			&iniMovDtaCon = LanBanData.AddDays(-5)
+			
+			For Each Order EmpCod, MovDtaCon, MovCod, MovItmCod
+				where MovItmVlr = LanBanVlr //mesmo valor
+				where MovDtaCon >= &iniMovDtaCon and MovDtaCon <= &FimMovDtaCon
+				where (MovSts   = Status_Caixa.Lancado or MovSts.IsEmpty() or MovSts.IsNull())
+				where (MovItmSts = Status_Caixa.Lancado or MovItmSts.IsEmpty() or MovItmSts.IsNull())
+				where MovCreDeb = LanBanCreDeb
+				where (MovItmIsCon = Status_SimNao.Nao or MovItmIsCon.IsEmpty() or MovItmIsCon.IsNull())
+				where MovCtaBanCod = CtabanCod
+				
+				&Varchar = trim(str(MovCod)) + '.' + trim(str(MovItmCod))
+				if &Varchar in &MovCodMovItmCod
+				Else
+					&MovCodMovItmCod.Add(&Varchar)
+					
+					&SdtConciliacaoBancariaItemMovimento = new()		
+					&SdtConciliacaoBancariaItemMovimento.MovCod = MovCod
+					&SdtConciliacaoBancariaItemMovimento.MovDta = MovDta
+					&SdtConciliacaoBancariaItemMovimento.MovDtaCon = MovDtaCon
+					&SdtConciliacaoBancariaItemMovimento.MovTip = MovTip
+					&SdtConciliacaoBancariaItemMovimento.MovCtaBanCod = MovCtaBanCod
+					&SdtConciliacaoBancariaItemMovimento.MovVlr =  MovItmVlr
+					&SdtConciliacaoBancariaItemMovimento.MovDoc = MovDoc
+					&SdtConciliacaoBancariaItemMovimento.MovCreDeb = MovCreDeb
+					&SdtConciliacaoBancariaItemMovimento.MovItmCod = MovItmCod
+					&SdtConciliacaoBancariaItemMovimento.MovItmlCpl = MovItmCpl
+					&SdtConciliacaoBancariaItemMovimento.PlanCodNom = PlanCodNom
+					
+					&SdtConciliacaoBancariaItem.Movimento.Add(&SdtConciliacaoBancariaItemMovimento)
+					Exit
+				Endif
+			When none
+				&QtdErros += 1
+			EndFor
+		Else
+			&QtdErros += 1
+		Endif	
+	EndFor
+	
+	&SdtConciliacaoBancaria.Add(&SdtConciliacaoBancariaItem)
+	
+	if &QtdErros = &qtdItensConciliacao or &SdtConciliacaoBancaria.Count = 50 //se der a qtd de erros ou 50 registros por vez
+		exit
+	Endif
+
+EndFor
+
+
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&EmpCod, in:&CtaBanCod, in:&dataDia, in:&dataMes, in:&dataAno, in:&qtdItensConciliacao, in:&localizar, in:&IsConciliarDataValor, in:&IsConciliarAproximada, in:&LanBanVlr, out:&SdtConciliacaoBancaria);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="CtaBanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CtaBanCod1">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CtaBanCod1</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dataAno">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dataAno</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dataDia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dataDia</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dataMes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dataMes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>CodigoEmpresa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdItensLoad">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdItensLoad</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacaoBancaria">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacaoBancaria</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacaoBancariaItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacaoBancariaItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria.SdtConciliacaoBancariaItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCodMovItmCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCodMovItmCod</Value></Property><Property><Name>Description</Name><Value>Movimento Item Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Varchar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Varchar</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtConciliacaoBancariaItemMovimento">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtConciliacaoBancariaItemMovimento</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtConciliacaoBancaria.SdtConciliacaoBancariaItem.MovimentoItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdItensConciliacao">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdItensConciliacao</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FimMovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FimMovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="localizar">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>localizar</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>100</Value></Property><Property><Name>AttMaxLen</Name><Value>100</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsConciliarDataValor">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsConciliarDataValor</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="IsConciliarAproximada">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>IsConciliarAproximada</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:Boolean</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniMovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniMovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="LanBanVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>LanBanVlr</Value></Property><Property><Name>Description</Name><Value>Lan Ban Vlr</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:LanBanVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="QtdErros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>QtdErros</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>prcCarregaLancamentosParaConciliacao</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>

@@ -1,0 +1,623 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Object parentGuid="0d38f34d-6464-450e-87e0-27cc436e8c81" user="SRVORDIG\Administrador" versionDate="2025-06-02T11:51:35.0000000Z" lastUpdate="2025-05-30T13:04:27.0000000Z" checksum="f3abdaabba04f548da81a9669a1315c7" fullyQualifiedName="Gera_LCDPR" moduleGuid="afa47377-41d5-4ae8-9755-6f53150aa361" guid="eb6bc85c-779e-48a9-a0f7-7bb3883f02c5" name="Gera_LCDPR" type="84a12160-f59b-4ad7-a683-ea4481ac23e9" description="Gera_LCDPR" parent="Agendador" parentType="00000000-0000-0000-0000-000000000008">
+      <Part type="528d1c06-a9c2-420d-bd35-21dca83f12ff">
+        <Source><![CDATA[
+&iniNfeDtaEms = YMDtoD(YEAR(&sdtEnviaSped.IniNfeDtaFat),1,1) //iNICIO DO ANO
+&finNfeDtaEms = YMDtoD(YEAR(&sdtEnviaSped.IniNfeDtaFat),12,31) //FINAL DO ANO
+&AuxNomeArquivo = &sdtEnviaSped.ArquivoLCDPR
+&OriginalSubstituto = &sdtEnviaSped.FinalidadeGeracao
+&dia = day(&iniNfeDtaEms)
+&mes = month(&iniNfeDtaEms)
+&Ano = year(&iniNfeDtaEms)
+
+//Leiaute 1.3
+//## INICIO ARQUIVO 
+//Registro 0000 – Abertura do Arquivo Digital e Identificação da Pessoa Física    Nível Hierárquico – 0 Ocorrência – 1:1
+//Registro 0010 - Parâmetro de tributação                                         Nível Hierárquico – 2 Ocorrência – 1:1
+//Registro 0030 - Dados cadastrais                                                Nível Hierárquico – 2 Ocorrência – 1:1
+//Registro 0040 - Cadastro dos imóveis rurais                                     Nível Hierárquico – 2 Ocorrência – 1:N
+//Registro 0045 - Cadastro de terceiros                                           Nível Hierárquico – 3 Ocorrência – 1:N
+//Registro 0050 - Cadastro das contas bancárias do produtor rural                 Nível Hierárquico – 2 Ocorrência – 1:N
+//Registro Q100 - Demonstrativo do Resultado da Atividade Rural
+//Registro Q200 - Resumo Mensal do Demonstrativo do Resultado da Atividade Rural
+//Registro 9999 - Identificação do Contador e Encerramento do Arquivo Digital
+&AuxNomeArquivo = &sdtEnviaSped.ArquivoLCDPR
+
+&NomeArquivo = &AuxNomeArquivo.Trim()
+&Resultado = DfwOpen(&NomeArquivo,'','', 0, 'ISO-8859-1')
+&qtdeLInhas = 0
+
+//Recebo a (filial/propriedade) do parâmetro para gerar o arquivo, para quem vou gerar o aruqivo,  mas carrego todas as filais/propriedades que estão no mesmo cpf pois o arquivo é por cpf e nao por propriedade
+For Each Order EmpCod, FilCod
+	Where EmpCod = &EmpCod
+	wHERE FilCod = &FilCod
+	
+	&FilCpj = FilCpj
+	
+	//0000: Abertura do Arquivo Digital e Identificação da Pessoa Física
+	
+	&ArquivoTXT = '0000'  //01 REG - Texto fixo contendo “0000”. N 4
+	&ArquivoTXT += '|LCDPR'  //01 NOME_ESC - Texto fixo contendo “LCDPR”. C 5
+	&ArquivoTXT += '|' + '0013' // COD_VER - Código da versão do leiaute. C 4
+	&ArquivoTXT += '|' + trim(retornaSoNumeros.Udp(FilCpj)) // CPF do declarante.: 	N 11
+	&ArquivoTXT += '|' + trim(FilRaz)        // NOME - Nome da pessoa física.
+	&ArquivoTXT += '|' + &OriginalSubstituto // IND_SIT_INI_PER - 0 – Regular (Início no primeiro dia do ano)   1 – Abertura (Início de atividades no ano-calendário). 2 – Início de obrigatoriedade da escrituração no curso do ano calendário.
+	&ArquivoTXT += '|' + '0'                 // SIT_ESPECIAL - Indicador de Situação Especial e Outros Eventos: 0 – Normal; 1 – Falecimento; 2 - Espólio; 3 - Saída definitiva do País;
+	&ArquivoTXT += '|' + ''                  // DT_SIT_ESP - Data da Situação Especial: em caso de falecimento da pessoa física, a data de falecimento.
+	&ArquivoTXT += '|' + padL(str(day(&iniNfeDtaEms)),2,'0')+padL(str(Month(&iniNfeDtaEms)),2,'0')+padL(str(Year(&iniNfeDtaEms)),4,'0')  // DT_INI - Data do Início do Período:
+	&ArquivoTXT += '|' + padL(str(day(&finNfeDtaEms)),2,'0')+padL(str(Month(&finNfeDtaEms)),2,'0')+padL(str(Year(&finNfeDtaEms)),4,'0')  // DT_FIN - Data do Início do Período:
+	DO 'GravaLinha'
+	
+	//0010: Identificação do tipo do registro
+	&ArquivoTXT = '0010'  // 01 REG - Texto fixo contendo “0010”.
+	&ArquivoTXT += '|1'   // 01 FORMA_APUR - Forma de Apuração: 1 – Livro Caixa. 2 – Apuração do lucro pelo disposto no art. 5º da Lei nº 8.023, de 1990
+	DO 'GravaLinha'
+	
+	//0030: Dados Cadastrais
+	&FilPesSoc = FilPesSoc
+	Do 'BuscaDadosContribuinte'
+	&ArquivoTXT = '0030'                                       // 01 REG - Texto fixo contendo “0030”. 
+	&ArquivoTXT += '|'+trim(&PesLog)                           // ENDERECO -  Endereço da pessoa física. 150
+	&ArquivoTXT += '|'+trim(Substr(&PesNro,1,6))               // NUM - Número 6
+	&ArquivoTXT += '|'+trim(Substr(&PesCpl,1,50))              // COMPL - Complemento 50
+	&ArquivoTXT += '|'+trim(Substr(&PesBai,1,50))              // BAIRRO - Bairro/Distrito  50 
+	&ArquivoTXT += '|'+ &PesCidUfeCod                          // UF - Unidade Federativa 2
+	&ArquivoTXT += '|'+ trim(str(&PesCidIBGE))                 // COD_MUN - Código do Município 7
+	&ArquivoTXT += '|'+ trim(retornaSoNumeros.Udp(&PesCep))    // CEP - Código de Endereçamento Postal (CEP) 8
+	&ArquivoTXT += '|'+ trim(retornaSoNumeros.Udp(&PesPrmFon)) // NUM_TEL - DDD + Número do Telefone 15
+	&ArquivoTXT += '|'+ trim(&PesPrmEml)                       // EMAIL - Correio eletrônico 115
+	DO 'GravaLinha'
+	
+EndFor
+&ColFilCod.Clear()
+
+//Pega todos os Imóveis do cpf
+For Each Order EmpCod,FilCpj,ImoTip,ImoCod
+	Where EmpCod = &EmpCod
+	Where FilCpj = &FilCpj
+	&ImoCod = ImoCod
+	
+	&ColFilCod.Add(FilCod) //aki adiciona as filiais participantes 
+
+	&ArquivoTXT = '0040'                               // 01 REG - Texto fixo contendo “0040”. 
+	&ArquivoTXT += '|'+ trim(str(ImoCod))              // COD_IMÓVEL -  Código do Imóvel no LCDPR 3 
+	&ArquivoTXT += '|BR'                               // PAIS -  País Brasil = BR
+	&ArquivoTXT += '|BRL'                              // MOEDA - Moeda = BRL
+	&ArquivoTXT += '|'+RetornaSoNumeros.Udp(ImoItr)    // CAD_ITR -  CAFIR (Com DV) 8 
+	&ArquivoTXT += '|'+RetornaSoNumeros.Udp(ImoCaepf)  // CAEPF - Cadastro de Atividade Econômica da Pessoa Física 14
+	&ArquivoTXT += '|'+RetornaSoNumeros.Udp(FilInsEst) // INSCR_ESTADUAL - Inscrição Estadual 14
+	&ArquivoTXT += '|'+substr(trim(ImoNom),1,50)       // NOME_IMÓVEL - Nome do Imóvel 50
+	&ArquivoTXT += '|'+substr(trim(ImoLog),1,150)      // ENDERECO - Endereço do Imóvel 150
+	&ArquivoTXT += '|'+ImoNro                          // NUM - Número 6
+	&ArquivoTXT += '|'+substr(trim(ImoCpl),1,50)       // COMPL -Complemento 50
+	&ArquivoTXT += '|'+substr(trim(ImoBai),1,50)       // BAIRRO - Bairro/Distrito 50
+	&ArquivoTXT += '|'+ImoCidUfeCod                    // UF - Unidade Federativa 2
+	&ArquivoTXT += '|'+trim(str(ImoCidIbge))           // COD_MUN - Código do Município 7
+	&ArquivoTXT += '|'+retornaSoNumeros.Udp(ImoCep)    // CEP - Código de Endereçamento Postal 8
+	&ArquivoTXT += '|'+ImoTip                          // TIPO_EXPLORAÇÃO - Tipo de Exploração do Imóvel: 1 – Exploração individual (Imóvel próprio) 2 - Condomínio 3 - Imóvel arrendado 4 - Parceria 5 - Comodato 6- Outros
+	&ArquivoTXT += '|'+trim(STR((PrpImoTotPer * 100))) //PARTICIPAÇÃO - Participação em percentual na exploração do Imóvel 
+ 	DO 'GravaLinha'
+	
+	If ImoTip <> tipoImovel.ImovelProprio
+		&TotImoParPer = 0		
+		For each Order EmpCod,FilCod,ImoCod,ImoParPesCod
+			&ArquivoTXT = '0045'                 // 01 REG - Texto fixo contendo “0045”. 
+			&ArquivoTXT += '|'+trim(str(ImoCod)) // COD_IMÓVEL -  Código do Imóvel no LCDPR 3 
+			&ArquivoTXT += '|'+ImoParTip         // TIPO_CONTRAPARTE -  Tipo de terceiro relacionado ao imóvel: 1 - Condômino 2 - Arrendador 3 - Parceiro 4 - Comodante 5 - Outro
+			&ArquivoTXT += '|'+ImoParPesCpf      // ID_CONTRAPARTE - Número do CPF/CNPJ do terceiro que explora em conjunto 14
+			&ArquivoTXT += '|'+ImoParPesRaz      // NOME_CONTRAPARTE - Nome do terceiro que explora em conjunto 50
+			&ArquivoTXT += '|'+trim(STR((ImoParPer * 100))) // PERC_CONTRAPARTE - Percentual de participação na exploração do imóvel
+			DO 'GravaLinha'
+		Endfor
+	EndIf	
+EndFor
+
+//Cadastro de contas bancárias	
+&ColCtabanCod.Clear()
+For each Order EmpCod,CtaBanSts,CtaBanFilCod
+	Where EmpCod = &EmpCod
+	Where CtaBanFilCod in &ColFilCod
+	Where CtaBanSts= Status_AtivoInativo.ATIVO
+	&ColCtabanCod.add(CtabanCod)
+	If CtaBanTip = TipoConta.BANCO
+		&ArquivoTXT = '0050'                                  // 01 REG - Texto fixo contendo “0050”. 
+		&ArquivoTXT += '|'+ trim(str(CtabanCod))              // COD_CONTA - Código da conta bancária LCDPR 3 
+		&ArquivoTXT += '|BR'                                  // PAIS_CTA -  País Brasil = BR
+		&ArquivoTXT += '|'+CtaBanBanCod                       // BANCO - Número código de compensação da instituição financeira
+		&ArquivoTXT += '|'+CtaBanBanNom                       // NOME_BANCO - Nome da Instituição Financeira
+		&ArquivoTXT += '|'+CtaBanAgeCod                       // AGENCIA - Número da Agência Bancária (Sem dígito verificador)
+		&ArquivoTXT += '|'+trim(CtaBanCrt)+trim(CtaBanCrtDig) // NUM_CONTA - Número da Conta com dígito verificador 
+		DO 'GravaLinha'
+	EndIf
+EndFor
+
+//Movimento q100
+&MovItmVlr = 0
+&TotEntradaMovItmVlr = 0
+&TotSaidaMovItmVlr = 0
+&TotalMovItmVlr = 0
+&SdtQ200.Clear()
+For each Order EmpCod,MovSts,MovDtaCon,MovCtaBanCod
+	Where EmpCod = &EmpCod
+	Where MovCtaBanCod in &ColCtabanCod
+	Where MovDtaCon >= &iniNfeDtaEms
+	Where MovDtaCon <= &finNfeDtaEms
+	Where MovSts = Status_Caixa.Lancado
+	Where MovItmSts <> Status_Caixa.Cancelado
+	Where MovExcLcdpr <> True //se tiver true e para excluir do lançamento
+	
+	If ((month(&MovDtaCon) <> Month(MovDtaCon)) and &MovItmVlr <> 0) // esse registro so executa depois do Q100 é um totalizador
+		//Registro Q200: Resumo Mensal do Demonstrativo do Resultado da Atividade Rural
+		
+		&SdtQ200Item = new()
+		&SdtQ200Item.anomes = padL(str(Month(&MovDtaCon)),2,'0')+padL(str(Year(&MovDtaCon)),4,'0') // MÊS - Mês/ano da entrada ou da saída dos recursos         
+		&SdtQ200Item.TotalEntrada = &TotEntradaMovItmVlr
+		&SdtQ200Item.Totalsaida  = &TotSaidaMovItmVlr
+		
+		&TotalMovItmVlr = &TotEntradaMovItmVlr - &TotSaidaMovItmVlr
+		&SdtQ200Item.SaldoFinal  = &TotalMovItmVlr
+		If &TotalMovItmVlr > 0
+			&SdtQ200Item.NatSaldo =  'P'                                  // NAT_SLD_FIN - Natureza do Saldo Final do mês (Negativo ou Positivo)
+		Else
+			&SdtQ200Item.NatSaldo = 'N'                                  // NAT_SLD_FIN - Natureza do Saldo Final do mês (Negativo ou Positivo)
+		EndIf
+		&SdtQ200.Add(&SdtQ200Item)
+		&TotEntradaMovItmVlr = 0
+		&TotSaidaMovItmVlr = 0
+	EndIf
+
+	&MovDtaCon = MovDtaCon
+	&MovCtaBanFilCod = MovCtaBanFilCod
+	do 'Participante' //pega o participante mas troca o cnpj abaixo em algguns casos.
+	
+	&ArquivoTXT = 'Q100'                                         // 01 REG - Texto fixo contendo “Q100”. 
+	&ArquivoTXT += '|'+padL(str(day(MovDtaCon)),2,'0')+padL(str(Month(MovDtaCon)),2,'0')+padL(str(Year(MovDtaCon)),4,'0') // DATA - Data da entrada ou da saída dos recursos
+	&ArquivoTXT += '|'+trim(str(&ImoCod))                        // COD_IMÓVEL - Código Sequencial do Imóvel (do Bloco 0040).
+	If CtaBanTip = TipoConta.BANCO
+		&ArquivoTXT += '|'+trim(str(MovCtaBanCod))               // COD_CONTA - Código Sequencial da conta bancária em que transitou o recurso (do Bloco 0050)
+	Else
+		&ArquivoTXT += '|999'                                    // COD_CONTA - Código Sequencial da conta bancária em que transitou o recurso (do Bloco 0050)
+	EndIf
+
+	&ArquivoTXT += '|'+trim(RetiraCaracteresEspeciais.Udp(MovDoc))// NUM_DOC - Nome da Instituição Financeira
+	Do Case
+		Case MovTip = TipoMovimento.Adiantamento or MovTip = TipoMovimento.folhaPgto or MovTip = TipoMovimento.DecimoTerceiro or MovFunCod <> 0
+			&PesCod = MovFunCod
+			do 'ParticipantePessoa'
+			
+			&ArquivoTXT += '|'+'5'                               // TIPO_DOC - Tipo de Documento: 1 - Nota Fiscal 2 – Fatura 3 – Recibo 4 – Contrato 5 - Folha de Pagamento 6 - Outros
+		Case MovTip = TipoMovimento.Manual
+			
+			&ArquivoTXT += '|'+'3'                               // TIPO_DOC - Tipo de Documento: 1 - Nota Fiscal 2 – Fatura 3 – Recibo 4 – Contrato 5 - Folha de Pagamento 6 - Outros
+		Case MovTip = TipoMovimento.AdiantamentoPedido
+			&ArquivoTXT += '|'+'4'                               // TIPO_DOC - Tipo de Documento: 1 - Nota Fiscal 2 – Fatura 3 – Recibo 4 – Contrato 5 - Folha de Pagamento 6 - Outros
+		Case MovCreFilCod > 0 and MovCreCod > 0 and MovCrePagCod > 0 
+			&MovCreFilCod = MovCreFilCod
+			&MovCreCod =  MovCreCod
+			&MovCrePagCod =  MovCrePagCod
+			do 'ParticipantePessoaDuplicata'
+			&ArquivoTXT += '|'+'1'
+		otherwise
+			&ArquivoTXT += '|'+'1'
+	EndCase
+
+	
+	&ArquivoTXT += '|'+Substr(trim(RetiraCaracteresEspeciais.Udp(MovItmCpl)),1,54)                           // HIST - Histórico
+	
+	&ArquivoTXT += '|'+trim(RetornaSoNumeros.Udp(&PesCnpj))      // ID_PARTIC - CPF/CNPJ do participante
+	If MovCreDeb = 'C'//crédito
+		&ArquivoTXT += '|'+'1'                                   // TIPO_LANC - Tipo de Lançamento; 1 - Receita da Atividade Rural 2 - Despesas de custeio e investimentos 3 – Receita de produtos entregues no ano referente a adiantamento de recursos financeiros
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(MovItmVlr)),',',''),'.','')      // VL_ENTRADA - Valor de entrada dos recursos.
+		&ArquivoTXT += '|'                                       // VL_SAIDA - Valor de saída dos recursos
+		&MovItmVlr += MovItmVlr
+		&TotEntradaMovItmVlr += MovItmVlr
+	Else
+		&ArquivoTXT += '|'+'2'                                   // TIPO_LANC - Tipo de Lançamento; 1 - Receita da Atividade Rural 2 - Despesas de custeio e investimentos 3 – Receita de produtos entregues no ano referente a adiantamento de recursos financeiros
+		&ArquivoTXT += '|'                                       // VL_ENTRADA - Valor de entrada dos recursos.
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(MovItmVlr)),',',''),'.','')           // VL_SAIDA - Valor de saída dos recursos
+		&MovItmVlr -= MovItmVlr
+		&TotSaidaMovItmVlr += MovItmVlr
+	EndIf
+	
+	If &MovItmVlr > 0
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&MovItmVlr)),',',''),'.','')         // SLD_FIN - Saldo Final.
+		&ArquivoTXT += '|P'                                     // NAT_SLD_FIN - Natureza do Saldo Final (Negativo ou Positivo)
+	ELSE
+		&Moeda = (&MovItmVlr * -1)
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&Moeda)),',',''),'.','')    // SLD_FIN - Saldo Final.
+		&ArquivoTXT += '|N'                                     // NAT_SLD_FIN - Natureza do Saldo Final (Negativo ou Positivo)
+	EndIf
+	DO 'GravaLinha'
+
+EndFor
+
+//################################################################################# //Registro Q200: Resumo Mensal do Demonstrativo do Resultado da Atividade Rural -  
+&SdtQ200.Sort('anomes')
+For &SdtQ200Item in &SdtQ200
+	&ArquivoTXT = 'Q200'                                                                       // 01 REG - Texto fixo contendo “Q200”. 
+	&ArquivoTXT += '|'+&SdtQ200Item.anomes                                                    // MÊS - Mês/ano da entrada ou da saída dos recursos
+	If &SdtQ200Item.totalEntrada > 0
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&SdtQ200Item.totalEntrada)),',',''),'.','')                              // VL_ENTRADA - Valor total de entrada dos recursos no mês.
+	Else
+		&ArquivoTXT += '|000'                                                                  // VL_ENTRADA - Valor total de entrada dos recursos no mês.
+	EndIf
+	
+	If &SdtQ200Item.totalsaida > 0
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&SdtQ200Item.totalsaida)),',',''),'.','')                                // VL_SAIDA - Valor total de saída dos recursos no mês.
+	Else
+		&ArquivoTXT += '|000'                                                                  // VL_SAIDA - Valor total de saída dos recursos no mês.
+	EndIf
+
+	
+	If &SdtQ200Item.SaldoFinal > 0 
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&SdtQ200Item.SaldoFinal)),',',''),'.','')                                      // SLD_FIN - Saldo Final até o mês
+		&ArquivoTXT += '|P'                                  // NAT_SLD_FIN - Natureza do Saldo Final do mês (Negativo ou Positivo)
+	Else
+		&Moeda = (&SdtQ200Item.SaldoFinal * -1)
+		&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&Moeda)),',',''),'.','')                                     // SLD_FIN - Saldo Final até o mês
+		&ArquivoTXT += '|N'                                  // NAT_SLD_FIN - Natureza do Saldo Final do mês (Negativo ou Positivo)
+	EndIf
+	DO 'GravaLinha'
+EndFor
+
+
+//aqui grava denovo pois saiu do for e ficou o restante dos registro do mes 12 #
+&ArquivoTXT = 'Q200'                                                                       // 01 REG - Texto fixo contendo “Q200”. 
+&ArquivoTXT += '|'+padL(str(Month(MovDtaCon)),2,'0')+padL(str(Year(MovDtaCon)),4,'0')      // MÊS - Mês/ano da entrada ou da saída dos recursos
+If &TotEntradaMovItmVlr > 0
+	&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&TotEntradaMovItmVlr)),',',''),'.','')                              // VL_ENTRADA - Valor total de entrada dos recursos no mês.
+Else
+	&ArquivoTXT += '|000'                                                                  // VL_ENTRADA - Valor total de entrada dos recursos no mês.
+EndIf
+
+If &TotSaidaMovItmVlr > 0
+	&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&TotSaidaMovItmVlr)),',',''),'.','')                                // VL_SAIDA - Valor total de saída dos recursos no mês.
+Else
+	&ArquivoTXT += '|000'                                                                  // VL_SAIDA - Valor total de saída dos recursos no mês.
+EndIf
+
+&TotalMovItmVlr = &TotEntradaMovItmVlr - &TotSaidaMovItmVlr
+
+If &TotalMovItmVlr > 0 
+	&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&TotalMovItmVlr)),',',''),'.','')                                       // SLD_FIN - Saldo Final até o mês
+	&ArquivoTXT += '|P'                                  // NAT_SLD_FIN - Natureza do Saldo Final do mês (Negativo ou Positivo)
+Else
+	&TotalMovItmVlr = (&TotalMovItmVlr * -1)
+	&ArquivoTXT += '|'+StrReplace(StrReplace(Trim(ToFormattedString(&TotalMovItmVlr)),',',''),'.','')                                      // SLD_FIN - Saldo Final até o mês
+	&ArquivoTXT += '|N'                                  // NAT_SLD_FIN - Natureza do Saldo Final do mês (Negativo ou Positivo)
+EndIf
+DO 'GravaLinha'
+//###############################################################################################################################################################
+
+//Registro 9999: Identificação do Signatário do LCDPR e Encerramento do Arquivo Digital
+For Each Order CrtCod, EmpCod
+	Where EmpCod = &EmpCod
+	Where CrtEmpPri = true
+	
+	//##INICIO 9999: DADOS DO CONTABILISTA
+	&ArquivoTXT = '9999' //01 REG Texto fixo contendo “9999”. C 004 - O
+	&ArquivoTXT += '|' + trim(CrtRaz)//02 NOME Nome do contabilista. C 100 - O
+	RetornaSoNumeros.Call(CrtCPF, &CrtCPF)
+	&ArquivoTXT += '|' + trim(&CrtCPF) //03 CPF Número de inscrição do contabilista no CPF. N 011* - O
+	RetornaSoNumeros.Call(CrtCRC, &CrtCRC)	
+	&ArquivoTXT += '|' + trim(&CrtCRC)//04 CRC Número de inscrição do contabilista no Conselho Regional de Contabilidade.
+	&ArquivoTXT += '|' + trim(CrtMail)//13 EMAIL Endereço do correio eletrônico. C - - O
+	RetornaSoNumeros.Call(CrtFonNum, &CrtFonNum)
+	&ArquivoTXT += '|' + trim(&CrtFonNum)//11 FONE Número do telefone (DDD+FONE). C 11 - O
+	&qtdeLInhas +=1//linha final
+	&ArquivoTXT += '|'+&qtdeLInhas.ToFormattedString()
+	do 'GravaLinha'
+	exit
+EndFor
+
+&Resultado = dfwclose()
+
+Sub 'GravaLinha'	
+	&ArquivoTXT = &ArquivoTXT.Replace(Chr(9), "")
+	&qtdeLInhas +=1
+	&Resultado=  dfwptxt(&ArquivoTXT)
+    &Resultado = dfwnext()
+EndSub
+
+Sub 'BuscaDadosContribuinte'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &FilPesSoc
+		
+		&PesCep = PesCep
+		&PesBai = PesBai
+		&PesLog = PesLog
+		&PesNro = PesNro
+		&PesCpl = PesCpl
+		&PesCidUfeCod = PesCidUfeCod
+		&PesCidIBGE = PesCidIBGE
+		&PesPrmFon = PesPrmFon
+		&PesPrmEml = PesPrmEml
+	EndFor
+EndSub
+
+Sub 'Participante'
+	For each Order EmpCod,FilCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &MovCtaBanFilCod
+		&PesCnpj = FilCpj
+		
+		For each Order ImoCod
+			&IMocod = ImoCod
+			EXIT
+		EndFor
+		Exit
+	Endfor
+EndSub
+
+Sub 'ParticipantePessoa'
+	For each Order EmpCod,PesCod
+		Where EmpCod = &EmpCod
+		Where PesCod = &PesCod
+		If PesTip = TipoPessoa.FISICA
+			&PesCnpj = RetornasoNumeros.Udp(PesCpf)
+		Else
+			&PesCnpj = RetornasoNumeros.Udp(PesCnpj)
+		EndIf
+		EXIT
+	Endfor	
+EndSub
+
+
+Sub 'ParticipantePessoaDuplicata'
+	For each Order EmpCod,FilCod,CreCod,CrePagCod
+		Where EmpCod = &EmpCod
+		Where FilCod = &MovCreFilCod
+		Where CreCod =  &MovCreCod
+		Where CrePagCod =  &MovCrePagCod
+		&PesCod = CreCliCod
+		do 'ParticipantePessoa'
+		exit
+	EndFor
+EndSub
+	
+			
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="c414ed00-8cc4-4f44-8820-4baf93547173">
+        <Properties />
+      </Part>
+      <Part type="9b0a32a3-de6d-4be1-a4dd-1b85d3741534">
+        <Source><![CDATA[parm(in:&ProgressId, in:&EmpCod, in:&FilCod ,in:&sdtEnviaSped);
+]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="763f0d8b-d8ac-4db4-8dd4-de8979f2b5b9">
+        <Source><![CDATA[]]></Source>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="e4c4ade7-53f0-4a56-bdfd-843735b66f47">
+        <Variable Name="ProgressId">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ProgressId</Value></Property><Property><Name>Description</Name><Value>Progress Id</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ProgressId</Value></Property></Properties>
+        </Variable>
+        <Variable Name="EmpCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>EmpCod</Value></Property><Property><Name>Description</Name><Value>Empresa</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:EmpCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="sdtEnviaSped">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>sdtEnviaSped</Value></Property><Property><Name>IsStandardVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:sdtEnviaSped</Value></Property></Properties>
+        </Variable>
+        <Variable Name="dia">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>dia</Value></Property><Property><Name>Length</Name><Value>2</Value></Property><Property><Name>AttMaxLen</Name><Value>2</Value></Property></Properties>
+        </Variable>
+        <Variable Name="mes">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>mes</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Mes</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Ano">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Ano</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Ano</Value></Property></Properties>
+        </Variable>
+        <Variable Name="OriginalSubstituto">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>OriginalSubstituto</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>1</Value></Property><Property><Name>AttMaxLen</Name><Value>1</Value></Property></Properties>
+        </Variable>
+        <Variable Name="iniNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>iniNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="finNfeDtaEms">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>finNfeDtaEms</Value></Property><Property><Name>Description</Name><Value>Data Emissão</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:NfeDtaEms</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilCpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilCpj</Value></Property><Property><Name>Description</Name><Value>Filial Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="NomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>NomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="AuxNomeArquivo">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>AuxNomeArquivo</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Resultado">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Resultado</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ArquivoTXT">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ArquivoTXT</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>bas:VarChar</Value></Property><Property><Name>Length</Name><Value>500</Value></Property><Property><Name>AttMaxLen</Name><Value>500</Value></Property></Properties>
+        </Variable>
+        <Variable Name="FilPesSoc">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>FilPesSoc</Value></Property><Property><Name>Description</Name><Value>FilialSocio</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilPesSoc</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesLog">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesLog</Value></Property><Property><Name>Description</Name><Value>Pessoa Logradouro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesLog</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesNro">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesNro</Value></Property><Property><Name>Description</Name><Value>Pessoa Número</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesNro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCpl">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCpl</Value></Property><Property><Name>Description</Name><Value>Pessoa Complemento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCpl</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesBai">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesBai</Value></Property><Property><Name>Description</Name><Value>Pessoa Bairro</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesBai</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidUfeCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidUfeCod</Value></Property><Property><Name>Description</Name><Value>UF</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidUfeCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCidIBGE">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCidIBGE</Value></Property><Property><Name>Description</Name><Value>cidade IBGE</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCidIBGE</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCep">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCep</Value></Property><Property><Name>Description</Name><Value>Pessoa CEP</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCep</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesPrmEml">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesPrmEml</Value></Property><Property><Name>Description</Name><Value>Primeiro Email</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrmEml</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesPrmFon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesPrmFon</Value></Property><Property><Name>Description</Name><Value>Primeiro Fone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesPrmFon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="lcdprImoveis">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>lcdprImoveis</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:lcdprImoveis</Value></Property></Properties>
+        </Variable>
+        <Variable Name="lcdprImoveisItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>lcdprImoveisItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:lcdprImoveis.lcdprImoveisItem</Value></Property></Properties>
+        </Variable>
+        <Variable Name="lcdprImoveisTerceiroItem">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>lcdprImoveisTerceiroItem</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:lcdprImoveis.lcdprImoveisItem.Terceiro</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotImoParPer">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotImoParPer</Value></Property><Property><Name>Description</Name><Value>%</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImoParPer</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ImoCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ImoCod</Value></Property><Property><Name>Description</Name><Value>Imoveis</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:ImoCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="auxFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>auxFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColFilCod</Value></Property><Property><Name>Description</Name><Value>Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:FilCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovDtaCon">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovDtaCon</Value></Property><Property><Name>Description</Name><Value>Movimento Data de Conferência</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovDtaCon</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotEntradaMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotEntradaMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>True</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotSaidaMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotSaidaMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="TotalMovItmVlr">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>TotalMovItmVlr</Value></Property><Property><Name>Description</Name><Value>Movimento Item Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovItmVlr</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCtaBanFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCtaBanFilCod</Value></Property><Property><Name>Description</Name><Value>Movimento Conta Bancária Filial</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCtaBanFilCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="qtdeLInhas">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>qtdeLInhas</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SoNumeros">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SoNumeros</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrtCPF">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrtCPF</Value></Property><Property><Name>Description</Name><Value>CPF</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrtCPF</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrtCRC">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrtCRC</Value></Property><Property><Name>Description</Name><Value>CRC</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrtCRC</Value></Property></Properties>
+        </Variable>
+        <Variable Name="CrtFonNum">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>CrtFonNum</Value></Property><Property><Name>Description</Name><Value>Telefone</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CrtFonNum</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtQ200Item">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtQ200Item</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtQ200.SdtQ200Item</Value></Property></Properties>
+        </Variable>
+        <Variable Name="SdtQ200">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>SdtQ200</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>ATTCUSTOMTYPE</Name><Value>sdt:SdtQ200</Value></Property></Properties>
+        </Variable>
+        <Variable Name="Moeda">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>Moeda</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Domain:Moeda</Value></Property></Properties>
+        </Variable>
+        <Variable Name="ColCtabanCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>ColCtabanCod</Value></Property><Property><Name>Description</Name><Value>Conta Bancária Código</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:CtabanCod</Value></Property><Property><Name>AttCollection</Name><Value>True</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovFunCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovFunCod</Value></Property><Property><Name>Description</Name><Value>Movimento Funcionário</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovFunCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCod</Value></Property><Property><Name>Description</Name><Value>Pessoa</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="PesCnpj">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>PesCnpj</Value></Property><Property><Name>Description</Name><Value>Pessoa Cnpj</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:PesCnpj</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCrePagCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCrePagCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Item Pagamento</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCrePagCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCreCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCreCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Sequencia</Value></Property><Property><Name>idIsAutoDefinedVariable</Name><Value>False</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCreCod</Value></Property></Properties>
+        </Variable>
+        <Variable Name="MovCreFilCod">
+          <Documentation />
+          <Properties><Property><Name>Name</Name><Value>MovCreFilCod</Value></Property><Property><Name>Description</Name><Value>Duplicata Filial</Value></Property><Property><Name>idBasedOn</Name><Value>Attribute:MovCreFilCod</Value></Property></Properties>
+        </Variable>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="ad3ca970-19d0-44e1-a7b7-db05556e820c">
+        <Help>
+          <HelpItem>
+            <Language>88313f43-5eb2-0000-0028-e8d9f5bf9588-Portuguese</Language>
+            <Content />
+          </HelpItem>
+        </Help>
+        <Properties><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+      </Part>
+      <Part type="babf62c5-0111-49e9-a1c3-cc004d90900a">
+        <Properties />
+      </Part>
+      <Properties><Property><Name>Name</Name><Value>Gera_LCDPR</Value></Property><Property><Name>Description</Name><Value>Gera_LCDPR</Value></Property><Property><Name>IsDefault</Name><Value>False</Value></Property></Properties>
+    </Object>
