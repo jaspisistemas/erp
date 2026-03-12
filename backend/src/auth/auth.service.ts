@@ -2,15 +2,15 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'crypto';
 import { v4 as uuid } from 'uuid';
-import { TipoPerfil } from '@seja/shared';
+// import { TipoPerfil } from '@seja/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { ModulesService } from '../modules/modules.service';
+// import { ModulesService } from '../modules/modules.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 
-interface GamUserRow {
-  UserGUID: string;
-  UserName: string;
-  UserPwd: string;
+interface UsuarioRow {
+  UserGuid: string;
+  UserNam: string;
+  UserSen: string;
 }
 
 @Injectable()
@@ -18,7 +18,7 @@ export class AuthService {
   constructor(
     private jwt: JwtService,
     private prisma: PrismaService,
-    private modules: ModulesService,
+    // private modules: ModulesService,
   ) {}
 
   private accessToken(payload: JwtPayload) {
@@ -28,36 +28,27 @@ export class AuthService {
     });
   }
 
-  /** GAM: SHA512 em Base64. Tenta: GUID+senha, senha+GUID, GUID+senha+usuario, etc. */
-  private hashGamPassword(userGuid: string, password: string, userName: string): string[] {
-    const enc = (s: string) => createHash('sha512').update(s, 'utf8').digest('base64');
-    return [
-      enc(userGuid + password),
-      enc(password + userGuid),
-      enc(userGuid + password + userName),
-      enc(userGuid + userName + password),
-      enc('GuidSenhaUsuario' + userGuid + password),
-      enc(userGuid + 'GuidSenhaUsuario' + password),
-    ];
+  private hashUserPassword(userGuid: string, password: string): string {
+    return createHash('sha512').update(userGuid + password, 'utf8').digest('base64');
   }
 
-  /** Busca usuários em gam.[user] por UserName e valida senha (SHA512 Base64). */
-  private async validateUserGam(username: string, password: string): Promise<{ userGuid: string; userName: string }> {
+  /** Busca usuário em Usuario por UserNam (case-insensitive) e valida hash no padrão UserGuid+senha. */
+  private async validateUserFromUsuario(username: string, password: string): Promise<{ userGuid: string; userName: string }> {
     const rows = await this.prisma.$queryRaw<
-      GamUserRow[]
-    >`SELECT CONVERT(NVARCHAR(36), UserGUID) AS UserGUID, UserName, UserPwd FROM gam.[user] WHERE UserName = ${username}`;
+      UsuarioRow[]
+    >`SELECT CONVERT(NVARCHAR(36), [UserGuid]) AS [UserGuid], [UserNam], [UserSen] FROM [Usuario] WHERE LOWER([UserNam]) = LOWER(${username})`;
 
     if (!rows?.length) {
       throw new UnauthorizedException('Usuário ou senha inválidos');
     }
 
     for (const row of rows) {
-      const userGuid = (row.UserGUID ?? '').trim();
-      const userName = (row.UserName ?? username).trim();
-      const storedPwd = (row.UserPwd ?? '').trim();
-      const hashes = this.hashGamPassword(userGuid, password, userName);
-      if (hashes.includes(storedPwd)) {
-        return { userGuid, userName: row.UserName ?? username };
+      const userGuid = (row.UserGuid ?? '').trim();
+      const userName = (row.UserNam ?? username).trim();
+      const storedPwd = (row.UserSen ?? '').trim();
+      const inputHash = this.hashUserPassword(userGuid, password);
+      if (inputHash === storedPwd) {
+        return { userGuid, userName };
       }
     }
 
@@ -104,7 +95,7 @@ export class AuthService {
   }
 
   async login(identifier: { user: string }, password: string) {
-    const { userGuid, userName } = await this.validateUserGam(identifier.user, password);
+    const { userGuid, userName } = await this.validateUserFromUsuario(identifier.user, password);
     const sessionId = uuid();
     const empCod = 1;
 
@@ -114,7 +105,7 @@ export class AuthService {
       empCod,
       activeCompanyId: empCod,
       sessionId,
-      prfTip: TipoPerfil.USUARIO_SISTEMA,
+      // prfTip: TipoPerfil.USUARIO_SISTEMA,
       prfGamId: userGuid,
     };
 
@@ -129,7 +120,7 @@ export class AuthService {
         empCod,
         name: userName,
         email: null,
-        prfTip: TipoPerfil.USUARIO_SISTEMA,
+        // prfTip: TipoPerfil.USUARIO_SISTEMA,
       },
     };
   }
@@ -144,7 +135,7 @@ export class AuthService {
       empCod: stored.empCod,
       activeCompanyId: stored.empCod,
       sessionId,
-      prfTip: TipoPerfil.USUARIO_SISTEMA,
+      // prfTip: TipoPerfil.USUARIO_SISTEMA,
       prfGamId: stored.userGuid,
       activeModuleId: activeModuleId,
     };
@@ -159,11 +150,11 @@ export class AuthService {
     if (!moduleId) {
       return this.issueNewTokens(user, undefined, undefined);
     }
-    const modulos = await this.modules.getModulesForUser(user);
-    const hasAccess = modulos.some((m) => m.modCod === moduleId);
-    if (!hasAccess) {
-      throw new UnauthorizedException('Módulo não disponível para este usuário');
-    }
+    // const modulos = await this.modules.getModulesForUser(user);
+    // const hasAccess = modulos.some((m) => m.modCod === moduleId);
+    // if (!hasAccess) {
+    //   throw new UnauthorizedException('Módulo não disponível para este usuário');
+    // }
     return this.issueNewTokens(user, moduleId, undefined);
   }
 

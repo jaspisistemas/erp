@@ -6,7 +6,7 @@ import type { JwtPayload } from './interfaces/jwt-payload.interface';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { SelectCompanyDto } from './dto/select-company.dto';
-import { SelectModuleDto } from './dto/select-module.dto';
+// import { SelectModuleDto } from './dto/select-module.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -22,14 +22,14 @@ export class AuthController {
     return this.auth.refresh(dto.refreshToken, dto.activeModuleId);
   }
 
-  @Post('select-module')
-  @UseGuards(JwtAuthGuard)
-  async selectModule(
-    @Body() dto: SelectModuleDto,
-    @Req() req: Request & { user: JwtPayload },
-  ) {
-    return this.auth.selectModule(req.user, dto.moduleId ?? '');
-  }
+  // @Post('select-module')
+  // @UseGuards(JwtAuthGuard)
+  // async selectModule(
+  //   @Body() dto: SelectModuleDto,
+  //   @Req() req: Request & { user: JwtPayload },
+  // ) {
+  //   return this.auth.selectModule(req.user, dto.moduleId ?? '');
+  // }
 
   @Get('empresas-com-acesso')
   @UseGuards(JwtAuthGuard)

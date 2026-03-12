@@ -7,10 +7,25 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   const port = process.env.PORT ?? 3456;
+
+  const configuredOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+    : null;
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
-      : ['http://localhost:3457', 'http://127.0.0.1:3457'],
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (configuredOrigins) {
+        callback(null, configuredOrigins.includes(origin));
+        return;
+      }
+
+      callback(null, true);
+    },
     credentials: true,
   });
   app.useLogger(['error', 'warn', 'log', 'debug', 'verbose']);

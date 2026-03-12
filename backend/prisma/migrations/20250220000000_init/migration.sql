@@ -5,13 +5,13 @@ CREATE TABLE "Empresa" (
 );
 
 -- CreateTable
-CREATE TABLE "Modulo" (
-    "ModCod" TEXT NOT NULL PRIMARY KEY,
-    "ModNom" TEXT,
-    "ModCaption" TEXT,
-    "ModLin" TEXT,
-    "ModOrd" INTEGER
-);
+-- CREATE TABLE "Modulo" (
+--     "ModCod" TEXT NOT NULL PRIMARY KEY,
+--     "ModNom" TEXT,
+--     "ModCaption" TEXT,
+--     "ModLin" TEXT,
+--     "ModOrd" INTEGER
+-- );
 
 -- CreateTable
 CREATE TABLE "Pessoa" (

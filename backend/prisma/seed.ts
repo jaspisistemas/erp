@@ -1,43 +1,34 @@
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+﻿import { PrismaClient } from '@prisma/client';
+import { createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
+// function hashPassword(userGuid: string, password: string): string {
+//   return createHash('sha512').update(userGuid + password, 'utf8').digest('base64');
+// }
+
 async function main() {
-  await prisma.empresa.upsert({
-    where: { EmpCod: 1 },
-    update: {},
-    create: { EmpCod: 1, EmpRaz: 'Empresa Demo' },
-  });
+  // await prisma.empresa.upsert({
+  //   where: { EmpCod: 1 },
+  //   update: {},
+  //   create: { EmpCod: 1, EmpRaz: 'Empresa Demo', EmpCodNom: 'EMPDEM' },
+  // });
 
-  const hash = await bcrypt.hash('admin', 10);
-  const existing = await prisma.pessoa.findUnique({
-    where: { EmpCod_PesCod: { EmpCod: 1, PesCod: 1 } },
-  });
-  if (!existing) {
-    await prisma.pessoa.create({
-      data: {
-        EmpCod: 1,
-        PesCod: 1,
-        PesUsr: 'admin',
-        PesPassHash: hash,
-        PesNom: 'Administrador',
-        PesEml1: 'admin@demo.local',
-      },
-    });
-  }
-
-  await prisma.modulo.upsert({
-    where: { ModCod: 'rpa' },
-    update: {},
-    create: {
-      ModCod: 'rpa',
-      ModNom: 'Módulo RPA',
-      ModCaption: 'RPA',
-      ModLin: '/dashboard',
-      ModOrd: 1,
-    },
-  });
+  // const userGuid = 'admin-user-guid';
+  // await prisma.usuario.upsert({
+  //   where: { UserGuid: userGuid },
+  //   update: {
+  //     UserSen: hashPassword(userGuid, 'admin123'),
+  //   },
+  //   create: {
+  //     UserGuid: userGuid,
+  //     UserNam: 'admin',
+  //     UserNom: 'Administrador',
+  //     UserEml: 'admin@empresa.com',
+  //     UserSen: hashPassword(userGuid, 'admin123'),
+  //     UserPesExtCod: 1,
+  //   },
+  // });
 }
 
 main()

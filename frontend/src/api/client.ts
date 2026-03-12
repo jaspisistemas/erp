@@ -7,9 +7,6 @@ const API_PORT = import.meta.env.VITE_API_PORT
   : DEV_PORTS.BACKEND
 function getApiUrl(): string {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
-  if (import.meta.env.DEV && typeof window !== 'undefined') {
-    return `http://localhost:${API_PORT}`
-  }
   if (typeof window !== 'undefined') {
     return `${window.location.protocol}//${window.location.hostname}:${API_PORT}`
   }
