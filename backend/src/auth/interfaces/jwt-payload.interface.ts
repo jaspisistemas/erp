@@ -5,8 +5,7 @@ export interface JwtPayload {
   activeCompanyId?: number;
   filCod?: number;
   sessionId: string;
-  isSuporte?: boolean;
-  // prfTip: number;
+  prfTip?: number;
   prfGamId?: string;
   activeModuleId?: string;
 }

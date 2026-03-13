@@ -18,7 +18,7 @@ const Navbar: React.FC = () => {
   const [selectedCompanyName, setSelectedCompanyName] = useState('Empresa nao selecionada')
 
   const showMenu = Boolean(user)
-  const isSupportUser = Boolean(user?.isSuporte || user?.userKind === 'suporte')
+  const isSupportUser = user?.prfTip === 3
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

@@ -19,7 +19,7 @@ interface LoginResolution {
   pesCod: number;
   empCod: number;
   filCod?: number;
-  isSuporte: boolean;
+  prfTip: number;
   nextStep: 'dashboard' | 'select-company';
 }
 
@@ -87,7 +87,7 @@ export class AuthService {
         pesCod: pessoa.PesCod,
         empCod: pessoa.EmpCod,
         filCod: await this.getDefaultFilial(pessoa.EmpCod),
-        isSuporte: false,
+        prfTip: 1,
         nextStep: 'dashboard',
       };
     }
@@ -113,7 +113,7 @@ export class AuthService {
         pesCod: 0,
         empCod,
         filCod: await this.getDefaultFilial(empCod),
-        isSuporte: true,
+        prfTip: 3,
         nextStep: 'dashboard',
       };
     }
@@ -122,7 +122,7 @@ export class AuthService {
       userKind: 'suporte',
       pesCod: 0,
       empCod: 0,
-      isSuporte: true,
+      prfTip: 3,
       nextStep: 'select-company',
     };
   }
@@ -131,10 +131,10 @@ export class AuthService {
     return process.env.JWT_REFRESH_SECRET || process.env.JWT_ACCESS_SECRET || 'dev_access_secret';
   }
 
-  private issueRefreshTokenGam(userGuid: string, empCod: number, isSuporte?: boolean, filCod?: number) {
+  private issueRefreshTokenGam(userGuid: string, empCod: number, prfTip?: number, filCod?: number) {
     const refreshTtlSec = parseInt(process.env.JWT_REFRESH_TTL || '86400', 10);
     return this.jwt.sign(
-      { userGuid, empCod, isSuporte: isSuporte === true, filCod, type: 'gam_refresh' },
+      { userGuid, empCod, prfTip, filCod, type: 'gam_refresh' },
       {
         secret: this.refreshSecret(),
         expiresIn: refreshTtlSec,
@@ -146,14 +146,14 @@ export class AuthService {
     empCod: number;
     pesCod: number;
     userGuid?: string;
-    isSuporte?: boolean;
+    prfTip?: number;
     filCod?: number;
   }> {
     try {
       const payload = this.jwt.verify(refreshToken, { secret: this.refreshSecret() }) as {
         userGuid?: string;
         empCod?: number;
-        isSuporte?: boolean;
+        prfTip?: number;
         filCod?: number;
         type?: string;
       };
@@ -162,7 +162,7 @@ export class AuthService {
           empCod: payload.empCod,
           pesCod: 0,
           userGuid: payload.userGuid,
-          isSuporte: payload.isSuporte,
+          prfTip: payload.prfTip,
           filCod: payload.filCod,
         };
       }
@@ -184,14 +184,13 @@ export class AuthService {
       activeCompanyId: resolved.empCod,
       filCod: resolved.filCod,
       sessionId,
-      isSuporte: resolved.isSuporte,
-      // prfTip: TipoPerfil.USUARIO_SISTEMA,
+      prfTip: resolved.prfTip,
       prfGamId: userGuid,
       activeModuleId: 'dashboard',
     };
 
     const accessToken = this.accessToken(payload);
-    const refreshToken = this.issueRefreshTokenGam(userGuid, resolved.empCod, resolved.isSuporte, resolved.filCod);
+    const refreshToken = this.issueRefreshTokenGam(userGuid, resolved.empCod, resolved.prfTip, resolved.filCod);
 
     return {
       accessToken,
@@ -203,10 +202,9 @@ export class AuthService {
         filCod: resolved.filCod,
         name: userName,
         email: null,
+        prfTip: resolved.prfTip,
         userKind: resolved.userKind,
         userPesExtCod,
-        isSuporte: resolved.isSuporte,
-        // prfTip: TipoPerfil.USUARIO_SISTEMA,
       },
     };
   }
@@ -222,14 +220,13 @@ export class AuthService {
       activeCompanyId: stored.empCod,
       filCod: stored.filCod,
       sessionId,
-      isSuporte: stored.isSuporte,
-      // prfTip: TipoPerfil.USUARIO_SISTEMA,
+      prfTip: stored.prfTip,
       prfGamId: stored.userGuid,
       activeModuleId: activeModuleId ?? 'dashboard',
     };
 
     const accessToken = this.accessToken(payload);
-    const newRefresh = this.issueRefreshTokenGam(stored.userGuid ?? '', stored.empCod, stored.isSuporte, stored.filCod);
+    const newRefresh = this.issueRefreshTokenGam(stored.userGuid ?? '', stored.empCod, stored.prfTip, stored.filCod);
 
     return { accessToken, refreshToken: newRefresh };
   }
@@ -248,7 +245,7 @@ export class AuthService {
 
   async getEmpresasComAcesso(user: JwtPayload): Promise<Array<{ empCod: number; empRaz: string | null }>> {
     const empresas = await this.prisma.empresa.findMany({
-      where: user.isSuporte === true
+      where: user.prfTip === 3
         ? undefined
         : (user.empCod ? { EmpCod: user.empCod } : undefined),
       orderBy: { EmpCod: 'asc' },
@@ -261,7 +258,7 @@ export class AuthService {
   }
 
   async getCompanyBranchOptions(user: JwtPayload): Promise<Array<{ empCod: number; empRaz: string | null; filiais: Array<{ filCod: number; filRaz: string | null }> }>> {
-    const whereEmpresa = user.isSuporte === true
+    const whereEmpresa = user.prfTip === 3
       ? undefined
       : (user.empCod ? { EmpCod: user.empCod } : undefined);
 
@@ -328,8 +325,8 @@ export class AuthService {
 
     const accessToken = this.accessToken(payload);
     const refreshToken = user.prfGamId
-      ? this.issueRefreshTokenGam(user.prfGamId, newEmpCod, user.isSuporte, newFilCod)
-      : this.issueRefreshTokenGam('', newEmpCod, user.isSuporte, newFilCod);
+      ? this.issueRefreshTokenGam(user.prfGamId, newEmpCod, user.prfTip, newFilCod)
+      : this.issueRefreshTokenGam('', newEmpCod, user.prfTip, newFilCod);
     return { accessToken, refreshToken };
   }
 }

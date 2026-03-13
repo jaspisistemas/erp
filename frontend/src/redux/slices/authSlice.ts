@@ -25,9 +25,8 @@ type LoginResponse = {
     name?: string
     email?: string
     prfTip?: number
-    userKind?: 'usuario' | 'suporte'
+    userKind?: 'usuario' | 'contador' | 'suporte'
     userPesExtCod?: number
-    isSuporte?: boolean
   }
 }
 
@@ -42,9 +41,8 @@ export interface AuthState {
     name: string
     email: string
     prfTip?: number
-    userKind?: 'usuario' | 'suporte'
+    userKind?: 'usuario' | 'contador' | 'suporte'
     userPesExtCod?: number
-    isSuporte?: boolean
   } | null
   activeModuleId: string | null
   loading: boolean
@@ -213,7 +211,6 @@ const authSlice = createSlice({
           prfTip: action.payload.user?.prfTip,
           userKind: action.payload.user?.userKind,
           userPesExtCod: action.payload.user?.userPesExtCod,
-          isSuporte: action.payload.user?.isSuporte,
         }
         state.activeModuleId = getTokenPayload()?.activeModuleId ?? 'dashboard'
         setAuthUserName(userName)
