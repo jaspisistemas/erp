@@ -89,7 +89,8 @@ const columnLabel: Record<ColumnFilterKey, string> = {
 const NON_REMOVABLE_COLUMNS: ColumnFilterKey[] = ['razaoSocial']
 
 const ModeloBase: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'cadastro' | 'grid'>('cadastro')
+  const [activeTab, setActiveTab] = useState<'cadastro' | 'grid' | 'step'>('cadastro')
+  const [currentStep, setCurrentStep] = useState(1)
   const [showEditPrompt, setShowEditPrompt] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [suggestValue, setSuggestValue] = useState('Exemplo 1')
@@ -532,6 +533,15 @@ const ModeloBase: React.FC = () => {
             aria-selected={activeTab === 'grid'}
           >
             Grid Cadastro sem Scroll
+          </button>
+          <button
+            type="button"
+            className={`modelo-base-tab ${activeTab === 'step' ? 'active' : ''}`}
+            onClick={() => setActiveTab('step')}
+            role="tab"
+            aria-selected={activeTab === 'step'}
+          >
+            Step
           </button>
         </div>
 
@@ -1221,6 +1231,83 @@ const ModeloBase: React.FC = () => {
                   </button>
                 </div>
               </div>
+          </div>
+        )}
+
+        {activeTab === 'step' && (
+          <div className="modelo-base-content modelo-step-content">
+            <div className="modelo-step-track">
+              {[
+                { num: 1, label: 'Destino / Transp.' },
+                { num: 2, label: 'Produtos' },
+                { num: 3, label: 'Cobranca / Totais' },
+                { num: 4, label: 'Transmissao' },
+              ].map((step) => (
+                <div
+                  key={step.num}
+                  className={`modelo-step-item ${
+                    currentStep === step.num ? 'active' : currentStep > step.num ? 'done' : ''
+                  }`}
+                >
+                  <span className="modelo-step-circle">
+                    {currentStep > step.num ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m5 12 4 4 10-10" />
+                      </svg>
+                    ) : (
+                      step.num
+                    )}
+                  </span>
+                  <span className="modelo-step-label">{step.label}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="modelo-step-panel">
+              {currentStep === 1 && (
+                <div className="modelo-step-panel-body">
+                  <h3 className="modelo-step-panel-title">Destino / Transportadora</h3>
+                  <p className="modelo-step-panel-desc">Informe o destinatario e os dados de transporte.</p>
+                </div>
+              )}
+              {currentStep === 2 && (
+                <div className="modelo-step-panel-body">
+                  <h3 className="modelo-step-panel-title">Produtos</h3>
+                  <p className="modelo-step-panel-desc">Adicione os itens e quantidades do pedido.</p>
+                </div>
+              )}
+              {currentStep === 3 && (
+                <div className="modelo-step-panel-body">
+                  <h3 className="modelo-step-panel-title">Cobranca / Totais</h3>
+                  <p className="modelo-step-panel-desc">Confira os totais, impostos e condicoes de pagamento.</p>
+                </div>
+              )}
+              {currentStep === 4 && (
+                <div className="modelo-step-panel-body">
+                  <h3 className="modelo-step-panel-title">Transmissao</h3>
+                  <p className="modelo-step-panel-desc">Revise e transmita o documento fiscal.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="modelo-step-footer">
+              <button
+                type="button"
+                className="modelo-btn modelo-btn-cancel-dark modelo-btn-action-size"
+                disabled={currentStep <= 1}
+                onClick={() => setCurrentStep((s) => Math.max(1, s - 1))}
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="modelo-btn modelo-btn-primary modelo-btn-action-size"
+                disabled={currentStep >= 4}
+                onClick={() => setCurrentStep((s) => Math.min(4, s + 1))}
+              >
+                Proximo
+              </button>
+            </div>
           </div>
         )}
       </section>
