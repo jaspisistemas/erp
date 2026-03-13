@@ -4,6 +4,7 @@ import SelecionaEmpresaPage from './features/auth/SelecionaEmpresaPage'
 import ModuleSelector from './features/auth/ModuleSelector'
 import DashboardLayout from './layouts/DashboardLayout'
 import Dashboard from './features/dashboard/Dashboard'
+import ModeloBase from './features/modelo-base'
 import { AuthGuardFull, AuthGuardToken, AuthGuardWithEmpresa } from './components/AuthGuard'
 import './index.css'
 
@@ -12,10 +13,11 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login onLogin={() => {}} />} />
-        <Route path="/select-empresa" element={<AuthGuardToken><SelecionaEmpresaPage /></AuthGuardToken>} />
-        <Route path="/select-module" element={<AuthGuardWithEmpresa><ModuleSelector /></AuthGuardWithEmpresa>} />
-        <Route path="/dashboard" element={<AuthGuardFull><DashboardLayout /></AuthGuardFull>}>
-          <Route index element={<Dashboard />} />
+        <Route element={<AuthGuardToken><DashboardLayout /></AuthGuardToken>}>
+          <Route path="/select-empresa" element={<SelecionaEmpresaPage />} />
+          <Route path="/select-module" element={<AuthGuardWithEmpresa><ModuleSelector /></AuthGuardWithEmpresa>} />
+          <Route path="/dashboard" element={<AuthGuardFull><Dashboard /></AuthGuardFull>} />
+          <Route path="/modelo-base" element={<AuthGuardFull><ModeloBase /></AuthGuardFull>} />
         </Route>
 
         <Route path="/" element={<Navigate to="/login" replace />} />

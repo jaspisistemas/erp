@@ -13,7 +13,7 @@ function decodeTokenPayload(token: string): { empCod?: number; activeCompanyId?:
 
 export const AuthGuardFull: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation()
-  const { user, activeModuleId } = useAppSelector((s) => s.auth)
+  const { user } = useAppSelector((s) => s.auth)
   const token = getAccessToken()
 
   if (!token) {
@@ -33,11 +33,6 @@ export const AuthGuardFull: React.FC<{ children: React.ReactNode }> = ({ childre
   const empCod = payload.empCod ?? payload.activeCompanyId ?? user?.empCod ?? 0
   if (!empCod) {
     return <Navigate to="/select-empresa" state={{ from: location }} replace />
-  }
-
-  const modId = payload.activeModuleId ?? activeModuleId ?? null
-  if (!modId) {
-    return <Navigate to="/select-module" state={{ from: location }} replace />
   }
 
   return <>{children}</>

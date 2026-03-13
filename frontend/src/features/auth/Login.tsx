@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import './Login.css'
 import { useAppDispatch, useAppSelector } from '../../redux/hooks'
 import { login } from '../../redux/slices/authSlice'
+import { fetchMenu, fetchSideMenu } from '../../redux/slices/menuSlice'
 import loginBg from '../../assets/backgroundLogin.jpg'
 
 interface LoginProps {
@@ -23,7 +24,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     const action = await dispatch(login({ username, password }))
     if (login.fulfilled.match(action)) {
       onLogin()
-      navigate('/select-empresa')
+      const nextStep = action.payload?.nextStep
+      if (nextStep === 'dashboard') {
+        await Promise.all([dispatch(fetchMenu()), dispatch(fetchSideMenu())])
+        navigate('/dashboard')
+      } else if (nextStep === 'select-company') {
+        navigate('/select-empresa')
+      } else {
+        await Promise.all([dispatch(fetchMenu()), dispatch(fetchSideMenu())])
+        navigate('/dashboard')
+      }
     }
   }
 

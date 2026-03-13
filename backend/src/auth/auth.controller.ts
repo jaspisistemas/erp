@@ -37,12 +37,18 @@ export class AuthController {
     return this.auth.getEmpresasComAcesso(req.user);
   }
 
+  @Get('company-branch-options')
+  @UseGuards(JwtAuthGuard)
+  async getCompanyBranchOptions(@Req() req: Request & { user: JwtPayload }) {
+    return this.auth.getCompanyBranchOptions(req.user);
+  }
+
   @Post('select-company')
   @UseGuards(JwtAuthGuard)
   async selectCompany(
     @Body() dto: SelectCompanyDto,
     @Req() req: Request & { user: JwtPayload },
   ) {
-    return this.auth.selectCompany(req.user, dto.empCod);
+    return this.auth.selectCompany(req.user, dto.empCod, dto.filCod);
   }
 }

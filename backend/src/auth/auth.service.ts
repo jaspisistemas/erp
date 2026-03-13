@@ -11,6 +11,16 @@ interface UsuarioRow {
   UserGuid: string;
   UserNam: string;
   UserSen: string;
+  UserPesExtCod: number | null;
+}
+
+interface LoginResolution {
+  userKind: 'usuario' | 'suporte';
+  pesCod: number;
+  empCod: number;
+  filCod?: number;
+  isSuporte: boolean;
+  nextStep: 'dashboard' | 'select-company';
 }
 
 @Injectable()
@@ -33,10 +43,10 @@ export class AuthService {
   }
 
   /** Busca usuário em Usuario por UserNam (case-insensitive) e valida hash no padrão UserGuid+senha. */
-  private async validateUserFromUsuario(username: string, password: string): Promise<{ userGuid: string; userName: string }> {
+  private async validateUserFromUsuario(username: string, password: string): Promise<{ userGuid: string; userName: string; userPesExtCod: number }> {
     const rows = await this.prisma.$queryRaw<
       UsuarioRow[]
-    >`SELECT CONVERT(NVARCHAR(36), [UserGuid]) AS [UserGuid], [UserNam], [UserSen] FROM [Usuario] WHERE LOWER([UserNam]) = LOWER(${username})`;
+    >`SELECT CONVERT(NVARCHAR(36), [UserGuid]) AS [UserGuid], [UserNam], [UserSen], [UserPesExtCod] FROM [Usuario] WHERE LOWER([UserNam]) = LOWER(${username})`;
 
     if (!rows?.length) {
       throw new UnauthorizedException('Usuário ou senha inválidos');
@@ -47,22 +57,84 @@ export class AuthService {
       const userName = (row.UserNam ?? username).trim();
       const storedPwd = (row.UserSen ?? '').trim();
       const inputHash = this.hashUserPassword(userGuid, password);
-      if (inputHash === storedPwd) {
-        return { userGuid, userName };
+      if (inputHash === storedPwd && row.UserPesExtCod != null) {
+        return { userGuid, userName, userPesExtCod: row.UserPesExtCod };
       }
     }
 
     throw new UnauthorizedException('Usuário ou senha inválidos');
   }
 
+  private async getDefaultFilial(empCod: number): Promise<number | undefined> {
+    const filial = await this.prisma.filial.findFirst({
+      where: { EmpCod: empCod },
+      orderBy: { FilCod: 'asc' },
+      select: { FilCod: true },
+    });
+    return filial?.FilCod;
+  }
+
+  private async resolveLoginByPesExtCod(userPesExtCod: number): Promise<LoginResolution> {
+    const pessoa = await this.prisma.pessoa.findFirst({
+      where: { PesExtCod: userPesExtCod },
+      select: { PesCod: true, EmpCod: true },
+      orderBy: [{ EmpCod: 'asc' }, { PesCod: 'asc' }],
+    });
+
+    if (pessoa) {
+      return {
+        userKind: 'usuario',
+        pesCod: pessoa.PesCod,
+        empCod: pessoa.EmpCod,
+        filCod: await this.getDefaultFilial(pessoa.EmpCod),
+        isSuporte: false,
+        nextStep: 'dashboard',
+      };
+    }
+
+    const suporte = await this.prisma.suporte.findFirst({
+      where: { SupExtID: userPesExtCod },
+      select: { SupCod: true },
+    });
+
+    if (!suporte) {
+      throw new UnauthorizedException('Usuário sem vínculo em Pessoa/Suporte');
+    }
+
+    const empresas = await this.prisma.empresa.findMany({
+      orderBy: { EmpCod: 'asc' },
+      select: { EmpCod: true },
+    });
+
+    if (empresas.length === 1) {
+      const empCod = empresas[0].EmpCod;
+      return {
+        userKind: 'suporte',
+        pesCod: 0,
+        empCod,
+        filCod: await this.getDefaultFilial(empCod),
+        isSuporte: true,
+        nextStep: 'dashboard',
+      };
+    }
+
+    return {
+      userKind: 'suporte',
+      pesCod: 0,
+      empCod: 0,
+      isSuporte: true,
+      nextStep: 'select-company',
+    };
+  }
+
   private refreshSecret() {
     return process.env.JWT_REFRESH_SECRET || process.env.JWT_ACCESS_SECRET || 'dev_access_secret';
   }
 
-  private issueRefreshTokenGam(userGuid: string, empCod: number) {
+  private issueRefreshTokenGam(userGuid: string, empCod: number, isSuporte?: boolean, filCod?: number) {
     const refreshTtlSec = parseInt(process.env.JWT_REFRESH_TTL || '86400', 10);
     return this.jwt.sign(
-      { userGuid, empCod, type: 'gam_refresh' },
+      { userGuid, empCod, isSuporte: isSuporte === true, filCod, type: 'gam_refresh' },
       {
         secret: this.refreshSecret(),
         expiresIn: refreshTtlSec,
@@ -74,11 +146,15 @@ export class AuthService {
     empCod: number;
     pesCod: number;
     userGuid?: string;
+    isSuporte?: boolean;
+    filCod?: number;
   }> {
     try {
       const payload = this.jwt.verify(refreshToken, { secret: this.refreshSecret() }) as {
         userGuid?: string;
         empCod?: number;
+        isSuporte?: boolean;
+        filCod?: number;
         type?: string;
       };
       if (payload?.type === 'gam_refresh' && payload.userGuid != null && payload.empCod != null) {
@@ -86,6 +162,8 @@ export class AuthService {
           empCod: payload.empCod,
           pesCod: 0,
           userGuid: payload.userGuid,
+          isSuporte: payload.isSuporte,
+          filCod: payload.filCod,
         };
       }
     } catch {
@@ -95,31 +173,39 @@ export class AuthService {
   }
 
   async login(identifier: { user: string }, password: string) {
-    const { userGuid, userName } = await this.validateUserFromUsuario(identifier.user, password);
+    const { userGuid, userName, userPesExtCod } = await this.validateUserFromUsuario(identifier.user, password);
+    const resolved = await this.resolveLoginByPesExtCod(userPesExtCod);
     const sessionId = uuid();
-    const empCod = 1;
 
     const payload: JwtPayload = {
-      sub: 0,
+      sub: resolved.pesCod,
       email: '',
-      empCod,
-      activeCompanyId: empCod,
+      empCod: resolved.empCod,
+      activeCompanyId: resolved.empCod,
+      filCod: resolved.filCod,
       sessionId,
+      isSuporte: resolved.isSuporte,
       // prfTip: TipoPerfil.USUARIO_SISTEMA,
       prfGamId: userGuid,
+      activeModuleId: 'dashboard',
     };
 
     const accessToken = this.accessToken(payload);
-    const refreshToken = this.issueRefreshTokenGam(userGuid, empCod);
+    const refreshToken = this.issueRefreshTokenGam(userGuid, resolved.empCod, resolved.isSuporte, resolved.filCod);
 
     return {
       accessToken,
       refreshToken,
+      nextStep: resolved.nextStep,
       user: {
-        pesCod: 0,
-        empCod,
+        pesCod: resolved.pesCod,
+        empCod: resolved.empCod,
+        filCod: resolved.filCod,
         name: userName,
         email: null,
+        userKind: resolved.userKind,
+        userPesExtCod,
+        isSuporte: resolved.isSuporte,
         // prfTip: TipoPerfil.USUARIO_SISTEMA,
       },
     };
@@ -134,14 +220,16 @@ export class AuthService {
       email: '',
       empCod: stored.empCod,
       activeCompanyId: stored.empCod,
+      filCod: stored.filCod,
       sessionId,
+      isSuporte: stored.isSuporte,
       // prfTip: TipoPerfil.USUARIO_SISTEMA,
       prfGamId: stored.userGuid,
-      activeModuleId: activeModuleId,
+      activeModuleId: activeModuleId ?? 'dashboard',
     };
 
     const accessToken = this.accessToken(payload);
-    const newRefresh = this.issueRefreshTokenGam(stored.userGuid ?? '', stored.empCod);
+    const newRefresh = this.issueRefreshTokenGam(stored.userGuid ?? '', stored.empCod, stored.isSuporte, stored.filCod);
 
     return { accessToken, refreshToken: newRefresh };
   }
@@ -160,7 +248,9 @@ export class AuthService {
 
   async getEmpresasComAcesso(user: JwtPayload): Promise<Array<{ empCod: number; empRaz: string | null }>> {
     const empresas = await this.prisma.empresa.findMany({
-      where: user.empCod ? { EmpCod: user.empCod } : undefined,
+      where: user.isSuporte === true
+        ? undefined
+        : (user.empCod ? { EmpCod: user.empCod } : undefined),
       orderBy: { EmpCod: 'asc' },
       select: { EmpCod: true, EmpRaz: true },
     });
@@ -170,31 +260,76 @@ export class AuthService {
     return empresas.map((e) => ({ empCod: e.EmpCod, empRaz: e.EmpRaz }));
   }
 
-  async selectCompany(user: JwtPayload, empCod: number) {
-    const empresas = await this.getEmpresasComAcesso(user);
-    const hasAccess = empresas.some((e) => e.empCod === empCod);
-    if (!hasAccess) {
-      throw new UnauthorizedException('Empresa não disponível para este usuário');
+  async getCompanyBranchOptions(user: JwtPayload): Promise<Array<{ empCod: number; empRaz: string | null; filiais: Array<{ filCod: number; filRaz: string | null }> }>> {
+    const whereEmpresa = user.isSuporte === true
+      ? undefined
+      : (user.empCod ? { EmpCod: user.empCod } : undefined);
+
+    const empresas = await this.prisma.empresa.findMany({
+      where: whereEmpresa,
+      orderBy: { EmpCod: 'asc' },
+      select: { EmpCod: true, EmpRaz: true },
+    });
+
+    const empCods = empresas.map((e) => e.EmpCod);
+    if (empCods.length === 0) {
+      return [];
     }
-    return this.issueNewTokens(user, undefined, empCod);
+
+    const filiais = await this.prisma.filial.findMany({
+      where: { EmpCod: { in: empCods } },
+      orderBy: [{ EmpCod: 'asc' }, { FilCod: 'asc' }],
+      select: { EmpCod: true, FilCod: true, FilRaz: true },
+    });
+
+    return empresas.map((empresa) => ({
+      empCod: empresa.EmpCod,
+      empRaz: empresa.EmpRaz,
+      filiais: filiais
+        .filter((f) => f.EmpCod === empresa.EmpCod)
+        .map((f) => ({ filCod: f.FilCod, filRaz: f.FilRaz })),
+    }));
   }
 
-  private async issueNewTokens(user: JwtPayload, activeModuleId?: string, activeCompanyId?: number) {
+  async selectCompany(user: JwtPayload, empCod: number, filCod?: number) {
+    const options = await this.getCompanyBranchOptions(user);
+    const companyOption = options.find((e) => e.empCod === empCod);
+    if (!companyOption) {
+      throw new UnauthorizedException('Empresa não disponível para este usuário');
+    }
+
+    const selectedFilCod = filCod
+      ?? companyOption.filiais[0]?.filCod
+      ?? await this.getDefaultFilial(empCod);
+
+    if (filCod != null && !companyOption.filiais.some((f) => f.filCod === filCod)) {
+      throw new UnauthorizedException('Filial não disponível para a empresa selecionada');
+    }
+
+    return this.issueNewTokens(user, undefined, empCod, selectedFilCod);
+  }
+
+  private async issueNewTokens(user: JwtPayload, activeModuleId?: string, activeCompanyId?: number, filCod?: number) {
     const sessionId = uuid();
     const newEmpCod = activeCompanyId ?? user.activeCompanyId ?? user.empCod ?? 1;
+    const newFilCod = filCod ?? user.filCod;
+
+    // Strip JWT-registered claims (exp, iat) so jsonwebtoken can add them fresh
+    const { exp: _exp, iat: _iat, ...userClaims } = user as JwtPayload & { exp?: number; iat?: number };
 
     const payload: JwtPayload = {
-      ...user,
+      ...userClaims,
       empCod: newEmpCod,
       activeCompanyId: newEmpCod,
+      filCod: newFilCod,
       sessionId,
-      activeModuleId: activeModuleId ?? user.activeModuleId,
+      activeModuleId: activeModuleId ?? user.activeModuleId ?? 'dashboard',
     };
 
     const accessToken = this.accessToken(payload);
     const refreshToken = user.prfGamId
-      ? this.issueRefreshTokenGam(user.prfGamId, newEmpCod)
-      : this.issueRefreshTokenGam('', newEmpCod);
+      ? this.issueRefreshTokenGam(user.prfGamId, newEmpCod, user.isSuporte, newFilCod)
+      : this.issueRefreshTokenGam('', newEmpCod, user.isSuporte, newFilCod);
     return { accessToken, refreshToken };
   }
 }

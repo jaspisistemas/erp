@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Navbar from '../../components/Navbar/Navbar'
 import { useAppDispatch } from '../../redux/hooks'
 import { selectModule } from '../../redux/slices/authSlice'
 import { fetchModules } from '../../api/modulesApi'
@@ -50,9 +49,7 @@ const ModuleSelector: React.FC = () => {
   }
 
   return (
-    <>
-      <Navbar />
-      <div className="module-selector-page">
+    <div className="module-selector-page">
         <div className="module-header">
           <h1>Selecione o Módulo</h1>
           <p>Escolha o sistema que deseja acessar.</p>
@@ -95,7 +92,6 @@ const ModuleSelector: React.FC = () => {
           </div>
         )}
       </div>
-    </>
   )
 }
 

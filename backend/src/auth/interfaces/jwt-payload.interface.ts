@@ -3,6 +3,7 @@ export interface JwtPayload {
   email: string;
   empCod: number;
   activeCompanyId?: number;
+  filCod?: number;
   sessionId: string;
   isSuporte?: boolean;
   // prfTip: number;
