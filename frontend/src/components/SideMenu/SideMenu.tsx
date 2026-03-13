@@ -100,7 +100,7 @@ const SideMenu: React.FC = () => {
               ? <path d="M9 6l6 6-6 6" />
               : <path d="M15 6l-6 6 6 6" />}
           </svg>
-          {isExpanded && <span>Menu</span>}
+          {isExpanded && <span>Menu Favoritos</span>}
         </button>
 
         <nav className="side-menu-nav">
@@ -111,7 +111,10 @@ const SideMenu: React.FC = () => {
                 key={item.key}
                 type="button"
                 className={`side-menu-item ${isActive ? 'active' : ''}`}
-                onClick={() => navigate(item.link)}
+                onClick={() => {
+                  navigate(item.link)
+                  if (collapsed) setHoverExpanded(false)
+                }}
                 title={!isExpanded ? item.label : undefined}
                 data-label={item.label}
               >

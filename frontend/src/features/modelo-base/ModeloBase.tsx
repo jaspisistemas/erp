@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import ModeloBasePrompt from '../modelo-base-prompt'
 import './ModeloBase.css'
 
 type GridRow = {
@@ -89,6 +90,7 @@ const NON_REMOVABLE_COLUMNS: ColumnFilterKey[] = ['razaoSocial']
 
 const ModeloBase: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'cadastro' | 'grid'>('cadastro')
+  const [showEditPrompt, setShowEditPrompt] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [suggestValue, setSuggestValue] = useState('Exemplo 1')
   const [suggestPanelOpen, setSuggestPanelOpen] = useState(false)
@@ -168,12 +170,6 @@ const ModeloBase: React.FC = () => {
   const [showPageControl, setShowPageControl] = useState(false)
   const [gotoPageInput, setGotoPageInput] = useState('1')
 
-  const filteredRows = useMemo(() => {
-    if (!suggestValue.trim()) return GRID_ROWS
-    const term = suggestValue.toLowerCase()
-    return GRID_ROWS.filter((row) => row.razaoSocial.toLowerCase().includes(term))
-  }, [suggestValue])
-
   const normalizeNumericFilterValue = (value: string) => {
     const trimmed = value.trim()
     if (trimmed === '0') return ''
@@ -188,7 +184,7 @@ const ModeloBase: React.FC = () => {
       return String(rowId) === normalized
     }
 
-    const rows = filteredRows.filter((row) => {
+    const rows = GRID_ROWS.filter((row) => {
       if (!matchId(row.id, quickId)) return false
       if (!textIncludes(row.razaoSocial, quickNome)) return false
       if (!textIncludes(row.ufCidade, quickCidade)) return false
@@ -224,7 +220,6 @@ const ModeloBase: React.FC = () => {
 
     return rows
   }, [
-    filteredRows,
     quickId,
     quickNome,
     quickCidade,
@@ -469,7 +464,7 @@ const ModeloBase: React.FC = () => {
   }
 
   const handleEditLookup = () => {
-    console.log('Lookup do campo Edit executado')
+    setShowEditPrompt(true)
   }
 
   const handleSuggestLookup = () => {
@@ -1119,7 +1114,7 @@ const ModeloBase: React.FC = () => {
                         )}
                         {visibleColumns.id && (
                         <td>
-                          <input type="checkbox" checked={row.cli} readOnly />
+                          <input type="checkbox" checked={row.cli} readOnly className="modelo-grid-readonly-check" />
                         </td>
                         )}
                         {visibleColumns.ufCidade && <td>{row.ufCidade}</td>}
@@ -1470,6 +1465,17 @@ const ModeloBase: React.FC = () => {
             Seletor de colunas
           </button>
         </div>
+      )}
+
+      {showEditPrompt && (
+        <ModeloBasePrompt
+          asModal
+          onClose={() => setShowEditPrompt(false)}
+          onSelectCode={(codigo: string) => {
+            setEditValue(codigo)
+            setShowEditPrompt(false)
+          }}
+        />
       )}
     </div>
   )

@@ -5,6 +5,7 @@ import ModuleSelector from './features/auth/ModuleSelector'
 import DashboardLayout from './layouts/DashboardLayout'
 import Dashboard from './features/dashboard/Dashboard'
 import ModeloBase from './features/modelo-base'
+import ModeloBasePrompt from './features/modelo-base-prompt'
 import { AuthGuardFull, AuthGuardToken, AuthGuardWithEmpresa } from './components/AuthGuard'
 import './index.css'
 
@@ -18,6 +19,7 @@ function App() {
           <Route path="/select-module" element={<AuthGuardWithEmpresa><ModuleSelector /></AuthGuardWithEmpresa>} />
           <Route path="/dashboard" element={<AuthGuardFull><Dashboard /></AuthGuardFull>} />
           <Route path="/modelo-base" element={<AuthGuardFull><ModeloBase /></AuthGuardFull>} />
+          <Route path="/modelo-base-prompt" element={<AuthGuardFull><ModeloBasePrompt /></AuthGuardFull>} />
         </Route>
 
         <Route path="/" element={<Navigate to="/login" replace />} />
