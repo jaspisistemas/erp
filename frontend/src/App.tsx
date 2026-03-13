@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Login from './features/auth/Login'
 import SelecionaEmpresaPage from './features/auth/SelecionaEmpresaPage'
 import ModuleSelector from './features/auth/ModuleSelector'
@@ -9,9 +10,29 @@ import ModeloBasePrompt from './features/modelo-base-prompt'
 import { AuthGuardFull, AuthGuardToken, AuthGuardWithEmpresa } from './components/AuthGuard'
 import './index.css'
 
+const SCREEN_TITLES: Record<string, string> = {
+  '/login': 'Login',
+  '/select-empresa': 'Selecionar Empresa',
+  '/select-module': 'Selecione o Modulo',
+  '/dashboard': 'Dashboard',
+  '/modelo-base': 'Modelo Base',
+  '/modelo-base-prompt': 'Prompt de Consulta',
+}
+
+function RouteTitleSync() {
+  const location = useLocation()
+
+  useEffect(() => {
+    document.title = SCREEN_TITLES[location.pathname] ?? 'ERP'
+  }, [location.pathname])
+
+  return null
+}
+
 function App() {
   return (
     <Router>
+      <RouteTitleSync />
       <Routes>
         <Route path="/login" element={<Login onLogin={() => {}} />} />
         <Route element={<AuthGuardToken><DashboardLayout /></AuthGuardToken>}>
